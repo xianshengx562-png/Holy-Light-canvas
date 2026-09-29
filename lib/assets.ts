@@ -3,7 +3,7 @@ import { readdir, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { Prisma } from '@prisma/client';
 import { db } from '@/lib/db';
-import { latentRoot, mediaRoot } from '@/lib/output-dir';
+import { latentRoot, mediaRoot, resolveStoredPath } from '@/lib/output-dir';
 
 /**
  * 资产库的读模型 + 删除。
@@ -535,7 +535,9 @@ export async function deleteAsset(input: { assetId: string; userId: string; forc
   const references = await assetReferences(asset.id, input.userId);
   if (references.length && !input.force) return { status: 'in_use', references };
 
-  const file = (asset.metadata as { path?: string } | null)?.path || '';
+  const stored = (asset.metadata as { path?: string } | null)?.path || '';
+  /* 删文件前也要找回：路径过期时照原样 `unlink` 会扑空 —— 记录没了，文件却留在盘上。 */
+  const file = stored ? await resolveStoredPath(stored) : '';
   await db.asset.delete({ where: { id: asset.id } });
 
   let fileRemoved = false;
@@ -620,7 +622,14 @@ export async function scanOrphans(): Promise<OrphanScan> {
   const paths = new Set<string>();
   for (const row of rows) {
     const file = (row.metadata as { path?: string } | null)?.path;
-    if (file) paths.add(normPath(file));
+    if (!file) continue;
+    /*
+     * 🔴 **两个都要登记**：原路径留着（文件真在旧位置时也对得上），
+     * 找回后的路径更要登记 —— 只记过期路径的话，磁盘上的真文件一个都匹配不上、
+     * 全被判成孤儿，用户点一次「清理」就真没了。
+     */
+    paths.add(normPath(file));
+    paths.add(normPath(await resolveStoredPath(file)));
   }
 
   const files = [...await filesUnder(await mediaRoot()), ...await filesUnder(await latentRoot())];
@@ -688,7 +697,7 @@ export async function storageOverview(userId: string): Promise<StorageOverview> 
     if (isKind(row.type)) counts[row.type] += 1;
     const file = (row.metadata as { path?: string } | null)?.path;
     if (!file) { missing += 1; continue; }
-    try { diskBytes += (await stat(/*turbopackIgnore: true*/ file)).size; } catch { missing += 1; }
+    try { diskBytes += (await stat(/*turbopackIgnore: true*/ await resolveStoredPath(file))).size; } catch { missing += 1; }
   }
   const orphans = await scanOrphans();
   return {

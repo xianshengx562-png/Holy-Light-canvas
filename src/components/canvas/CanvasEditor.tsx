@@ -79,6 +79,7 @@ import {
 } from '@/lib/workflows/image2Params';
 import { DEFAULT_IMAGE_ENGINE, imageEngineProvider, readImageEngine } from '@/lib/workflows/imageEngine';
 import { VIDEO_API_DEFAULTS, validateVideoApiParams } from '@/lib/workflows/videoApiParams';
+import { abandonMessage, pollDelayMs } from '@/lib/taskPoll';
 import { DEFAULT_VIDEO_ENGINE, readVideoEngine, videoEngineProvider } from '@/lib/workflows/videoEngine';
 import { defaultWorkflowId, defaultWorkflowIdFor } from '@/lib/workflows/defaults';
 import type { CanvasSeed } from '@/lib/start/compose';
@@ -785,6 +786,21 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
    * 而这里要的是「刚刚被写进去的那个状态」，所以单独记一份。
    */
   const runStatus = useRef<Record<string, string>>({});
+  /**
+   * 每个节点**当前**那一轮的任务号（2026-09-29）。
+   *
+   * 节点数据里没有 —— `data.runs` 只在成功 / 失败时才记一条，跑着的时候查不到。
+   * 而放弃必须拿着任务号去通知服务端（结单是服务端的事），所以单独记一份。
+   */
+  const taskOfNode = useRef<Record<string, string>>({});
+  /**
+   * 轮询的「把手」，按任务号存（2026-09-29）。
+   *
+   * 原来 `poll()` 是一个纯 `for(;;)`，没有任何人能让它停下来：
+   * 离开画布页之后它还会一直打接口，而且每轮 `patch()` 都在给一个
+   * 已经卸载的组件写状态。有了把手，「放弃这一轮」和「组件卸载」两个时机都能掐断它。
+   */
+  const pollAbort = useRef<Record<string, { cancelled: boolean; controller: AbortController | null }>>({});
   /** Transient message explaining why a connection was refused. */
   const [notice, setNoticeText] = useState<string | null>(null);
   /**
@@ -1038,9 +1054,38 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
   }, [edges, nodes, sources]);
 
   const poll = useCallback(async (taskId: string, id: string, label: string, meta: { externalTaskId?: string; workflowId: string }) => {
-    for (let i = 0; i < 240; i++) {
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      const task = await json(await fetch(`/api/tasks/${taskId}`));
+    /*
+     * 越等越慢（规矩见 `lib/taskPoll`）：原来固定 3 秒一趟，一个任务跑满就是 240 次请求，
+     * 批量跑十几个节点时把上游限流撞光的正是我们自己。
+     */
+    const startedAt = Date.now();
+    taskOfNode.current[id] = taskId;
+    const handle: { cancelled: boolean; controller: AbortController | null } = { cancelled: false, controller: null };
+    pollAbort.current[taskId] = handle;
+    for (;;) {
+      if (handle.cancelled) return;
+      /*
+       * 一直问到有结果：`pollDelayMs` 永远给下一趟的间隔，这里不做任何「按等待时长下结论」的事。
+       * 任务只有成功与失败两种结果 —— 想停由用户自己点「放弃这一轮」。
+       */
+      const delay = pollDelayMs(Date.now() - startedAt);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      if (handle.cancelled) return;
+      /*
+       * 带上 signal：放弃 / 离开页面时能真的把这个请求掐掉，而不是等它自己回来。
+       * ⚠️ 被 abort 时 fetch 会**抛**，那不是错误 —— 安静退出，别往节点上写任何东西。
+       */
+      let task: any = null;
+      try {
+        const controller = new AbortController();
+        handle.controller = controller;
+        task = await json(await fetch(`/api/tasks/${taskId}`, { signal: controller.signal }));
+      } catch {
+        delete pollAbort.current[taskId];
+        return;
+      } finally {
+        handle.controller = null;
+      }
       /*
        * 本机 ComfyUI 的实时进度（WebSocket 上收来的那几条消息，后端按任务归档）。
        * 轮询 3 秒一次，对「百分之几」这种信息足够了 —— 但它**不参与判定**：
@@ -1071,6 +1116,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
           nodeLabel: label,
           results,
         });
+        delete pollAbort.current[taskId];
         if (Array.isArray(task.latents)) setLatents(task.latents);
         /*
          * 出图节点的画框只认图片：视频工作流那种「优先视频」的顺序会把视频塞进图片卡片。
@@ -1099,6 +1145,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         return;
       }
       if (task.status === 'failed') {
+        delete pollAbort.current[taskId];
         patch(id, { status: 'failed', result: task.error || '生成失败' });
         pushRun(id, {
           id: taskId, taskId: meta.externalTaskId, workflowId: meta.workflowId,
@@ -1108,8 +1155,54 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         return;
       }
     }
-    patch(id, { status: 'failed', result: '轮询超时，请稍后重试或检查任务记录。' });
   }, [edges, nodes, patch, pushRun]);
+
+  /**
+   * 放弃这一轮（2026-09-29）。
+   *
+   * 卡住的任务原来只能干等：发送按钮是灰的（`disabled={running}`），界面上
+   * 却没有任何地方能说「我不等了」。点放弃时两件事同时发生：
+   *   1. 通知服务端把它判失败 —— 结单是服务端的事，前端说了不算；
+   *   2. 掐掉本地这一轮轮询 —— 不然它继续打接口、继续往节点上写状态。
+   */
+  const abandonNode = useCallback(async (id: string) => {
+    const taskId = String(taskOfNode.current[id] || '');
+    const handle = taskId ? pollAbort.current[taskId] : undefined;
+    if (handle) {
+      handle.cancelled = true;
+      try { handle.controller?.abort(); } catch { /* 已经在别处掐掉了 */ }
+      delete pollAbort.current[taskId];
+    }
+    if (taskId) {
+      await fetch(`/api/tasks/${taskId}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ abandon: true, reason: abandonMessage() }),
+      }).catch(() => null);
+    }
+    delete taskOfNode.current[id];
+    const why = abandonMessage();
+    patch(id, { status: 'failed', result: why });
+    pushRun(id, {
+      id: taskId || `abandoned-${Date.now()}`,
+      taskId: undefined,
+      workflowId: '',
+      at: new Date().toLocaleString('zh-CN', { hour12: false }),
+      ts: Date.now(),
+      status: 'failed',
+      nodeLabel: String(nodes.find(item => item.id === id)?.data.label || '生成'),
+      error: why,
+      results: [],
+    });
+  }, [nodes, patch, pushRun]);
+
+  /* 离开画布页：把还在跑的轮询全部掐掉（2026-09-29）。 */
+  useEffect(() => () => {
+    Object.values(pollAbort.current).forEach(handle => {
+      handle.cancelled = true;
+      try { handle.controller?.abort(); } catch { /* 已经掐掉了 */ }
+    });
+  }, []);
 
   /**
    * 一个**视频生成节点**自己生成出来、并归档下来的那些 latent。
@@ -1319,6 +1412,12 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
   const generate = useCallback(async (id: string) => {
     const node = nodes.find(item => item.id === id);
     if (!node) return;
+    /*
+     * 这个节点已经在跑了就别再提交一次（2026-09-29）：两笔提交 = 两次扣分。
+     * 界面上那个 `disabled` 挡得住按钮，挡不住「一键运行」与手动点撞在一起、
+     * 或者两个窗口各点一次 —— 服务端那道闸（60 秒窗口）是第二道，这是第一道。
+     */
+    if (runStatus.current[id] === 'running') return;
     /** 应用节点：它跑的不是一份 ComfyUI 图，而是 RunningHub 上的一个打包好的 AI 应用。 */
     const isApp = node.data.kind === 'app-generate';
     /**
@@ -1832,6 +1931,53 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
    * 这是最贵的一类错（钱花了、东西是废的、而且看不出来），所以单独存一份 ref。
    */
   const runOneRef = useRef(runOne);
+  /*
+   * 打开画布时扫一遍（2026-09-29）：把「上次没跑完就关掉软件」的那些任务接上或结掉。
+   *
+   * 关掉那段时间没人轮询，任务会永远停在 running；而重开之后**没有任何人会去查它** ——
+   * 于是节点一直转圈、发送按钮是灰的，只能删节点重建。
+   * 服务端那一趟（`POST /api/tasks/scan`）只报还在跑的 —— 不结单，
+   * 任务只有成功与失败两种结果，这一趟不做任何结单。
+   * 这里只负责两类动作：能接上的**接着轮询**，接不上的**就地写成失败**（别让它永远转圈）。
+   */
+  const resumed = useRef(false);
+  useEffect(() => {
+    /* 只跑一次；但也别在画布数据还没到（`nodes` 为空）时就把这趟机会用掉。 */
+    if (resumed.current || !nodes.length) return;
+    resumed.current = true;
+    void (async () => {
+      const scan = await fetch('/api/tasks/scan', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ projectId }),
+      }).then(response => (response.ok ? response.json() : null)).catch(() => null);
+      const runningByNode = new Map<string, { taskId: string; externalTaskId?: string; workflowId?: string }>(
+        (Array.isArray(scan?.running) ? scan.running : []).map((item: { nodeId?: string; taskId?: string; externalTaskId?: string; workflowId?: string }) =>
+          [String(item.nodeId || ''), {
+            taskId: String(item.taskId || ''),
+            externalTaskId: item.externalTaskId,
+            workflowId: item.workflowId,
+          }] as [string, { taskId: string; externalTaskId?: string; workflowId?: string }]),
+      );
+      nodes.filter(node => node.data.status === 'running').forEach(node => {
+        const alive = runningByNode.get(node.id);
+        if (alive?.taskId) {
+          /* 上游还在跑 —— 接着查，一直查到它给出成功或失败。 */
+          void poll(alive.taskId, node.id, String(node.data.label || '生成'), {
+            externalTaskId: alive.externalTaskId,
+            workflowId: String(alive.workflowId || node.data.workflowId || ''),
+          });
+          return;
+        }
+        /*
+         * 服务端那边也没有在跑的任务号 —— 这不是「判它失败」，是**查无可查**：
+         * 不写个终态，节点会永远转圈、按钮永远灰着，比写失败更糟。
+         */
+        patch(node.id, { status: 'failed', result: '上次没跑完就关掉了 —— 这一轮没有可查的任务号，重新生成一次吧。' });
+      });
+    })();
+  }, [nodes, patch, poll, projectId]);
+
   useEffect(() => { runOneRef.current = runOne; }, [runOne]);
 
   /*
@@ -1850,16 +1996,17 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
 
   /** 等一个节点落到终态。读的是 `runStatus` 那份 ref（轮询回调活得比一次渲染长）。 */
   const waitNodeSettled = useCallback(async (id: string): Promise<'success' | 'failed' | 'stopped'> => {
-    /* 40 分钟：比 `poll()` 自己那 12 分钟的上限宽；真超了就当失败，别一直挂着。 */
-    const deadline = Date.now() + 40 * 60 * 1000;
-    while (Date.now() < deadline) {
+    /*
+     * 没有等待上限（2026-09-30 删）：任务只有成功与失败两种结果，跑多久是上游的事。
+     * 这里只是「等它落终态」，到点也不替它判失败 —— 想停由用户自己点停止。
+     */
+    for (;;) {
       const status = runStatus.current[id] || '';
       if (status === 'success') return 'success';
       if (status === 'failed') return 'failed';
       if (runAllStop.current) return 'stopped';
       await new Promise(resolve => setTimeout(resolve, 2000));
     }
-    return 'failed';
   }, []);
 
   /** 等到「下一次渲染落地」（`renderTick` 变大）为止，最多 600ms。 */
@@ -3171,6 +3318,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
 
         /** 超清：拿本节点已生成的结果再加工一道（按钮在卡片右上角，悬停才显形）。 */
         onUpscale: isGenerator ? () => void upscale(node.id) : undefined,
+        onAbandon: isGenerator ? () => void abandonNode(node.id) : undefined,
         /**
          * 双击节点标题重命名：写回 data.label。
          * 空串清掉自定义名（label: undefined），标题回落显示原始类型名。
@@ -3573,6 +3721,16 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
               run: () => { toggleBypass(picked); setMenu(null); },
             },
             {
+              /*
+               * 放弃这一轮（2026-09-29）：任务只有成功与失败，跑多久是上游的事，
+               * 所以「不等了」只能由用户自己点 —— 这个入口就是那一声。
+               */
+              id: 'abandon', label: '放弃这一轮', icon: <Ban size={14} strokeWidth={2} />,
+              disabled: !target || target.data.status !== 'running',
+              note: target?.data.status === 'running' ? '不再等它，这次按失败处理' : '只在运行中可用',
+              run: () => { if (target) void abandonNode(target.id); setMenu(null); },
+            },
+            {
               id: 'delete', label: '删除', icon: <Trash2 size={14} strokeWidth={2} />, shortcut: 'Del / ⌫', danger: true,
               disabled: !count, run: () => { deleteNodes(picked); setMenu(null); },
             },
@@ -3609,7 +3767,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         ],
       },
     ];
-  }, [addAt, autoLayout, clipboard, connectSelected, copyNodes, cutNodes, deleteNodes, disconnectNode, duplicateNodes, fitView, menu, nodes, openUpload, pasteNodes, pendingLink, save]);
+  }, [abandonNode, addAt, autoLayout, clipboard, connectSelected, copyNodes, cutNodes, deleteNodes, disconnectNode, duplicateNodes, fitView, menu, nodes, openUpload, pasteNodes, pendingLink, save]);
 
   return <div className="flow-shell">
     <div className="cv-topbar">

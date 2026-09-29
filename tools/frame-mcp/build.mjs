@@ -22,21 +22,38 @@ const OUT = resolve(here, 'dist', 'frame-mcp.js');
 const SHIM = resolve(root, 'electron', 'shims');
 const EXT = ['.ts', '.tsx', '.js', '.jsx', '.json'];
 
-/** `@/` → 工程根（先精确命中文件，再按扩展名猜），与 `electron.vite.config.ts` 里同一个思路。 */
+/** 先精确命中文件，再按扩展名猜，最后试目录下的 index。命中不到返回 null。 */
+function tryFile(base) {
+  if (existsSync(base) && statSync(base).isFile()) return base;
+  for (const ext of EXT) {
+    if (existsSync(base + ext)) return base + ext;
+  }
+  for (const index of ['index.ts', 'index.js']) {
+    const hit = resolve(base, index);
+    if (existsSync(hit)) return hit;
+  }
+  return null;
+}
+
+/**
+ * `@/` → 工程根（主进程 / 预加载那一套的解析方式），**根里没有再退到 `src/`**。
+ *
+ * 为什么要多退那一步：`tools.ts` 会从**渲染进程**的文件里 import 业务规则
+ * （连线合法性、新节点默认值…），而渲染进程那边的 `@/` 是「先 `src/`、再工程根」
+ * （见 `electron.vite.config.ts` 的 renderer 段）。那些文件里写的 `@/lib/director`
+ * 只存在于 `src/` 下 —— 只按工程根解析的话，构建直接炸在 `resolve 不到 @/lib/director`。
+ *
+ * ⚠️ 顺序必须是**先根、后 src**：服务端那批模块（`@/lib/db`、`@/lib/providers/...`）
+ *    根下才有，先试根才不会悄悄换到 `src/` 下的同名文件上（两边同名时分叉得悄无声息）。
+ */
 function resolveAt() {
   return {
     name: 'frame-resolve-at',
     setup(build) {
       build.onResolve({ filter: /^@\// }, (args) => {
         const rel = args.path.slice(2);
-        const base = resolve(root, rel);
-        if (existsSync(base) && statSync(base).isFile()) return { path: base };
-        for (const ext of EXT) {
-          if (existsSync(base + ext)) return { path: base + ext };
-        }
-        for (const index of ['index.ts', 'index.js']) {
-          if (existsSync(resolve(base, index))) return { path: resolve(base, index) };
-        }
+        const hit = tryFile(resolve(root, rel)) || tryFile(resolve(root, 'src', rel));
+        if (hit) return { path: hit };
         return { errors: [{ text: `resolve 不到 ${args.path}` }] };
       });
     },

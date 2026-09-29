@@ -18,7 +18,8 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { usePathname } from '@/shims/router';
-import { formatYuan, refreshSiteAccount, useSiteAccount } from '@/lib/site-account';
+import { formatYuan, refreshSiteAccount, siteCooldownUntil, useSiteAccount } from '@/lib/site-account';
+import { nextPollDelayMs } from '@/lib/providers/site-errors';
 
 /**
  * 页头是**随路由换掉**的：hash 一变，旧节点就没了，得重新找。
@@ -87,16 +88,34 @@ export default function SiteBalance() {
    *    但定时器不能跟着停 —— 用户一登录就该按新节奏刷起来。
    */
   useEffect(() => {
+    let timer = 0;
+    let stopped = false;
+    /*
+     * ⚠️ 改成「跑完一趟再排下一趟」，不再是固定间隔的 setInterval：
+     *    撞上限流时后端会带回「歇到什么时候」（`siteCooldownUntil`），
+     *    那一趟的间隔必须跟着拉长。固定 2 分钟的话，界面上刚跟用户说「等两三分钟」，
+     *    我们自己却还在每 2 分钟撞一次 —— 等于把用户按在限流里出不来。
+     */
+    const schedule = () => {
+      if (stopped) return;
+      const wait = nextPollDelayMs(BALANCE_POLL_MS, siteCooldownUntil(), Date.now());
+      timer = window.setTimeout(() => {
+        if (document.visibilityState === 'visible') void refreshSiteAccount();
+        schedule();
+      }, wait);
+    };
     const tick = () => {
+      /* 冷却中 `refreshSiteAccount` 自己会跳过，这里不用再判一次。 */
       if (document.visibilityState === 'visible') void refreshSiteAccount();
     };
     document.addEventListener('visibilitychange', tick);
     window.addEventListener('focus', tick);
-    const timer = window.setInterval(tick, BALANCE_POLL_MS);
+    schedule();
     return () => {
+      stopped = true;
+      window.clearTimeout(timer);
       document.removeEventListener('visibilitychange', tick);
       window.removeEventListener('focus', tick);
-      window.clearInterval(timer);
     };
   }, []);
 

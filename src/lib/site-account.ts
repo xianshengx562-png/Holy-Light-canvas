@@ -42,6 +42,8 @@ export type SiteAccountView = {
   tokens: SiteAccountToken[];
   /** 站点那一趟没走通时的原因（库里还有上次读到的余额，照样显示）。 */
   error: string;
+  /** 撞上限流时：歇到这个时刻（epoch ms）为止，余额自动刷新先停。 */
+  cooldownUntil: number | null;
   /** 每一跳的流水账，不含任何 key。 */
   trace: string[];
 };
@@ -58,6 +60,7 @@ export const EMPTY_SITE: SiteAccountView = {
   quotaPerYuan: 500_000,
   tokens: [],
   error: '',
+  cooldownUntil: null,
   trace: [],
 };
 
@@ -132,6 +135,19 @@ const REFRESH_MIN_GAP_MS = 8000;
 
 let refreshAt = 0;
 /**
+ * 撞上限流之后歇到什么时候（epoch ms，0 = 没在歇）。
+ *
+ * 站点说「慢点」是**对我们说的**，不只是对用户说的：界面上刚弹出「等两三分钟」，
+ * 余额这边还每 2 分钟去撞一次的话，等于自己把自己按在限流里出不来
+ * （那边是同一 IP、20 次 / 20 分钟，光余额这一项就够吃光）。
+ */
+let cooldownUntil = 0;
+
+/** 页头余额排下一趟时问「该等多久」用的。 */
+export function siteCooldownUntil(): number {
+  return cooldownUntil;
+}
+/**
  * 排队中的那一次。
  *
  * 节流窗口里来的请求**只留最后一次**（不是「来一个丢一个」）：批量跑完最后一个节点
@@ -145,6 +161,8 @@ function runRefresh(): Promise<void> {
   refreshAt = Date.now();
   refreshing = apiGet<{ balance: SiteBalanceView }>('/api/site-account/refresh')
     .then((out) => {
+      /* 站点说「慢点」就真慢下来：撞上限流时后端会把「歇到什么时候」带回来。 */
+      cooldownUntil = Number(out.balance.cooldownUntil || 0);
       /* 期间登出 / 换号了就别把上一个账号的余额写回去。 */
       const latest = snapshot.site;
       if (!latest?.loggedIn) return;
@@ -177,6 +195,8 @@ export function refreshSiteAccount(): Promise<void> {
   /* 全量那趟正在飞的时候不用再刷 —— 它带回来的就是最新的。 */
   if (inflight) return inflight;
   if (!snapshot.site?.loggedIn) return Promise.resolve();
+  /* 冷却中：站点刚说过「慢点」，这一趟整个省掉（用户自己点刷新不走这里）。 */
+  if (Date.now() < cooldownUntil) return Promise.resolve();
   const wait = REFRESH_MIN_GAP_MS - (Date.now() - refreshAt);
   if (wait > 0) {
     if (refreshTimer === null) {
@@ -200,6 +220,8 @@ export function fetchSiteAccount(force = false): Promise<void> {
   put({ ...snapshot, loading: true });
   inflight = apiGet<{ site: SiteAccountView }>('/api/site-account')
     .then((out) => {
+      /* 全量那一趟也可能撞上限流（换号 / 手动刷新），冷却照样认。 */
+      cooldownUntil = Number(out.site.cooldownUntil || 0);
       put({ site: out.site, loading: false, error: '' });
     })
     .catch((error: unknown) => {

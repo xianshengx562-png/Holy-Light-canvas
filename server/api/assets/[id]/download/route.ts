@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { api, apiUser, ApiError } from '@/lib/api';
 import { db } from '@/lib/db';
+import { resolveStoredPath } from '@/lib/output-dir';
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   return api(async () => {
     const user = await apiUser();
@@ -9,7 +10,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     if (!asset) throw new ApiError(404, '文件不存在。');
     const meta = (asset.metadata || {}) as { path?: string };
     if (!meta.path) throw new ApiError(404, '该文件未落盘。');
-    const data = await readFile(/*turbopackIgnore: true*/ meta.path);
+    const data = await readFile(/*turbopackIgnore: true*/ await resolveStoredPath(meta.path));
     return new Response(new Uint8Array(data), {
       headers: {
         'content-type': 'application/gzip',

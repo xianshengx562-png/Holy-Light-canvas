@@ -22,13 +22,22 @@ import { createCustomProvider } from './custom';
 import { probeCustomProvider } from './custom';
 import type { CustomModelKind } from './custom';
 import { QUOTA_PER_YUAN, remainingYuanOf } from './site-quota';
+import {
+  classifyStep, pickFailureReason, rateLimitCooldownUntil, retryDelayMs,
+  shouldRetryStep, shouldTryNextPath,
+  type SiteStep, type SiteStepKind,
+} from './site-errors';
+import { jwtLifetimeMs, shouldRenew } from './site-session';
 
 /** 换算规则搬去 `./site-quota` 了（那边能单独编出来跑断言）。这里 re-export 是为了不动已有引用。 */
 export { QUOTA_PER_YUAN };
 
 const TIMEOUT_MS = 15_000;
-/** 令牌提前 1 小时续期：别等真过期了才发现，那时候余额已经不刷新了。 */
-const RENEW_BEFORE_MS = 60 * 60 * 1000;
+/*
+ * 「提前多久续期」不再是一个固定值 —— 见 `./site-session`。
+ * 短寿命的 JWT 用固定的 1 小时会导致**每一趟都先重登一次**，而余额是每 2 分钟刷的，
+ * 那等于自己把站点那条限流吃光。
+ */
 
 const LOGIN_PATHS = ['/api/user/login', '/api/auth/login', '/api/login'];
 const SELF_PATHS = ['/api/user/self', '/api/user/me', '/api/user/info'];
@@ -59,6 +68,8 @@ export type SiteView = {
   quotaPerYuan: number;
   tokens: SiteToken[];
   error: string;
+  /** 撞上限流时：歇到这个时刻（epoch ms）为止，自动轮询先停。没撞上就是 null。 */
+  cooldownUntil: number | null;
   /** 每一跳的流水账（不含任何 key）—— 排查用。 */
   trace: string[];
 };
@@ -66,7 +77,7 @@ export type SiteView = {
 const EMPTY: SiteView = {
   loggedIn: false, baseUrl: '', username: '', loginName: '', group: '',
   quota: null, usedQuota: null, remainingYuan: null, quotaPerYuan: QUOTA_PER_YUAN,
-  tokens: [], error: '', trace: [],
+  tokens: [], error: '', cooldownUntil: null, trace: [],
 };
 
 function root(base: string): string {
@@ -85,50 +96,129 @@ function failMessage(body: unknown): string | null {
   return null;
 }
 
-type Step = { body: unknown; note: string | null; status: number };
+/**
+ * 一跳的结果。
+ *
+ * `kind` 决定两件事：**还要不要试下一条路径**，以及**全试完之后该说哪一句**。
+ * 规矩在 `./site-errors`：404 只说明「这条路不通」，它不是失败的原因。
+ */
+type Step = { body: unknown; note: string | null; status: number; kind: SiteStepKind };
+
+/** 连不上 / 超时那句人话。 */
+function unreachableNote(error: unknown): string {
+  return error instanceof Error && /timed out|abort/i.test(error.message)
+    ? '响应超时（15 秒）。'
+    : '连不上。';
+}
+
+/**
+ * 网络抖了一下（连不上 / 超时）就**同一个地址再试一次**。
+ *
+ * ⚠️ 只重试「根本没拿到响应」那一类（规矩见 `site-errors.ts` 的 `shouldRetryStep`）：
+ *    被拒绝、401、404、429 都不重试 —— 再问一百次还是同一个答案，
+ *    还会把站点那点限流额度白吃掉。
+ * ⚠️ 重试的是**同一个地址**，不是「换下一条路径」—— 那是 `shouldTryNextPath` 的事。
+ */
+async function withRetry(run: () => Promise<Step>, trace: string[], what: string): Promise<Step> {
+  let step = await run();
+  let failed = 0;
+  while (shouldRetryStep(step.kind)) {
+    const delay = retryDelayMs(failed + 1);
+    if (delay === null) break;
+    failed += 1;
+    trace.push(`${what} → ${step.note || '没拿到响应'}，${delay} 毫秒后再试一次`);
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    step = await run();
+  }
+  return step;
+}
 
 async function postJson(url: string, payload: unknown, token?: string): Promise<Step> {
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      accept: 'application/json',
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-  });
-  const text = await response.text().catch(() => '');
-  if (looksLikeHtml(text)) {
-    return { body: null, note: `${url} 回的是网页不是接口。`, status: response.status };
-  }
-  let body: unknown = null;
   try {
-    body = JSON.parse(text);
-  } catch {
-    return { body: null, note: `${url} 返回的不是 JSON（HTTP ${response.status}）。`, status: response.status };
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json',
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    const text = await response.text().catch(() => '');
+    if (looksLikeHtml(text)) {
+      return {
+        body: null, note: `${url} 回的是网页不是接口（站点地址填成后台首页了？）。`,
+        status: response.status, kind: 'bad-shape',
+      };
+    }
+    let body: unknown = null;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      return {
+        body: null, note: `${url} 返回的不是 JSON（HTTP ${response.status}）。`,
+        status: response.status, kind: 'bad-shape',
+      };
+    }
+    /*
+     * 站点明说了原因（密码错、人机校验没过…）—— 这比状态码有用。
+     * ⚠️ 但**不能**顺手把它定死成「你填错了」：限流的回包也是 success:false，
+     *    429 + 「请求太频繁」说的是「等一会儿」，不是「你不对」——
+     *    归类的活统一交给 classifyStep，那边的顺序就是为这种回包排的。
+     */
+    const failed = failMessage(body);
+    if (failed || !response.ok) {
+      return {
+        body: null, note: failed || `${url} 返回 HTTP ${response.status}。`,
+        status: response.status,
+        kind: classifyStep({ ok: response.ok, status: response.status, businessMessage: failed }),
+      };
+    }
+    if (!response.ok) {
+      return {
+        body: null, note: `${url} 返回 HTTP ${response.status}。`, status: response.status,
+        kind: classifyStep({ ok: false, status: response.status }),
+      };
+    }
+    return { body, note: null, status: response.status, kind: 'ok' };
+  } catch (error) {
+    return { body: null, note: unreachableNote(error), status: 0, kind: 'unreachable' };
   }
-  const failed = failMessage(body);
-  if (failed) return { body: null, note: failed, status: response.status };
-  if (!response.ok) return { body: null, note: `${url} 返回 HTTP ${response.status}。`, status: response.status };
-  return { body, note: null, status: response.status };
 }
 
 async function getJson(url: string, token: string): Promise<Step> {
-  const response = await fetch(url, {
-    headers: { authorization: `Bearer ${token}`, accept: 'application/json' },
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-  });
-  const text = await response.text().catch(() => '');
-  if (looksLikeHtml(text)) return { body: null, note: `${url} 回的是网页。`, status: response.status };
-  let body: unknown = null;
   try {
-    body = JSON.parse(text);
-  } catch {
-    return { body: null, note: `${url} 返回的不是 JSON（HTTP ${response.status}）。`, status: response.status };
+    const response = await fetch(url, {
+      headers: { authorization: `Bearer ${token}`, accept: 'application/json' },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    const text = await response.text().catch(() => '');
+    if (looksLikeHtml(text)) {
+      return {
+        body: null, note: `${url} 回的是网页（站点地址填成后台首页了？）。`,
+        status: response.status, kind: 'bad-shape',
+      };
+    }
+    let body: unknown = null;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      return {
+        body: null, note: `${url} 返回的不是 JSON（HTTP ${response.status}）。`,
+        status: response.status, kind: 'bad-shape',
+      };
+    }
+    if (!response.ok) {
+      return {
+        body: null, note: `${url} 返回 HTTP ${response.status}。`, status: response.status,
+        kind: classifyStep({ ok: false, status: response.status }),
+      };
+    }
+    return { body, note: null, status: response.status, kind: 'ok' };
+  } catch (error) {
+    return { body: null, note: unreachableNote(error), status: 0, kind: 'unreachable' };
   }
-  if (!response.ok) return { body: null, note: `${url} 返回 HTTP ${response.status}。`, status: response.status };
-  return { body, note: null, status: response.status };
 }
 
 /**
@@ -156,46 +246,51 @@ function pickNumber(body: unknown, key: string): number | null {
   return typeof hit === 'number' && Number.isFinite(hit) ? hit : null;
 }
 
-/** 登录：换 JWT + 它的过期时间（`access_expires_at`，没有就按 12 小时算）。 */
-async function login(base: string, username: string, password: string, trace: string[]) {
+/**
+ * 登录：换 JWT + 它的过期时间（`access_expires_at`，没有就按 12 小时算）。
+ *
+ * `steps` 会把每一跳的**分类**带出去，调用方拿它挑一句最有用的给人看。
+ *
+ * ⚠️ 站点明说了原因（密码错、人机校验没过）就**停下**：继续往下试只会拿到一串 404，
+ *    而以前报的是最后一条 —— 于是「密码错了」被显示成「HTTP 404」（见 `site-errors.ts`）。
+ */
+async function login(base: string, username: string, password: string, trace: string[], steps: SiteStep[] = []) {
   for (const path of LOGIN_PATHS) {
-    let step: Step;
-    try {
-      step = await postJson(`${base}${path}`, { username, password });
-    } catch (error) {
-      const why = error instanceof Error && /timed out|abort/i.test(error.message) ? '响应超时' : '连不上';
-      trace.push(`登录 ${base}${path} → ${why}`);
-      continue;
-    }
+    const step = await withRetry(
+      () => postJson(`${base}${path}`, { username, password }),
+      trace, `登录 ${base}${path}`,
+    );
+    const record: SiteStep = { kind: step.kind, what: '登录', path, detail: step.note ?? '' };
+    steps.push(record);
     trace.push(`登录 ${base}${path} → HTTP ${step.status}${step.note ? `：${step.note}` : ''}`);
-    if (step.note) continue;
-    const token = pickString(step.body, 'access_token') ?? pickString(step.body, 'token');
-    if (!token) continue;
-    const expires = pickNumber(step.body, 'access_expires_at');
-    const at = expires && expires > 0 ? new Date(expires * 1000) : new Date(Date.now() + 12 * 3600 * 1000);
-    return { token, expiresAt: at };
+    if (step.kind === 'ok') {
+      const token = pickString(step.body, 'access_token') ?? pickString(step.body, 'token');
+      /* 回了 200 却没给令牌 —— 换下一条路径再试，这条不算「站点拒绝了」。 */
+      if (!token) continue;
+      const expires = pickNumber(step.body, 'access_expires_at');
+      const at = expires && expires > 0 ? new Date(expires * 1000) : new Date(Date.now() + 12 * 3600 * 1000);
+      return { token, expiresAt: at };
+    }
+    if (!shouldTryNextPath(record)) break;
   }
   return null;
 }
 
-async function loadSelf(base: string, token: string, trace: string[]) {
+async function loadSelf(base: string, token: string, trace: string[], steps: SiteStep[] = []) {
   for (const path of SELF_PATHS) {
-    try {
-      const step = await getJson(`${base}${path}`, token);
-      if (!step.body) {
-        trace.push(`账号信息 ${base}${path} → HTTP ${step.status}${step.note ? `：${step.note}` : ''}`);
-        continue;
-      }
-      trace.push(`账号信息 ${base}${path} → HTTP ${step.status}`);
+    const step = await withRetry(() => getJson(`${base}${path}`, token), trace, `账号信息 ${base}${path}`);
+    const record: SiteStep = { kind: step.kind, what: '账号信息', path, detail: step.note ?? '' };
+    steps.push(record);
+    trace.push(`账号信息 ${base}${path} → HTTP ${step.status}${step.note ? `：${step.note}` : ''}`);
+    if (step.kind === 'ok' && step.body) {
       return {
         username: pickString(step.body, 'display_name') ?? pickString(step.body, 'username') ?? '',
         group: pickString(step.body, 'group') ?? '',
         quota: pickNumber(step.body, 'quota'),
         usedQuota: pickNumber(step.body, 'used_quota'),
       };
-    } catch (error) {
-      trace.push(`账号信息 ${base}${path} → ${error instanceof Error ? error.message.slice(0, 60) : '失败'}`);
     }
+    if (!shouldTryNextPath(record)) break;
   }
   return null;
 }
@@ -209,16 +304,18 @@ function tokenRows(body: unknown): Record<string, unknown>[] {
   return list.filter((item): item is Record<string, unknown> => !!item && typeof item === 'object');
 }
 
-async function listTokens(base: string, token: string, trace: string[]): Promise<SiteToken[]> {
+async function listTokens(base: string, token: string, trace: string[], steps: SiteStep[] = []): Promise<SiteToken[]> {
   for (const path of TOKEN_PATHS) {
-    try {
-      const step = await getJson(`${base}${path}?p=0&size=50`, token);
-      if (!step.body) {
-        trace.push(`令牌清单 ${base}${path} → HTTP ${step.status}${step.note ? `：${step.note}` : ''}`);
-        continue;
-      }
+    const step = await withRetry(
+      () => getJson(`${base}${path}?p=0&size=50`, token),
+      trace, `令牌清单 ${base}${path}`,
+    );
+    const record: SiteStep = { kind: step.kind, what: '令牌清单', path, detail: step.note ?? '' };
+    steps.push(record);
+    trace.push(`令牌清单 ${base}${path} → HTTP ${step.status}${step.note ? `：${step.note}` : ''}`);
+    if (step.kind === 'ok' && step.body) {
       const rows = tokenRows(step.body);
-      trace.push(`令牌清单 ${base}${path} → HTTP ${step.status}，${rows.length} 把`);
+      trace.push(`令牌清单 ${base}${path} → ${rows.length} 把`);
       return rows.map((row) => ({
         id: Number(row.id ?? 0) || 0,
         name: String(row.name ?? ''),
@@ -226,25 +323,47 @@ async function listTokens(base: string, token: string, trace: string[]): Promise
         status: typeof row.status === 'number' ? row.status : null,
         masked: String(row.key ?? ''),
       })).filter((row) => row.id > 0);
-    } catch (error) {
-      trace.push(`令牌清单 ${base}${path} → ${error instanceof Error ? error.message.slice(0, 60) : '失败'}`);
     }
+    if (!shouldTryNextPath(record)) break;
   }
   return [];
 }
 
+/**
+ * 候选写法。new-api 是 `POST /api/token/<id>/key`；有别的部署把同一件事挂在 GET 上，
+ * 所以两个都试 —— **但 404 只说明「这条不通」，换下一条，不是原因**（见 `site-errors.ts`）。
+ */
+const KEY_CANDIDATES: { method: 'post' | 'get'; path: (id: number) => string }[] = [
+  { method: 'post', path: (id) => `/api/token/${id}/key` },
+  { method: 'get', path: (id) => `/api/token/${id}/key` },
+];
+
 /** 完整密钥。列表里那把是打码的，只有这个接口给真的。 */
-export async function fetchFullKey(base: string, token: string, id: number, trace: string[] = []): Promise<string | null> {
-  for (const method of ['post'] as const) {
-    try {
-      const step = await postJson(`${base}/api/token/${id}/key`, {}, token);
-      trace.push(`取完整密钥 POST ${base}/api/token/${id}/key → HTTP ${step.status}${step.note ? `：${step.note}` : ''}`);
+export async function fetchFullKey(
+  base: string, token: string, id: number, trace: string[] = [], steps: SiteStep[] = [],
+): Promise<string | null> {
+  for (const candidate of KEY_CANDIDATES) {
+    const path = candidate.path(id);
+    const url = `${base}${path}`;
+    const step = await withRetry(
+      () => (candidate.method === 'post' ? postJson(url, {}, token) : getJson(url, token)),
+      trace, `取完整密钥 ${candidate.method.toUpperCase()} ${url}`,
+    );
+    const record: SiteStep = { kind: step.kind, what: '取完整密钥', path, detail: step.note ?? '' };
+    steps.push(record);
+    trace.push(`取完整密钥 ${candidate.method.toUpperCase()} ${url} → HTTP ${step.status}${step.note ? `：${step.note}` : ''}`);
+    if (step.kind === 'ok') {
       const key = pickString(step.body, 'key');
       if (key && !key.includes('*')) return key;
-      if (key) trace.push('站点给的是打码的密钥，不能用。');
-    } catch (error) {
-      trace.push(`取完整密钥 → ${error instanceof Error ? error.message.slice(0, 60) : '失败'}`);
+      /* 给了但仍然是打码的 —— 站点就是不让你看这把，换一种写法也不会变。 */
+      if (key) {
+        trace.push('站点给的是打码的密钥，不能用。');
+        steps.push({ kind: 'rejected', what: '取完整密钥', path, detail: '站点只给了打码的密钥（这把它可能不让你看）。' });
+        break;
+      }
+      continue;
     }
+    if (!shouldTryNextPath(record)) break;
   }
   return null;
 }
@@ -263,8 +382,11 @@ type Row = {
   lastError: string;
 };
 
-function toView(row: Row | null, tokens: SiteToken[], trace: string[], error = ''): SiteView {
-  if (!row) return { ...EMPTY, trace, error };
+function toView(
+  row: Row | null, tokens: SiteToken[], trace: string[], error = '',
+  cooldownUntil: number | null = null,
+): SiteView {
+  if (!row) return { ...EMPTY, trace, error, cooldownUntil };
   /* 站点回的 `quota` 本身就是「还剩多少」；`usedQuota` 只是累计流水，不参与（见 site-quota.ts）。 */
   const remaining = row.quota;
   return {
@@ -279,6 +401,7 @@ function toView(row: Row | null, tokens: SiteToken[], trace: string[], error = '
     quotaPerYuan: QUOTA_PER_YUAN,
     tokens,
     error,
+    cooldownUntil,
     trace,
   };
 }
@@ -304,23 +427,24 @@ export async function loadSiteAccount(userId: string): Promise<SiteView> {
   if (!row) return { ...EMPTY };
 
   const trace: string[] = [];
+  const steps: SiteStep[] = [];
   const base = root(row.baseUrl);
   let token = row.encryptedToken ? decryptSecret(row.encryptedToken) : null;
   const expires = row.tokenExpiresAt ? new Date(row.tokenExpiresAt).getTime() : 0;
-  const stale = !token || !expires || expires - Date.now() < RENEW_BEFORE_MS;
+  /* 阈值跟着这把 JWT 自己的寿命走（短寿命的不能每次都重登，见 `./site-session`）。 */
+  const stale = !token || shouldRenew(expires, Date.now(), jwtLifetimeMs(token));
 
   if (stale) {
     const password = row.encryptedPassword ? decryptSecret(row.encryptedPassword) : null;
     if (!password) {
       return toView(row, [], trace, '存的登录状态过期了，而且没记住密码 —— 重新登录一次。');
     }
-    const fresh = await login(base, row.username, password, trace);
+    const fresh = await login(base, row.username, password, trace, steps);
     if (!fresh) {
-      await db.siteAccount.update({
-        where: { id: row.id },
-        data: { lastError: '重新登录失败（站点地址或密码变了？）。' },
-      });
-      return toView(row, [], trace, '重新登录失败 —— 站点地址或密码变了？');
+      /* 说站点真正说的那句（密码错了？地址不对？），不是最后一条 404。 */
+      const why = pickFailureReason(steps, '重新登录失败 —— 站点地址或密码变了？');
+      await db.siteAccount.update({ where: { id: row.id }, data: { lastError: why } });
+      return toView(row, [], trace, why, rateLimitCooldownUntil(steps, Date.now()));
     }
     token = fresh.token;
     await db.siteAccount.update({
@@ -330,12 +454,12 @@ export async function loadSiteAccount(userId: string): Promise<SiteView> {
     trace.push('令牌已续期（用记住的密码重新登录）');
   }
 
-  const self = await loadSelf(base, token as string, trace);
-  const tokens = await listTokens(base, token as string, trace);
+  const self = await loadSelf(base, token as string, trace, steps);
+  const tokens = await listTokens(base, token as string, trace, steps);
   if (!self) {
-    const why = '读不到账号信息（站点可能改版了）。';
+    const why = pickFailureReason(steps, '读不到账号信息（站点可能改版了）。');
     await db.siteAccount.update({ where: { id: row.id }, data: { lastError: why } });
-    return toView(row, tokens, trace, why);
+    return toView(row, tokens, trace, why, rateLimitCooldownUntil(steps, Date.now()));
   }
 
   await db.siteAccount.update({
@@ -360,8 +484,16 @@ export async function connectSite(
   const trace: string[] = [];
   if (!/^https?:\/\//i.test(base)) throw new Error('站点地址要以 http:// 或 https:// 开头。');
 
-  const session = await login(base, input.username, input.password, trace);
-  if (!session) throw new Error(trace.length ? trace[trace.length - 1] : '登录失败，检查一下地址、用户名和密码。');
+  const steps: SiteStep[] = [];
+  const session = await login(base, input.username, input.password, trace, steps);
+  if (!session) {
+    /*
+     * ⚠️ 以前这里抛的是 `trace` 的**最后一条** —— 也就是最后那个候选路径的 404，
+     *    而真正的原因（第一个路径回的「用户名或密码错误」）被它冲掉了。
+     *    现在按有用程度挑：站点说过的话优先，404 只在没别的线索时才说。
+     */
+    throw new Error(pickFailureReason(steps, '登录失败，检查一下地址、用户名和密码。'));
+  }
 
   const existing = await readRow(userId);
   const data = {
@@ -410,8 +542,12 @@ export async function useSiteToken(
   if (!jwt) throw new Error('登录状态没了，重新登录一次。');
 
   const trace: string[] = [];
-  const key = await fetchFullKey(base, jwt, tokenId, trace);
-  if (!key) throw new Error('拿不到这把令牌的完整密钥（站点只给了打码的，或者不让你看这把）。');
+  const steps: SiteStep[] = [];
+  const key = await fetchFullKey(base, jwt, tokenId, trace, steps);
+  if (!key) {
+    /* 同上：说站点真正回的那句（不让你看 / 这条路径不存在 / 登录态没了），别含糊成一句。 */
+    throw new Error(pickFailureReason(steps, '拿不到这把令牌的完整密钥（站点只给了打码的，或者不让你看这把）。'));
+  }
 
   const picked = view.tokens.find((item) => item.id === tokenId);
   const host = base.replace(/^https?:\/\//i, '');
@@ -451,13 +587,16 @@ export type SiteBalanceView = {
   remainingYuan: number | null;
   quotaPerYuan: number;
   error: string;
+  /** 同上：撞上限流时歇到这个时刻（epoch ms），余额自动刷新按它退避。 */
+  cooldownUntil: number | null;
 };
 
-function toBalance(row: Row | null, error = ''): SiteBalanceView {
+function toBalance(row: Row | null, error = '', cooldownUntil: number | null = null): SiteBalanceView {
   if (!row) {
     return {
       loggedIn: false, baseUrl: '', username: '', loginName: '', group: '',
       quota: null, usedQuota: null, remainingYuan: null, quotaPerYuan: QUOTA_PER_YUAN, error,
+      cooldownUntil,
     };
   }
   /* 同上：`quota` 就是剩余额度。 */
@@ -473,6 +612,7 @@ function toBalance(row: Row | null, error = ''): SiteBalanceView {
     remainingYuan: remainingYuanOf(remaining, row.usedQuota),
     quotaPerYuan: QUOTA_PER_YUAN,
     error,
+    cooldownUntil,
   };
 }
 
@@ -492,21 +632,21 @@ export async function loadSiteBalance(userId: string): Promise<SiteBalanceView> 
   if (!row) return toBalance(null);
 
   const trace: string[] = [];
+  const steps: SiteStep[] = [];
   const base = root(row.baseUrl);
   let token = row.encryptedToken ? decryptSecret(row.encryptedToken) : null;
   const expires = row.tokenExpiresAt ? new Date(row.tokenExpiresAt).getTime() : 0;
-  const stale = !token || !expires || expires - Date.now() < RENEW_BEFORE_MS;
+  /* 同上：余额是定时刷的，这里的阈值更不能写死。 */
+  const stale = !token || shouldRenew(expires, Date.now(), jwtLifetimeMs(token));
 
   if (stale) {
     const password = row.encryptedPassword ? decryptSecret(row.encryptedPassword) : null;
     if (!password) return toBalance(row, '存的登录状态过期了，而且没记住密码 —— 重新登录一次。');
-    const fresh = await login(base, row.username, password, trace);
+    const fresh = await login(base, row.username, password, trace, steps);
     if (!fresh) {
-      await db.siteAccount.update({
-        where: { id: row.id },
-        data: { lastError: '重新登录失败（站点地址或密码变了？）。' },
-      });
-      return toBalance(row, '重新登录失败 —— 站点地址或密码变了？');
+      const why = pickFailureReason(steps, '重新登录失败 —— 站点地址或密码变了？');
+      await db.siteAccount.update({ where: { id: row.id }, data: { lastError: why } });
+      return toBalance(row, why, rateLimitCooldownUntil(steps, Date.now()));
     }
     token = fresh.token;
     await db.siteAccount.update({
@@ -515,11 +655,11 @@ export async function loadSiteBalance(userId: string): Promise<SiteBalanceView> 
     });
   }
 
-  const self = await loadSelf(base, token as string, trace);
+  const self = await loadSelf(base, token as string, trace, steps);
   if (!self) {
-    const why = '读不到账号信息（站点可能改版了）。';
+    const why = pickFailureReason(steps, '读不到账号信息（站点可能改版了）。');
     await db.siteAccount.update({ where: { id: row.id }, data: { lastError: why } });
-    return toBalance(row, why);
+    return toBalance(row, why, rateLimitCooldownUntil(steps, Date.now()));
   }
 
   await db.siteAccount.update({

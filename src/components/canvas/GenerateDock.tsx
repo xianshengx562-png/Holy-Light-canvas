@@ -30,6 +30,7 @@
 import { useState, type ReactNode } from 'react';
 import { apiPost } from '@/lib/client';
 import { useApi } from '@/lib/client';
+import { customEngineVisible } from '@/lib/providers/custom-visible';
 import { ArrowUp, ChevronDown, Download, Loader, Plus, SlidersHorizontal, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 import type { NodeData } from './types';
@@ -129,6 +130,14 @@ export default function GenerateDock({ data, nodeId, anchor }: {
     models: { image: { value: string; label: string }[]; video: { value: string; label: string }[] };
   }>('/api/providers/custom');
   const customModels = (isImage ? custom.data?.models.image : custom.data?.models.video) || [];
+  /*
+   * 这一档**显不显示**：只有「清单成功问到了、而且确实一个都没有」才隐藏（2026-09-29）。
+   *
+   * 反过来（没问到 / 问失败就隐藏）会把一个**正在用**的档位悄悄藏起来：节点上存着的
+   * `engine: 'custom'` 会被显示成「自定义接口 · 当前用不了」，而它其实好端端的 ——
+   * 用户看到的就是「自定义接口有时候会消失」。规矩详见 `lib/providers/custom-visible.ts`。
+   */
+  const showCustomEngine = customEngineVisible({ loaded: Boolean(custom.data), count: customModels.length });
 
   /*
    * 「优化提示词」用哪家文本模型的可选项（2026-09-22）。
@@ -230,7 +239,7 @@ export default function GenerateDock({ data, nodeId, anchor }: {
     : (isImage ? 'image' : 'video');
   const isImageParams = isImage || (isApp && purpose === 'image');
   const engine = isImageParams ? readImageEngine(data.engine) : readVideoEngine(data.engine);
-  const engineOptions = isImage ? imageEngineOptions(customModels.length > 0) : videoEngineOptions(customModels.length > 0);
+  const engineOptions = isImage ? imageEngineOptions(showCustomEngine) : videoEngineOptions(showCustomEngine);
   const engineHint = engineOptions.find(item => item.value === engine)?.hint || '';
   /**
    * 不经过任何工作流的两档：视频网关、以及**图片那一侧的自定义接口**（同步出图，
@@ -1166,7 +1175,12 @@ export default function GenerateDock({ data, nodeId, anchor }: {
               下拉里除了占位项什么都没有时，必须说出来**为什么**：
               光一个「选一个模型」的下拉，用户只会以为这个功能坏了（或者以为点了会自己挑一个）。
             */}
-            {!customModels.length && (
+            {custom.error && (
+              <span className="cv-dock-hint warn" data-dock-custom-error="">
+                自定义接口的清单没读出来（{custom.error}）—— 正在自动重试，已经选好的模型不用动
+              </span>
+            )}
+            {!customModels.length && !custom.error && (
               <span className="cv-dock-hint warn" data-dock-custom-empty="">
                 这一档要指定「用哪条自定义接口的哪个模型」，但现在一个能出{isImage ? '图' : '片'}的自定义模型都没有 —— 到「设置 · 模型服务 · 自定义接口」加一条，或者把引擎换回上面那几档
               </span>
@@ -1233,6 +1247,24 @@ export default function GenerateDock({ data, nodeId, anchor }: {
             ? <Loader size={15} strokeWidth={2.2} className="cv-spin" aria-hidden />
             : <Sparkles size={16} strokeWidth={1.8} aria-hidden />}
         </button>
+        {/*
+          「放弃这一轮」（2026-09-29）：只在运行中露出。
+          以前卡住的任务只能干等 —— 发送钮是灰的，界面上也没处说「我不等了」。
+          ⚠️ `data-dock-abandon` 钩子必须留着 —— 探针靠它点。
+          ⚠️ 别在这里提「退积分」：工作流那一路花的是用户自己账号的钱，我们没扣过 ——
+             说了一句没发生的事，比什么都不说更糟。
+        */}
+        {running && (
+          <button
+            className="cv-dock-abandon"
+            type="button"
+            data-dock-abandon=""
+            onClick={() => data.onAbandon?.()}
+            title="放弃这一轮：不再等它，这次按失败处理"
+          >
+            放弃
+          </button>
+        )}
         <button
           className="cv-dock-send"
           type="button"

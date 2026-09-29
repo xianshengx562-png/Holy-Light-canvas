@@ -1,8 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BookOpen, CornerDownLeft, LogIn, Loader2, Plus, Square, X } from 'lucide-react';
+import { BookOpen, CornerDownLeft, LogIn, Loader2, Plus, Sparkles, Square, X } from 'lucide-react';
 import SkillLibrary from './SkillLibrary';
+import { workbuddyAvailable, workbuddyLaunch } from '@/lib/desktop-workbuddy';
 import {
   OFF_CODEX_STATUS, codexInterrupt, codexLogin, codexNewThread, codexSend, codexStart, codexStatus,
   onCodexEvent, type CodexEvent, type CodexSkill, type CodexStatus,
@@ -146,8 +147,21 @@ export default function CanvasCodexPanel({
     setNotice(result.message);
   }, []);
 
+  /*
+   * 交给 WorkBuddy（2026-09-30）：提示词进剪贴板 + 唤起它。
+   *
+   * 输入框里已经写好的那句话会**一起带过去** —— 用户往往是先在这里打了一半，
+   * 才想起要换个地方问。空着也能点：那一段只交代「改哪张画布」，到那边再写要求。
+   */
+  const handOver = useCallback(async () => {
+    const result = await workbuddyLaunch({ projectId, projectName, ask: draft.trim() });
+    setNotice(result.message);
+  }, [draft, projectId, projectName]);
+
   const connected = status.phase === 'ready';
   const needsLogin = connected && status.requiresAuth;
+  /** 这一版有没有「交给 WorkBuddy」那条通道 —— web 版没有，入口就不显示。 */
+  const workbuddy = workbuddyAvailable();
 
   return (
     <div className="cv-codex" data-codex-panel="">
@@ -172,6 +186,17 @@ export default function CanvasCodexPanel({
         )}
         {status.phase === 'error' && (
           <button className="cv-btn ghost sm" type="button" onClick={() => void codexStart().then(setStatus)}>重试</button>
+        )}
+        {workbuddy && (
+          <button
+            className="cv-btn ghost sm"
+            type="button"
+            data-codex-workbuddy=""
+            onClick={() => void handOver()}
+            title="交给 WorkBuddy：把「哪张画布 + 你要改什么」复制到剪贴板并打开它（它那边装的是同一套画布工具，改的还是这张画布）"
+          >
+            <Sparkles size={12} strokeWidth={2} aria-hidden /> WorkBuddy
+          </button>
         )}
         <button
           className="cv-btn ghost sm"
@@ -205,6 +230,12 @@ export default function CanvasCodexPanel({
             <p className="cv-codex-empty-note">
               它改的是项目里的画布数据；这一栏关掉、甚至应用重启，会话都还在主进程那边。
             </p>
+            {workbuddy && (
+              <p className="cv-codex-empty-note">
+                想让 WorkBuddy 来做，就点上面的「WorkBuddy」：这段要求会复制到剪贴板，它会被打开，
+                在那边 Ctrl+V 发送即可 —— 它改的是同一张画布。
+              </p>
+            )}
           </div>
         )}
 

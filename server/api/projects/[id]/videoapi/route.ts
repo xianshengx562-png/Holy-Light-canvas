@@ -9,6 +9,7 @@ import { missingCredentialsMessage, resolveVideoApiCredentials } from '@/lib/pro
 import { submitVideoApi } from '@/lib/providers/videoapi/client';
 import { readFirstFrame } from '@/lib/providers/videoapi/reference';
 import { readVideoApiParams, validateVideoApiParams } from '@/lib/workflows/videoApiParams';
+import { DUPLICATE_WINDOW_MS, isDuplicateSubmit } from '@/lib/submitGuard';
 
 /**
  * 视频网关通道 —— 视频生成节点选了「视频网关」引擎时走这里。
@@ -35,6 +36,8 @@ const schema = z.object({
    * RunningHub 那条路上的 `remoteFile`（远端文件名）在这里**没有意义**，那个平台认不出。
    */
   firstFrame: z.string().trim().min(1).max(2000).optional(),
+  /** 「我就是要再跑一次」：跳过防重复提交那道闸（放弃 / 重跑用）。 */
+  force: z.boolean().optional(),
 });
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -55,6 +58,34 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     const project = await db.project.findFirst({ where: { id, userId: user.id }, select: { id: true } });
     if (!project) throw new ApiError(404, '项目不存在。');
+
+    /*
+     * 防重复提交（2026-09-29）：同一个节点 60 秒内已经有在跑的任务 ——
+     * 直接把那一条交回去，不建新任务、也就不扣第二次积分。
+     *
+     * 为什么不是「按参数指纹去重」：`idempotencyKey` 里带 `Date.now()`，
+     * 所以「重试不会重复扣」那句老注释其实是假的 —— 两笔提交的 key 必然不同，
+     * 账本去重永远命中不了。而按参数指纹去重会让「同参数再来一张」变成白嫖，
+     * 那是另一种 bug。所以按**时间窗**：挡住双击与两个窗口，窗口之外照旧出新任务。
+     *
+     * `force` 是「我就是要再跑一次」的口子（放弃 / 重跑走它）。
+     */
+    if (!input.force) {
+      const recent = await db.task.findFirst({
+        where: {
+          userId: user.id, projectId: id, nodeId: input.nodeId,
+          status: { in: ['queued', 'running'] },
+          createdAt: { gte: new Date(Date.now() - DUPLICATE_WINDOW_MS) },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, externalTaskId: true, createdAt: true },
+      });
+      if (recent && isDuplicateSubmit(new Date(recent.createdAt).getTime(), Date.now())) {
+        return Response.json({
+          taskId: recent.id, externalTaskId: recent.externalTaskId, status: 'RUNNING', deduped: true,
+        });
+      }
+    }
 
     /** 账号自带的那把优先，没有才回落站点那把环境变量 key（顺序反了会变成「填了 key 还扣积分」）。 */
     const creds = await resolveVideoApiCredentials(user.id);

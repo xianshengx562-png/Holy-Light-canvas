@@ -43,6 +43,16 @@
 .ms-custom-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 14px; }
 .ms-custom-head strong { font-size: 13px; font-weight: 600; }
 .ms-custom-head .ms-host { font-family: var(--font-mono); font-size: 11px; color: var(--text-mute); }
+/*
+  就地改名（2026-09-29）：点「重命名」原地变输入框。
+  字号字重**对齐原来那行 <strong>**，否则一进入编辑整行会跳一下。
+*/
+.ms-custom-head .ms-rename {
+  width: 220px; max-width: 100%;
+  padding: 3px 8px; font-size: 13px; font-weight: 600;
+  background: var(--surface-3); color: var(--text);
+  border: 1px solid var(--accent-line); border-radius: 6px;
+}
 .ms-custom-body { border-top: 1px solid var(--line); padding: 12px 14px; display: grid; gap: 10px; }
 /*
   模型清单筛选（2026-09-22）：中转站一次能报几百个模型，

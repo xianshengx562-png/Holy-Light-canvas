@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { db } from '@/lib/db';
-import { mediaRoot } from '@/lib/output-dir';
+import { mediaRoot, resolveStoredPath } from '@/lib/output-dir';
 
 /**
  * 生成结果的落盘归档。
@@ -429,6 +429,8 @@ export async function openMediaAsset(assetId: string, userId: string) {
    * 而这里的路径是**运行时才存在的落盘文件**，构建期根本不存在，也不需要被 trace。
    * 桌面版打包时这一条直接决定产物是 700MB 还是 100MB 量级。
    */
-  const info = await stat(/*turbopackIgnore: true*/ meta.path);
-  return { path: meta.path, mime: meta.mime || 'application/octet-stream', size: info.size, name: asset.name };
+  /* 路径可能是上一个数据目录名留下的 → 按相对结构找回当前那一份（见 `resolveStoredPath`） */
+  const file = await resolveStoredPath(meta.path);
+  const info = await stat(/*turbopackIgnore: true*/ file);
+  return { path: file, mime: meta.mime || 'application/octet-stream', size: info.size, name: asset.name };
 }

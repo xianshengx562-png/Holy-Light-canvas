@@ -33,6 +33,11 @@ export type BackendSupervisor = {
   state: () => BackendState;
   /** 只有 ready 才给管道名 —— 给出去就要能连上。 */
   pipePath: () => string | null;
+  /**
+   * 等后端真的 ready（最多 `timeoutMs` 毫秒）。给「后端还在起、请求先别急着失败」那条路用。
+   * 已经坏了（`failed` / `stopped`）**立刻**回 false —— 那时候等下去只是干耗。
+   */
+  awaitReady: (timeoutMs: number) => Promise<boolean>;
 };
 
 export function createBackendSupervisor(options: {
@@ -187,6 +192,34 @@ export function createBackendSupervisor(options: {
     await ready;
   }
 
+  /**
+   * 等后端进入 ready（2026-09-29）。
+   *
+   * 为什么需要它：窗口是**先开**的（等后端再开窗，启动看起来像卡死），
+   * 于是页面第一批请求常常撞在「后端还没 ready」那一两秒上，拿回来一个 503。
+   * 以前那是终局 —— 那一趟失败就定死了，界面上整场会话少一个档位。
+   * 现在主进程可以先把请求挂住等一下，ready 一到就照常转发。
+   */
+  async function awaitReady(timeoutMs: number): Promise<boolean> {
+    if (state === 'ready') return true;
+    if (state === 'failed' || state === 'stopped' || state === 'stopping') return false;
+    return await new Promise<boolean>((resolve) => {
+      let settled = false;
+      const finish = (value: boolean) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        off();
+        resolve(value);
+      };
+      const timer = setTimeout(() => finish(state === 'ready'), Math.max(0, timeoutMs));
+      const off = onState((next) => {
+        if (next === 'ready') finish(true);
+        else if (next === 'failed' || next === 'stopped' || next === 'stopping') finish(false);
+      });
+    });
+  }
+
   async function stop(): Promise<void> {
     generation += 1;
     if (restartTimer) {
@@ -221,5 +254,6 @@ export function createBackendSupervisor(options: {
     onState,
     state: () => state,
     pipePath: () => (state === 'ready' ? pipe : null),
+    awaitReady,
   };
 }

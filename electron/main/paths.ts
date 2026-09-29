@@ -40,6 +40,11 @@ try {
   configureRuntimePaths({
     appDir,
     dataDir: process.env.HOLYLIGHT_DATA_DIR || (portable ? portableRoot : userData),
+    /*
+     * 随包资源（llama.cpp / ffmpeg）在 `process.resourcesPath` 下 —— 也就是 `app.asar` 的上一级。
+     * 后端进程是纯 Node（拿不到 electron 的 API），只能靠这里算好、塞进环境变量带过去。
+     */
+    resourcesDir: (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath ?? null,
   });
 } catch {
   /* 留空：交给 index.ts 里 whenReady 那句补上，顶多落盘晚一点点（媒体写入都发生在用户操作之后）。 */

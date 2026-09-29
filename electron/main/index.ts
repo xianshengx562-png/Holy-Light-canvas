@@ -4,11 +4,15 @@
    （`lib/media.ts` 与 `lib/latents.ts` 已经改成运行时取根目录、好让用户换产出目录，
     但它们仍要读 `HOLYLIGHT_LOCAL_STORAGE` 兜底，这条 import 顺序一条都不能少。） */
 import './paths';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, protocol, shell, Tray } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, protocol, shell, Tray } from 'electron';
 import { APP_ORIGIN, forwardToBackend, reconnectingResponse } from './api';
 import { createBackendSupervisor } from './backend-supervisor';
+
+/** 后端首次启动时，一个请求最多等它多久 ready（见下面协议处理里那段注释）。 */
+const BACKEND_START_WAIT_MS = 8_000;
 import { createBrowserPanel } from './browser-panel';
 import { createComfyuiSupervisor, parseBaseUrl } from './comfyui-supervisor';
 import { detectComfyuiProcesses, findComfyuiInstalls } from './comfyui-detect';
@@ -16,7 +20,8 @@ import { inspectExtensions, inspectLegacyExtensions, installExtension, removeLeg
 import { createCodexService } from './codex-service';
 import { readWallpaper, removeWallpaper, saveWallpaper } from './wallpaper';
 import {
-  checkForUpdate, downloadUpdate, initUpdater, installUpdate, setUpdaterSource, updaterState,
+  checkForUpdate, downloadUpdate, initUpdater, installDownloadedOnQuit, installUpdate,
+  setUpdaterSource, updaterState,
 } from './updater';
 import { runtimePathEnv, runtimePaths } from '@/lib/runtime-paths';
 import { WALLPAPER_LIMITS } from '@/lib/appearance';
@@ -492,7 +497,22 @@ void app.whenReady().then(() => {
       }
     }
     if (!url.pathname.startsWith('/api/')) return serveStatic(url);
-    const pipe = backend.pipePath();
+    /*
+     * 后端还在**首次启动**时，这一趟请求**等它 ready** 而不是立刻回 503（2026-09-29）。
+     *
+     * 窗口是先开的（下面那句注释说了为什么），于是页面第一批请求经常撞在「后端还没 ready」
+     * 那一两秒上。以前那一下就是终局：`useApi` 的 `data` 永远是 `null`，界面把「没读到」
+     * 当成「没有」，表现就是「自定义接口有时候会消失」—— 而用户一无所知，只会以为没配。
+     *
+     * ⚠️ 只等 `starting`（**首次启动**），不等 `reconnecting`：重启是已知异常，
+     *    那时光等没用（退避最长 8s + 启动），界面上另有「正在重新连接」那条全局提示，
+     *    前端那边由 `useApi` 的重试兜住。这里要是也等，一个坏掉的后端会让每个请求都挂 8 秒。
+     */
+    let pipe = backend.pipePath();
+    if (!pipe && backend.state() === 'starting') {
+      await backend.awaitReady(BACKEND_START_WAIT_MS);
+      pipe = backend.pipePath();
+    }
     return pipe ? forwardToBackend(request, pipe) : reconnectingResponse();
   });
 
@@ -580,9 +600,20 @@ app.on('before-quit', (event) => {
   try { comfyui?.dispose(); } catch { /* 已经没了 */ }
 
   const backend = (globalThis as unknown as { __frameBackend?: { stop: () => Promise<void> } }).__frameBackend;
-  if (!backend) return;
+  /*
+   * 更新在**最后**才装（2026-09-29）：这时后端已经 flush 完、子进程也收干净了，
+   * 退出是最安全的时机 —— 早一点会打断正在跑的生成任务。
+   * `installDownloadedOnQuit()` 装上之后进程就没了，所以只有它没装时才轮到 `app.exit(0)`。
+   */
+  if (!backend) {
+    installDownloadedOnQuit();
+    return;
+  }
   event.preventDefault();
-  void backend.stop().finally(() => app.exit(0));
+  void backend.stop().finally(() => {
+    if (installDownloadedOnQuit()) return;
+    app.exit(0);
+  });
 });
 
 /*
@@ -637,6 +668,70 @@ ipcMain.handle('open-folder', async (_event, dir: string) => {
   if (!target) return { ok: false, message: '目录为空。' };
   const message = await shell.openPath(target);
   return message ? { ok: false, message } : { ok: true, message: '' };
+});
+
+/** 找 WorkBuddy 的几个落点：能用环境变量指定，正常走默认安装目录。 */
+const WORKBUDDY_EXE_GUESSES = [
+  process.env.WORKBUDDY_EXE || '',
+  path.join(process.env['ProgramFiles'] || 'C:\\Program Files', 'WorkBuddy', 'WorkBuddy.exe'),
+  path.join(process.env['LOCALAPPDATA'] || '', 'Programs', 'WorkBuddy', 'WorkBuddy.exe'),
+].filter(Boolean);
+
+/*
+ * 把这张画布交给 WorkBuddy（2026-09-30）。
+ *
+ * 做两件事：**提示词进剪贴板** + **唤起 WorkBuddy**。
+ *
+ * 为什么是「唤起」而不是把这个面板也做成支持 WorkBuddy：画布的能力全在
+ * `tools/frame-mcp` 那 14 个工具里，Codex 只是被挂上去的一个 MCP 客户端 —— 换谁驱动都一样。
+ * 而内嵌要逆 WorkBuddy 自带 headless CLI 的参数 / 输出格式 / 鉴权，它一升级就可能失效。
+ *
+ * 提示词里**必须带 projectId**：那 14 个工具全都要它，靠项目名猜等于让对面先做一次
+ * `frame_list_projects`。剪贴板而不是命令行参数 —— `workbuddy://` 只注册了 `"%1"`，
+ * 参数格式没有文档，剪贴板是稳的。
+ */
+ipcMain.handle('workbuddy-launch', async (_event, payload: { projectId?: string; projectName?: string; ask?: string } | undefined) => {
+  const projectId = String(payload?.projectId || '').trim();
+  const projectName = String(payload?.projectName || '').trim() || '(未命名画布)';
+  const ask = String(payload?.ask || '').trim();
+  const text = [
+    '【Holy Light画布】请用画布 MCP（frame_* 工具）直接改这张画布，改完不用问我确认。',
+    '项目：' + projectName,
+    projectId ? 'projectId：' + projectId + '（调 frame_* 时传这个，别只按项目名找）' : '',
+    '',
+    '我的要求：',
+    ask || '（在这里写你的要求）',
+  ].filter(line => line !== '').join('\n');
+  clipboard.writeText(text);
+
+  /* 先 spawn exe：WorkBuddy 已经在跑时，它的单实例锁会把现有窗口激活 —— 这是最确定的一条。
+     exe 找不到才退到协议（`workbuddy://` 已注册为 `WorkBuddy.exe "%1"`）。 */
+  let opened = false;
+  let why = '';
+  for (const guess of WORKBUDDY_EXE_GUESSES) {
+    try {
+      if (!fs.existsSync(guess)) continue;
+      const child = spawn(guess, [], { detached: true, stdio: 'ignore' });
+      child.unref();
+      opened = true;
+      break;
+    } catch (error) {
+      why = error instanceof Error ? error.message : String(error);
+    }
+  }
+  if (!opened) {
+    try {
+      await shell.openExternal('workbuddy://');
+      opened = true;
+    } catch (error) {
+      why = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  /* 提示词在剪贴板里，所以「没唤起成功」不算彻底失败 —— 如实说，别让用户白等。 */
+  return opened
+    ? { ok: true, message: '提示词已复制 · 切到 WorkBuddy 里 Ctrl+V 发送', copied: true }
+    : { ok: false, message: `没能帮你打开 WorkBuddy（${why || '找不到它的安装位置'}）—— 提示词已复制，你自己打开粘贴即可。`, copied: true };
 });
 
 /*

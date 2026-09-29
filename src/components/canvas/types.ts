@@ -504,6 +504,8 @@ export type NodeData = {
    * 没有配超清工作流时按不显示按钮处理 —— 由卡片自己判断。
    */
   onUpscale?: () => void;
+  /** 放弃这一轮（2026-09-29）：只在运行中可点，点了就按失败处理（不再等上游）。 */
+  onAbandon?: () => void;
   /**
    * 双击节点标题重命名：写回 `data.label`。
    * 空串 = 清掉自定义名，标题回落显示原始类型名（`NODE_META[kind].label`）。

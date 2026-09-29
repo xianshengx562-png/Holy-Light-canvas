@@ -192,7 +192,7 @@ export function reduce(state: UpdateState, event: UpdateEvent): UpdateState {
         phase: 'downloaded',
         version: event.version,
         percent: 100,
-        message: `新版本 ${event.version} 已经下载好了，重启软件就会装上。`,
+        message: `新版本 ${event.version} 已经下好了：关掉软件时会自动装上，也可以现在点「重启并安装」。`,
       };
     case 'error':
       return { ...state, phase: 'error', message: event.message || '检查更新失败。' };
@@ -214,6 +214,16 @@ export function canDownload(state: UpdateState): boolean {
 
 /** 「重启并安装」只在**下载完**之后能点：没下载完就退出安装会装到一半。 */
 export function canInstall(state: UpdateState): boolean {
+  return state.phase === 'downloaded';
+}
+
+/**
+ * 退出时该不该顺手把下好的更新装上。
+ *
+ * 只有 `downloaded` 才装 —— 没下完就退出安装，装的是一个半成品。
+ * 抽成纯函数是为了能单测：主进程那一路依赖 electron-updater，测不了。
+ */
+export function shouldInstallOnQuit(state: UpdateState): boolean {
   return state.phase === 'downloaded';
 }
 

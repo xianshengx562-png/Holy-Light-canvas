@@ -9,6 +9,11 @@ out/
 resources/llama.cpp/*
 !resources/llama.cpp/来源与许可.txt
 
+# FFmpeg / FFprobe（各约 98 MB，随安装包分发）—— 同样不进仓库。
+# 构建前若 resources/ffmpeg/ 是空的，照同目录那份「来源与许可.txt」重新下同一版拷进来。
+resources/ffmpeg/*
+!resources/ffmpeg/来源与许可.txt
+
 # MCP 工具包的构建产物（zip 有 5.9 MB，源码在上层）
 tools/frame-mcp/dist/
 

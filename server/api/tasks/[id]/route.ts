@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
 import type { Prisma } from '@prisma/client';
 import { db } from '@/lib/db';
-import { api, apiUser } from '@/lib/api';
+import { api, apiUser, checkOrigin, jsonBody } from '@/lib/api';
 import { refundGeneration } from '@/lib/wallet';
+import { abandonMessage } from '@/lib/taskPoll';
+import { failAndRefund } from '@/lib/taskSettle';
 import { queryTask } from '@/lib/providers/runninghub/client';
 import { queryWebAppOutputs } from '@/lib/providers/runninghub/webapp';
 import { webAppIdOf } from '@/lib/workflows/runninghubApp';
@@ -34,6 +36,11 @@ function rewriteResultUrls(results: unknown, archived: ArchivedMedia[]) {
   }) as Prisma.InputJsonValue;
 }
 
+/*
+ * `failAndRefund` 已经抽到 `lib/taskSettle.ts`（2026-09-29）——
+ * 会结单的只有两条路：用户点「放弃这一轮」，或上游报失败。规矩写在 lib 里那份注释上。
+ */
+
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   return api(async () => {
     const user = await apiUser();
@@ -43,6 +50,11 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     if (!task.externalTaskId || task.status === 'success' || task.status === 'failed') {
       return NextResponse.json(task);
     }
+    /*
+     * 这里**只查不问时间**（2026-09-30 定死）：任务只有成功与失败两种结果，
+     * 跑多久是上游的事 —— 还在跑就原样报回去，由前端接着轮询。
+     */
+
     /*
      * 按 provider 取远端状态。
      *
@@ -147,5 +159,38 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
       try { await refundGeneration(user.id, task.idempotencyKey); } catch { /* 退款失败不该连带把任务状态查询弄挂 */ }
     }
     return NextResponse.json({ ...updated, latents, ...(progress ? { progress } : {}) });
+  });
+}
+
+/**
+ * 放弃这个任务（2026-09-29）。
+ *
+ * 用户点「放弃这一轮」时来这一趟。**结单必须是服务端的事**：前端放弃只代表
+ * 「我不看了」，而任务算不算失败只有掌握状态的这一边说了算 ——
+ * 以前前端自己标灰了事，服务端这边还一直是 running。
+ *
+ * ⚠️ 这个 `POST` 与上面的 `GET` 在**同一个文件**里：桌面版那份路由表是按请求方法
+ *    从模块里取导出的（`dispatch.ts` 的 `hit.mod[method]`），所以不用去重新生成路由表。
+ */
+export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  return api(async () => {
+    checkOrigin(request);
+    const user = await apiUser();
+    const { id } = await params;
+    const task = await db.task.findFirst({ where: { id, userId: user.id } });
+    if (!task) return NextResponse.json({ error: '任务不存在。' }, { status: 404 });
+    /* 已经是终态就原样返回 —— 重放这一趟不该把一次成功的任务改成失败。 */
+    if (task.status === 'success' || task.status === 'failed') return NextResponse.json(task);
+    /*
+     * 放弃的原因：前端点「放弃这一轮」时会带一句人话过来（2026-09-29），
+     * 没带就用前端那句默认的「放弃」。上限 200 字 —— 这句话要写进库里的 error 字段。
+     */
+    const body = await jsonBody(request).catch(() => ({} as Record<string, unknown>));
+    const given = typeof (body as { reason?: unknown }).reason === 'string'
+      ? String((body as { reason?: unknown }).reason).trim().slice(0, 200)
+      : '';
+    /* 没带 reason 就是前端那句默认的「放弃」 —— 这是现在唯一一种结单原因。 */
+    const settled = await failAndRefund(user.id, task, given || abandonMessage());
+    return NextResponse.json(settled);
   });
 }

@@ -85,6 +85,7 @@ import * as m72 from '@/server/api/provider-keys/route';
 import * as m73 from '@/server/api/site-account/route';
 import * as m74 from '@/server/api/skills/route';
 import * as m75 from '@/server/api/workflows/route';
+import * as m76 from '@/server/api/tasks/scan/route';
 
 export type RouteEntry = {
   /** `/api/projects/[id]/canvas` 这样的原始模式，报错信息里要用 */
@@ -502,6 +503,16 @@ export const ROUTES: RouteEntry[] = [
     regex: /^\/api\/skills\/([^\/]+)$/,
     keys: ['slug'],
     mod: m67 as unknown as ApiModule,
+  },
+  /*
+   * ⚠️ 静态段必须排在 `/api/tasks/[id]` **之前**：那条正则是 `/api/tasks/([^/]+)`，
+   * 会把 `scan` 当成任务号吃掉（2026-09-29 加 `tasks/scan` 时踩的点）。
+   */
+  {
+    pattern: '/api/tasks/scan',
+    regex: /^\/api\/tasks\/scan$/,
+    keys: [],
+    mod: m76 as unknown as ApiModule,
   },
   {
     pattern: '/api/tasks/[id]',

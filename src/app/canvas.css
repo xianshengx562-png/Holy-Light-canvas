@@ -3822,6 +3822,29 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 .flow-shell .cv-dock-optbtn:disabled { cursor: default; }
 
 /*
+  「放弃」钮（2026-09-29）：只在运行中出现，坐在发送钮左边。
+
+  写成**带字的小按钮**而不是那一排图标钮：图标钮那排全是「对提示词做点什么」，
+  而放弃是**结束这一次运行** —— 图标猜不出来，写清楚才不会误点。
+  悬停才染红：它是个破坏性动作，但也不是天天点的东西，别一上来就扎眼。
+*/
+.flow-shell .cv-dock-abandon {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
+  flex: none;
+  background: transparent;
+  border: 1px solid var(--cv-line);
+  border-radius: 999px;
+  color: var(--cv-dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+.flow-shell .cv-dock-abandon:hover { background: var(--cv-elev); color: var(--cv-danger); border-color: var(--cv-danger); }
+.flow-shell .cv-dock-abandon:focus-visible { outline: 2px solid var(--cv-accent-ring); outline-offset: 1px; }
+
+/*
   操作排（引擎 / 参数摘要 / 自定义参数 / 发送）常驻面板底部。
   以前是「整块滚 + 操作排 sticky」，现在滚动区独立了，这一排天然一直在可视区 ——
   「发送按钮被卷走」那类毛病从结构上就不可能再发生。

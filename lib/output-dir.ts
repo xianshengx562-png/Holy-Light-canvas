@@ -38,6 +38,9 @@ type Stored = { dir?: string };
  */
 let cache: string | null | undefined;
 
+/** `resolveStoredPath()` 的记忆：同一个过期路径只找一次。 */
+const resolvedCache = new Map<string, string>();
+
 function configFile(): string {
   return path.join(storageRoot(), CONFIG_NAME);
 }
@@ -145,6 +148,7 @@ export async function saveOutputRoot(value: string | null): Promise<OutputDirVie
   const trimmed = String(value ?? '').trim();
   if (!trimmed) {
     cache = null;
+    resolvedCache.clear();
     await writeConfig(null);
     return describeOutputDir();
   }
@@ -165,6 +169,8 @@ export async function saveOutputRoot(value: string | null): Promise<OutputDirVie
   }
 
   cache = trimmed;
+  /** 换了根目录，之前「找回」的结论就不再成立。 */
+  resolvedCache.clear();
   await writeConfig(trimmed);
   return describeOutputDir();
 }
@@ -174,4 +180,60 @@ async function writeConfig(dir: string | null): Promise<void> {
   await mkdir(/*turbopackIgnore: true*/ root, { recursive: true });
   const payload = JSON.stringify({ dir }, null, 2);
   await writeFile(/*turbopackIgnore: true*/ configFile(), payload, 'utf8');
+}
+
+/* ------------------------------------------------------------------ *
+ * 找回：路径过期 ≠ 文件没了
+ * ------------------------------------------------------------------ */
+
+/**
+ * 落盘结构里的锚点目录名 —— 找回时从路径最后一段往前找这些名字。
+ * 前两个就是本文件的 `MEDIA_DIR` / `LATENT_DIR`，后两个是工具产出的目录。
+ */
+const PATH_ANCHORS = [MEDIA_DIR, LATENT_DIR, 'joined', 'exports'];
+
+async function existsAt(target: string): Promise<boolean> {
+  try {
+    await stat(/*turbopackIgnore: true*/ target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * `metadata.path` 存的是**绝对路径**，落盘根目录却可能已经换过：数据目录改过名
+ * （FRAME → frame-studio → holy-light-canvas）、用户改过「产出目录」、或者自己搬过 storage。
+ * 这时候文件一个都没丢，路径却全部指向旧根目录。
+ *
+ * 后果有两个，第二个**不可逆**：
+ *  1. 资产页一片坏图、落盘占用 `0 B`、「N 条记录的文件已不在磁盘上」；
+ *  2. `scanOrphans()` 拿这些过期路径去对账 → 磁盘上的真文件被算成「没有对应记录」，
+ *     用户随手点一下「清理」就真删了。
+ *
+ * 能救回来的前提是**相对结构没变**（`<锚点>/<projectId>/<file>`）——
+ * 这正是本文件从一开始就守着「换根目录不改子结构」的原因。
+ * 找不到就原样返回，让上层照旧报错 —— 绝不猜。
+ */
+export async function resolveStoredPath(stored: string): Promise<string> {
+  const raw = String(stored || '');
+  if (!raw) return raw;
+  const cached = resolvedCache.get(raw);
+  if (cached) return cached;
+  if (await existsAt(raw)) {
+    resolvedCache.set(raw, raw);
+    return raw;
+  }
+  const parts = raw.split(/[\\/]+/);
+  for (let i = parts.length - 1; i >= 0; i -= 1) {
+    if (!PATH_ANCHORS.includes(parts[i].toLowerCase())) continue;
+    const candidate = path.join(await outputRoot(), ...parts.slice(i));
+    if (await existsAt(candidate)) {
+      resolvedCache.set(raw, candidate);
+      return candidate;
+    }
+  }
+  /** 「没找到」也要记下来：否则每张坏图都会重扫一遍这一串候选。 */
+  resolvedCache.set(raw, raw);
+  return raw;
 }

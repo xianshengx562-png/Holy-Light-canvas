@@ -28,6 +28,7 @@ import {
   Pause,
   Play,
   Plus,
+  RotateCcw,
   Scissors,
   Settings2,
   Trash2,
@@ -54,7 +55,7 @@ type ProjectLite = { id: string; name: string };
 type FfmpegStatus = {
   ffmpeg: string;
   ffprobe: string;
-  source: 'custom' | 'detected' | 'none';
+  source: 'bundled' | 'custom' | 'detected' | 'none';
   ok: boolean;
   message: string;
   version: string;
@@ -392,6 +393,17 @@ export default function VideoJoiner() {
     if (!result.ok) setMessage({ ok: false, text: result.message });
   }
 
+  /** 清掉自定义配置，回到随包自带的那份（后端把空串当「用自带的」，见那个 route 的注释）。 */
+  async function useBundledFfmpeg() {
+    try {
+      const result = await apiPost<FfmpegStatus>('/api/tools/video/ffmpeg', { path: '' });
+      setMessage({ ok: result.ok, text: result.message });
+      reloadEngine();
+    } catch (error) {
+      setMessage({ ok: false, text: error instanceof Error ? error.message : '设置失败。' });
+    }
+  }
+
   async function chooseFfmpeg() {
     const pickedPath = await pickFilePath({
       title: '选择 ffmpeg.exe',
@@ -439,14 +451,20 @@ export default function VideoJoiner() {
       {showEngine && (
         <div className="vj-engine-panel">
           <p className="tool-hint">
-            拼接要用本机的 FFmpeg。自动探测会去 PATH 和几个常见目录里找；找不到就在下面手动指一下
-            —— 选 <code>ffmpeg.exe</code> 或它的 <code>bin</code> 目录都行（同目录有 ffprobe.exe 最好）。
+            FFmpeg 已经<strong>随软件装好了</strong>，不用自己下载、也不用填路径。
+            想换成你自己那份（比如更新的版本）再在下面选 —— <code>ffmpeg.exe</code>
+            或它的 <code>bin</code> 目录都行（同目录有 ffprobe.exe 最好）。
           </p>
           <div className="vj-engine-row">
             <code className="vj-path">{engineData?.ffmpeg || '还没找到'}</code>
             {canPickFile() && (
               <button className="button secondary small" type="button" onClick={chooseFfmpeg}>
                 <FolderOpen size={13} aria-hidden /> 选择 ffmpeg.exe
+              </button>
+            )}
+            {engineData?.source === 'custom' && (
+              <button className="button subtle small" type="button" onClick={useBundledFfmpeg}>
+                <RotateCcw size={13} aria-hidden /> 用回自带的
               </button>
             )}
           </div>

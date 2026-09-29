@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { sessionHeaders } from './session-token';
+import { isRetryableApiStatus, retryDelayMs } from './api-retry';
 /* ⚠️ 用别名：`edition.ts` 在**根目录** `lib/` 下（和 `@/lib/db`、`@/lib/api` 同一层），
    `src/lib/` 里没有它 —— 写成 `./edition` 会解析失败。 */
 import { isDesktop } from '@/lib/edition';
@@ -124,20 +125,45 @@ export function useApi<T>(path: string | null): {
       return;
     }
     let cancelled = false;
-    setLoading(true);
-    setError(null);
-    apiGet<T>(path)
-      .then((value) => {
-        if (!cancelled) setData(value);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : '加载失败');
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let failed = 0;
+    /*
+     * 失败了要**再问几次**（2026-09-29，规矩见 `./api-retry`）。
+     *
+     * 桌面版多了一类 web 版压根没有的失败：后端进程还没 ready、或者崩了正在重启，
+     * 期间每一趟请求都是 503。以前失败一次就定死在 `error` 上、`data` 永远是 `null`，
+     * 界面于是把「没读到」当成「没有」—— 那就是「自定义接口有时候会消失」的来路。
+     */
+    const run = () => {
+      setLoading(true);
+      setError(null);
+      apiGet<T>(path)
+        .then((value) => {
+          if (cancelled) return;
+          setData(value);
+          setLoading(false);
+        })
+        .catch((err: unknown) => {
+          if (cancelled) return;
+          failed += 1;
+          const status = err instanceof ApiError ? err.status : 0;
+          const delay = isRetryableApiStatus(status) ? retryDelayMs(failed) : null;
+          /*
+           * ⚠️ 重试期间**不清 `data`**：下拉会因为它变成 null 先塌一下再长回来，
+           *   而那正是这次要修的那个「消失」。留着上一份，重试成功自然被盖掉。
+           */
+          if (delay !== null) {
+            timer = setTimeout(run, delay);
+            return;
+          }
+          setError(err instanceof Error ? err.message : '加载失败');
+          setLoading(false);
+        });
+    };
+    run();
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
   }, [path, nonce]);
 

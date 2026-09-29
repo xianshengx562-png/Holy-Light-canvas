@@ -7,6 +7,7 @@ import {
   normalizeSource,
   percentOf,
   reduce,
+  shouldInstallOnQuit,
   type UpdateEvent,
   type UpdateState,
 } from '@/lib/update-state';
@@ -26,9 +27,11 @@ import {
  *    所以地址存在数据目录的 `update-source.json` 里，设置页可以改 —— 旧的包也能救回来。
  *    代价是「开箱即用」要等填一次，换来的是「以后永远不用重新打包」。
  *
- * 2. **不自动下载**（`autoDownload = false`）。安装包 120MB，用户在用流量或者正忙着的时候
- *    悄悄下一个大文件是冒犯。自动做的只有「启动后悄悄问一次有没有新版」——
- *    问只是几十字节，问到了再让用户点。
+ * 2. **后台自动下载，但绝不自动装**（2026-09-29 改：原先连下载都要手动点）。
+ *    安装包 120MB，每次都要用户在「发现有新版」之后再点一次「下载」是没必要的操作；
+ *    但**装**那一下必须等人 —— 它会退掉进程，正在跑的生成任务会凭空消失。
+ *    所以：发现新版就自己在后台下完，下完静静等着，等用户自己关软件时才顺手装上
+ *    （`installDownloadedOnQuit()`）。
  *
  * 3. **便携版直接说不支持**。便携版是解压即用的，它没有一个「安装位置」可以覆盖，
  *    真去 `quitAndInstall` 会把人装在 U 盘里的那份搞坏。宁可显示「请重新下载安装包」。
@@ -99,7 +102,16 @@ function wire(): void {
   if (wired) return;
   wired = true;
 
-  autoUpdater.autoDownload = false;
+  /*
+   * 后台下载（2026-09-29 起）：发现新版就自己下，不再等用户点「下载更新」。
+   * 但**不自动装** —— 装的那一下会退掉进程，正在跑的生成任务会凭空消失。
+   */
+  autoUpdater.autoDownload = true;
+  /*
+   * 退出时装这件事**我们自己接**（`before-quit` 里），不靠这一条：
+   * 我们的退出要先让后端 flush、收干净子进程，最后走的是 `app.exit(0)`，
+   * 到那一刻 electron-updater 自己的钩子已经不跑了。
+   */
   autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.allowDowngrade = false;
   autoUpdater.allowPrerelease = false;
@@ -210,4 +222,27 @@ export async function downloadUpdate(): Promise<UpdateState> {
 export function installUpdate(): void {
   if (state.phase !== 'downloaded') return;
   autoUpdater.quitAndInstall(false, true);
+}
+
+/**
+ * 退出时把下好的更新装上（2026-09-29）。
+ *
+ * 时机由 `index.ts` 的 `before-quit` 定在**后端已经 flush 完、子进程都收干净之后** ——
+ * 那时退出最安全；早一点会打断正在跑的生成任务。
+ *
+ * 装完**不再自动拉起来**：用户是自己关掉软件的，装完又悄悄弹一个窗口回来很吓人，
+ * 下次他打开就是新版了。
+ *
+ * @returns 装了没有。调用方据此决定还要不要自己 `app.exit(0)` —— 这一装进程就没了。
+ */
+export function installDownloadedOnQuit(): boolean {
+  if (!shouldInstallOnQuit(state)) return false;
+  try {
+    /* `isSilent = true`：不弹安装界面。`isForceRunAfter = false`：装完不自动启动。 */
+    autoUpdater.quitAndInstall(true, false);
+    return true;
+  } catch (error) {
+    emit({ kind: 'error', message: errorText(error) });
+    return false;
+  }
 }

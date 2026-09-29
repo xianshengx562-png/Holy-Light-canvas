@@ -10,7 +10,7 @@
  *
  * 引擎三条路（2026-09-25 起加「自定义接口」；2026-09-23 删掉的是直连 Image 2.0 那一档）：
  *   - `local` / `runninghub`：走工作流（`/api/projects/<id>/generation`），异步，
- *     轮询 `/api/tasks/<id>`（3 秒一轮、最多 240 轮，节奏照画布 `CanvasEditor.poll`）。
+ *     轮询 `/api/tasks/<id>`（节奏照画布 `CanvasEditor.poll`：越等越慢，一直问到有结果）。
  *     下拉只列「图片用途 + 对应来源」的工作流，提交的 bindingValues 与画布出图节点同构。
  *   - `custom`：走 `/api/projects/<id>/custom-image`（与画布自定义接口同一入口），**同步**出图，
  *     参数是 image2Params 那套比例 / 分辨率 + 模型（`<接口Id>::<模型Id>`，来自 `/api/providers/custom`）。
@@ -32,8 +32,10 @@ import {
   IMAGE2_MAX_REFERENCES, IMAGE2_SIZE_AUTO, readImage2Params, validateImage2Params,
 } from '@/lib/workflows/image2Params';
 import { apiPost, useApi, useSession } from '@/lib/client';
+import { customEngineVisible } from '@/lib/providers/custom-visible';
 /* 出图结束时顺手刷站点余额（走自定义接口那一档才真花钱）。 */
 import { refreshSiteAccount } from '@/lib/site-account';
+import { pollDelayMs } from '@/lib/taskPoll';
 import '@/app/image-studio.css';
 
 /** `GET /api/workflows` 的一行 —— 这里只认 workflowId / 名字 / 来源三个字段。 */
@@ -50,20 +52,31 @@ async function readJson(response: Response) {
 }
 
 /** 等一个异步任务跑完，回图片地址列表。节奏与画布同款：3 秒一轮，最多 240 轮。 */
+/**
+ * 等一个异步任务跑完，回图片地址列表。
+ *
+ * 节奏与画布同一套（`lib/taskPoll`：越等越慢 3s→6s→12s→20s）。
+ * 这里**没有等待上限**（2026-09-30 定死）：出图只有成功与失败，跑多久是上游的事，
+ * 一直问到有结果为止。
+ */
 async function pollTask(taskId: string, onStatus: (text: string) => void): Promise<string[]> {
-  for (let i = 0; i < 240; i++) {
-    await new Promise(resolve => setTimeout(resolve, 3000));
+  const startedAt = Date.now();
+  for (;;) {
+    /* 一直问到有结果：出图只有成功与失败，不按等待时长做任何判定。 */
+    const delay = pollDelayMs(Date.now() - startedAt);
+    await new Promise(resolve => setTimeout(resolve, delay));
     const task = await readJson(await fetch(`/api/tasks/${taskId}`));
     if (task.status === 'success') {
       const list: { url?: string }[] = Array.isArray(task.result) ? task.result : [];
       return list.map(item => String(item?.url || '')).filter(Boolean);
     }
     if (task.status === 'failed') throw new Error(String(task.error || '任务失败了。'));
-    if (typeof task.progress === 'string' && task.progress) onStatus(`正在出图 · ${task.progress}`);
-    else onStatus(`正在出图…（已等 ${i * 3 + 3} 秒）`);
+    const waited = Math.round((Date.now() - startedAt) / 1000);
+    if (typeof task.progress === 'string' && task.progress) onStatus(`正在出图 · ${task.progress}（已等 ${waited} 秒）`);
+    else onStatus(`正在出图…（已等 ${waited} 秒）`);
   }
-  throw new Error('等了 12 分钟还没跑完 —— 任务没取消，稍后可以去资产库看结果。');
 }
+
 
 export default function ImageStudio() {
   const { user } = useSession();
@@ -332,8 +345,14 @@ export default function ImageStudio() {
 
   const ratioList = ratioOptions('image', engine);
   const resolutionList = resolutionOptions('image', engine);
-  /** 自定义接口那一项只在真有出图模型时出现（画布 dock 同一条规矩：没配就不列）。 */
-  const engineItems: ComposeEngine[] = customModels.length ? [...ENGINES_FOR.image, 'custom'] : [...ENGINES_FOR.image];
+  /*
+   * 自定义接口那一项**显不显示**（画布 dock 同一条规矩：没配就不列）—— 但「没配」
+   * 得是**问到过**才算（2026-09-29）。清单那一趟失败时 `customModels` 是空的，
+   * 照空来判断就会把这一档藏掉，而这一页正是用户出图的主场。
+   */
+  const engineItems: ComposeEngine[] = customEngineVisible({ loaded: Boolean(customData), count: customModels.length })
+    ? [...ENGINES_FOR.image, 'custom']
+    : [...ENGINES_FOR.image];
 
   return <div className="studio">
     <div className="studio-main">

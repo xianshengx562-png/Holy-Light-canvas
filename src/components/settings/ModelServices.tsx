@@ -302,6 +302,13 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
   const [probed, setProbed] = useState<Record<Kind, CustomModel[]>>({ text: [], image: [], video: [] });
   /** 展开的那条接口，写成 `<kind>#<id>`：同一条接口在三段里都能展开，各自独立。 */
   const [openCustom, setOpenCustom] = useState<string>('');
+
+  /*
+   * 就地改名：`renameId` 是哪一行在改，`renameText` 是正在输入的值。
+   * 不用 `window.prompt` —— 桌面版那个窗口里它是被禁掉的，点了什么都不会发生。
+   */
+  const [renameId, setRenameId] = useState<string>('');
+  const [renameText, setRenameText] = useState<string>('');
   /*
    * 站点账号（中转站的网站账号）—— 一个用户只有一个，不属于任何一段。
    * 读的是 `lib/site-account.ts` 那个**共享 store**：侧栏那张卡、用户页、页头余额
@@ -1029,6 +1036,23 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
     });
   }
 
+  /**
+   * 改名 —— 后端 `PATCH /api/providers/custom/{id}` 早就收 `name` 了，
+   * 缺的只是界面上的入口（以前要改名只能删了重加，而重加得把 Key 再抄一遍）。
+   *
+   * 这里是**唯一**动名字的地方：`baseUrl` / `apiKey` / `models` 一个都不带，
+   * 免得「只想改个名」顺手把别的东西写坏（那个 PATCH 的语义就是「只改你传的字段」）。
+   */
+  async function renameCustom(row: CustomView, value: string) {
+    const name = value.trim();
+    setRenameId('');
+    if (!name || name === row.name) return;
+    await run('custom:rename:' + row.id, async () => {
+      await apiPatch(`/api/providers/custom/${row.id}`, { name });
+      return { ok: true, text: `已改名为「${name}」。` };
+    });
+  }
+
   /** 勾 / 取消一个用途。用途是**多选**的：一个模型可以同时出图 + 出视频 + 当文本用。 */
   async function toggleKind(row: CustomView, modelId: string, kind: Kind, on: boolean) {
     const current = row.models.find(item => item.id === modelId);
@@ -1115,7 +1139,25 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
           return <div key={row.id} className="ms-custom-row" data-ms-custom={row.id} data-ms-custom-in={kind}>
             <div className="ms-custom-head">
               <div>
-                <strong>{row.name}</strong>
+                {renameId === row.id ? (
+                  <input
+                    className="ms-rename"
+                    data-ms-custom-rename-input={row.id}
+                    value={renameText}
+                    autoFocus
+                    maxLength={60}
+                    aria-label="接口名称"
+                    onChange={event => setRenameText(event.target.value)}
+                    onBlur={() => { void renameCustom(row, renameText); }}
+                    onKeyDown={event => {
+                      if (event.key === 'Enter') { event.preventDefault(); void renameCustom(row, renameText); }
+                      /* Esc 只退出编辑，不落盘 —— 与「失焦即保存」配对，给一条后悔的路。 */
+                      if (event.key === 'Escape') { setRenameId(''); }
+                    }}
+                  />
+                ) : (
+                  <strong data-ms-custom-title={row.id}>{row.name}</strong>
+                )}
                 <div className="ms-host">{row.baseUrl}</div>
                 {/* 上次拉取的失败原因**就摆在行里**：状态徽章只有「连不上」三个字，说不清是 Key 错还是地址错。 */}
                 {row.errorMessage && <div className="ms-error" data-ms-custom-error={row.id}>{row.errorMessage}</div>}
@@ -1136,6 +1178,8 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
                 </button>
                 <button className="button secondary" disabled={busy !== ''} data-ms-custom-toggle={row.id}
                   onClick={() => toggleCustom(row)}>{row.enabled ? '停用' : '启用'}</button>
+                <button className="button secondary" disabled={busy !== ''} data-ms-custom-rename={row.id}
+                  onClick={() => { setRenameId(row.id); setRenameText(row.name); }}>重命名</button>
                 <button className="button secondary" disabled={busy !== ''} data-ms-custom-del={row.id}
                   onClick={() => removeCustom(row.id)}>删除</button>
               </div>

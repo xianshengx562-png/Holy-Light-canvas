@@ -6,7 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { db } from '@/lib/db';
 import { storageRoot } from '@/lib/storage-root';
-import { mediaRoot, outputRoot } from '@/lib/output-dir';
+import { mediaRoot, outputRoot, resolveStoredPath } from '@/lib/output-dir';
+import { runtimePaths } from '@/lib/runtime-paths';
 
 /**
  * 视频拼接工具的后半段 —— FFmpeg 那一层。
@@ -31,7 +32,7 @@ import { mediaRoot, outputRoot } from '@/lib/output-dir';
 const CONFIG_NAME = 'video-ffmpeg.json';
 const IS_WIN = process.platform === 'win32';
 
-type Binaries = { ffmpeg: string; ffprobe: string; source: 'custom' | 'detected' | 'none' };
+type Binaries = { ffmpeg: string; ffprobe: string; source: 'bundled' | 'custom' | 'detected' | 'none' };
 type Stored = { ffmpeg?: string; ffprobe?: string };
 
 let cache: Binaries | undefined;
@@ -112,6 +113,24 @@ async function scanDirs(): Promise<string[]> {
   return out;
 }
 
+/**
+ * 随包分发的那一份 —— 安装目录下 `resources/ffmpeg/`（见 package.json 的 `extraResources`）。
+ *
+ * 这一档是「新装的机器开箱能用」的唯一保证：以前要用户自己下 FFmpeg、自己在带 git hash
+ * 的目录里找到 `bin`、再填进来 —— 对不写代码的人等于「这个功能坏了」。
+ */
+function bundledDir(): string {
+  return path.join(runtimePaths().resourcesDir, 'ffmpeg');
+}
+
+async function bundledBinaries(): Promise<Binaries | null> {
+  const dir = bundledDir();
+  const ffmpeg = path.join(dir, exe('ffmpeg'));
+  if (!(await isFile(ffmpeg))) return null;
+  const ffprobe = path.join(dir, exe('ffprobe'));
+  return { ffmpeg, ffprobe: (await isFile(ffprobe)) ? ffprobe : '', source: 'bundled' };
+}
+
 async function detect(): Promise<Binaries | null> {
   for (const dir of [...FIXED_DIRS, ...(await scanDirs())]) {
     const ffmpeg = path.join(dir, exe('ffmpeg'));
@@ -139,16 +158,30 @@ async function readStored(): Promise<Stored | null> {
 /**
  * 生效中的 ffmpeg / ffprobe。
  *
- * 顺序：**用户配的 → 自动探测**。配过但文件又没了（换机器、删了目录）就退回自动探测，
+ * 顺序：**用户自选 → 随包自带 → 自动探测**。配过但文件又没了（换机器、删了目录）就退回后两档，
  * 而不是报「找不到」—— 那种时候自动探测往往能救回来。
  */
 export async function binaries(): Promise<Binaries> {
   if (cache) return cache;
+  /*
+   * 顺序：**用户自选 → 随包自带 → 自动探测**。
+   *
+   * 自带的排在探测前面，是因为探测那条路只在徐先这台机器上刚好命中
+   * （`D:\ai\ffmpeg-2026-…`），换台机器就什么都没有。
+   *
+   * 但**用户显式指定过就还听他的** —— 他可能就是想用自己那份更新的版本；
+   * 把显式配置压在自带后面，症状会是「我明明设了却没生效」，比不内置还难查。
+   */
   const stored = await readStored();
   const configured = String(stored?.ffmpeg || '').trim();
   if (configured && (await isFile(configured))) {
     const ffprobe = String(stored?.ffprobe || '').trim();
     cache = { ffmpeg: configured, ffprobe: ffprobe && (await isFile(ffprobe)) ? ffprobe : '', source: 'custom' };
+    return cache;
+  }
+  const bundled = await bundledBinaries();
+  if (bundled) {
+    cache = bundled;
     return cache;
   }
   cache = (await detect()) ?? { ffmpeg: '', ffprobe: '', source: 'none' };
@@ -159,14 +192,20 @@ export async function binaries(): Promise<Binaries> {
 export async function ffmpegStatus(): Promise<Binaries & { ok: boolean; message: string; version: string }> {
   const bin = await binaries();
   if (!bin.ffmpeg) {
-    return { ...bin, ok: false, message: '没找到 FFmpeg —— 在下面选一下 ffmpeg.exe（同目录有 ffprobe.exe 最好）。', version: '' };
+    return { ...bin, ok: false, message: 'FFmpeg 没找到 —— 随包自带的那份似乎不在了（安装包可能被裁过），在下面选一个 ffmpeg.exe（同目录有 ffprobe.exe 最好）。', version: '' };
   }
   const probe = await runCapture([bin.ffmpeg, '-version'], 15000);
   const version = probe.stdout.split(/\r?\n/).find(Boolean)?.trim() ?? '';
   if (probe.code) {
     return { ...bin, ok: false, message: `FFmpeg 跑不起来：${probe.stderr.trim() || '未知原因'}`, version: '' };
   }
-  const message = bin.ffprobe ? 'FFmpeg 与 FFprobe 都就绪。' : '找到了 FFmpeg，但同目录没有 ffprobe —— 换一个带 ffprobe 的目录。';
+  const message = !bin.ffprobe
+    ? '找到了 FFmpeg，但同目录没有 ffprobe —— 换一个带 ffprobe 的目录。'
+    : bin.source === 'bundled'
+      ? 'FFmpeg 与 FFprobe 都就绪（软件自带，不用自己下载）。'
+      : bin.source === 'custom'
+        ? 'FFmpeg 与 FFprobe 都就绪（用的是你指定的那一份）。'
+        : 'FFmpeg 与 FFprobe 都就绪。';
   return { ...bin, ok: Boolean(bin.ffprobe), message, version };
 }
 
@@ -363,8 +402,9 @@ export async function resolveMaterial(assetId: string, userId: string): Promise<
   if (!asset) throw new Error('这个素材不在资产库里，或者不属于当前账号。');
   const meta = (asset.metadata || {}) as { path?: string };
   if (!meta.path) throw new Error('这个素材没落盘 —— 重新上传一次再试。');
-  if (!(await isFile(meta.path))) throw new Error('这个素材的文件已经不在盘上了 —— 重新上传一次再试。');
-  return { assetId: asset.id, name: asset.name, type: asset.type, path: meta.path, url: asset.url, width: 0, height: 0 };
+  const file = await resolveStoredPath(meta.path);
+  if (!(await isFile(file))) throw new Error('这个素材的文件已经不在盘上了 —— 重新上传一次再试。');
+  return { assetId: asset.id, name: asset.name, type: asset.type, path: file, url: asset.url, width: 0, height: 0 };
 }
 
 /* ------------------------------------------------------------------ *

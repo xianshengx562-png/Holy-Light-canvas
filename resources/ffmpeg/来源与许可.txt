@@ -1,0 +1,15 @@
+FFmpeg / FFprobe（随 Holy Light画布 一起分发，用户不必自己下载）
+
+来源：https://github.com/BtbN/FFmpeg-Builds
+文件：ffmpeg-2026-07-27-git-a757b708ae-essentials_build（win64）
+版本：ffmpeg version 2026-07-27-git-a757b708ae-essentials_build-www.gyan.dev
+
+许可：该构建以 GPL v3 发布（内含 libx264 等 GPL 组件）。
+      许可证全文见 https://www.gnu.org/licenses/gpl-3.0.html
+      源码可从 https://ffmpeg.org/download.html 与上述 BtbN 仓库获取。
+
+打包位置：electron-builder 的 extraResources → 安装后位于 <安装目录>\resources\ffmpeg\
+          运行时代码按「内置 → 用户自选 → 自动探测」的顺序取用（lib/video-ffmpeg.ts）。
+
+注意：这两个 exe 各约 98 MB，**不进 git 仓库**（见 .gitignore），
+      构建前若目录为空，从上面那个来源重新下同一版拷进来即可。

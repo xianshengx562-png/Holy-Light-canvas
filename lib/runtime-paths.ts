@@ -35,6 +35,8 @@ export type RuntimePaths = {
   logsDir: string;
   /** 运行时（管道名、实例标记这类一次性的东西）。 */
   runDir: string;
+  /** 随包分发的原生资源（llama.cpp、ffmpeg）。打包后就是 `<安装目录>/resources`。 */
+  resourcesDir: string;
   /** 配置（`.env`、输出目录配置）。 */
   configDir: string;
   envPath: string;
@@ -45,6 +47,7 @@ const ENV_KEYS = {
   dataDir: 'HOLYLIGHT_DATA_DIR',
   storageDir: 'HOLYLIGHT_LOCAL_STORAGE',
   logsDir: 'HOLYLIGHT_LOGS_DIR',
+  resourcesDir: 'HOLYLIGHT_RESOURCES_DIR',
 } as const;
 
 function pick(value: string | undefined | null, fallback?: string | null): string | null {
@@ -63,17 +66,30 @@ function defaultAppDir(): string {
   return path.resolve(__dirname, '..', '..');
 }
 
-export function resolveRuntimePaths(init: { appDir?: string | null; dataDir?: string | null; storageDir?: string | null; logsDir?: string | null } = {}): RuntimePaths {
+/**
+ * 随包资源目录的兜底。
+ *
+ * 打包后 `appDir` 是 `<安装目录>/resources/app.asar` —— 资源在它的**上一级**；
+ * 开发态（直接 `next dev`，没有 electron）`appDir` 就是工程根，资源在 `<工程根>/resources/`。
+ * 这两个位置拼出来刚好都叫 `resources`，所以 `lib/video-ffmpeg.ts` 那边只拼一次子目录名就行。
+ */
+function defaultResourcesDir(appDir: string): string {
+  return appDir.includes('.asar') ? path.dirname(appDir) : path.join(appDir, 'resources');
+}
+
+export function resolveRuntimePaths(init: { appDir?: string | null; dataDir?: string | null; storageDir?: string | null; logsDir?: string | null; resourcesDir?: string | null } = {}): RuntimePaths {
   const appDir = pick(init.appDir, process.env[ENV_KEYS.appDir]) ?? defaultAppDir();
   const configuredDataDir = pick(init.dataDir, process.env[ENV_KEYS.dataDir]);
   const portable = Boolean(configuredDataDir);
   const dataDir = configuredDataDir ?? path.join(appDir, 'data');
   const storageDir = pick(init.storageDir, process.env[ENV_KEYS.storageDir]) ?? path.join(dataDir, 'storage');
   const logsDir = pick(init.logsDir, process.env[ENV_KEYS.logsDir]) ?? path.join(dataDir, 'logs');
+  const resourcesDir = pick(init.resourcesDir, process.env[ENV_KEYS.resourcesDir]) ?? defaultResourcesDir(appDir);
   return {
     appDir,
     dataDir,
     portable,
+    resourcesDir,
     dbDir: path.join(dataDir, 'data'),
     storageDir,
     logsDir,
@@ -100,6 +116,7 @@ export function configureRuntimePaths(init: Parameters<typeof resolveRuntimePath
   process.env[ENV_KEYS.dataDir] = current.dataDir;
   process.env[ENV_KEYS.storageDir] = current.storageDir;
   process.env[ENV_KEYS.logsDir] = current.logsDir;
+  process.env[ENV_KEYS.resourcesDir] = current.resourcesDir;
   return current;
 }
 
@@ -116,5 +133,6 @@ export function runtimePathEnv(): Record<string, string> {
     [ENV_KEYS.dataDir]: p.dataDir,
     [ENV_KEYS.storageDir]: p.storageDir,
     [ENV_KEYS.logsDir]: p.logsDir,
+    [ENV_KEYS.resourcesDir]: p.resourcesDir,
   };
 }

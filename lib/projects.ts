@@ -3,7 +3,7 @@ import { rm, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { db } from '@/lib/db';
 import { ApiError } from '@/lib/api';
-import { latentRoot } from '@/lib/output-dir';
+import { latentRoot, resolveStoredPath } from '@/lib/output-dir';
 export function projectName(value: unknown) { if (typeof value !== 'string' || !value.trim() || value.trim().length > 80) throw new ApiError(400,'项目名称需要 1–80 个字符。'); return value.trim(); }
 /**
  * 卡片封面：从**这个项目自己生成的图片资产**里随机挑一张。
@@ -117,8 +117,9 @@ export async function deleteProject(userId: string, id: string): Promise<DeleteP
   let filesLeft = 0;
   for (const asset of assets) {
     /* 磁盘路径藏在 `metadata.path`（`lib/media.ts` 落盘时写进去的），不在 url 里。 */
-    const file = (asset.metadata as { path?: string } | null)?.path || '';
-    if (!file) continue;
+    const stored = (asset.metadata as { path?: string } | null)?.path || '';
+    if (!stored) continue;
+    const file = await resolveStoredPath(stored);
     try {
       await unlink(file);
       filesRemoved += 1;

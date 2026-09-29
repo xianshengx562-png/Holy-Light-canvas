@@ -27,6 +27,7 @@ import { GENERATOR_KINDS, generatorKindNoun, readGeneratorKind } from '@/lib/wor
 import { readWorkflowOperation, WORKFLOW_OPERATIONS, workflowOperationLabel } from '@/lib/workflows/operation';
 import { resolveUpscaleInput } from '@/lib/upscale';
 import { resolveAudioInput, resolveAudioInputs, resolveReferenceImages, resolveVideoInput, resolveVideoInputs } from '@/lib/referenceImages';
+import { DUPLICATE_WINDOW_MS, isDuplicateSubmit } from '@/lib/submitGuard';
 
 const schema = z.object({
   nodeId: z.string().min(1).max(120),
@@ -67,6 +68,8 @@ const schema = z.object({
    */
   engine: z.string().max(20).optional(),
   instanceType: z.enum(['default', 'plus', 'ultra']).optional(),
+  /** 「我就是要再跑一次」：跳过防重复提交那道闸（放弃 / 重跑用）。 */
+  force: z.boolean().optional(),
   bindingValues: z.object({
     prompt: z.string().max(40000).optional(), duration: z.string().max(20).optional(),
     aspectRatio: z.string().max(100).optional(), megapixels: z.string().max(20).optional(),
@@ -179,6 +182,34 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (sizeError) throw new ApiError(400, sizeError);
     const project = await db.project.findFirst({ where: { id, userId: user.id }, select: { id: true } });
     if (!project) throw new ApiError(404, '项目不存在。');
+
+    /*
+     * 防重复提交（2026-09-29）：同一个节点 60 秒内已经有在跑的任务 ——
+     * 直接把那一条交回去，不建新任务、也就不扣第二次积分。
+     *
+     * 为什么不是「按参数指纹去重」：`idempotencyKey` 里带 `Date.now()`，
+     * 所以「重试不会重复扣」那句老注释其实是假的 —— 两笔提交的 key 必然不同，
+     * 账本去重永远命中不了。而按参数指纹去重会让「同参数再来一张」变成白嫖，
+     * 那是另一种 bug。所以按**时间窗**：挡住双击与两个窗口，窗口之外照旧出新任务。
+     *
+     * `force` 是「我就是要再跑一次」的口子（放弃 / 重跑走它）。
+     */
+    if (!input.force) {
+      const recent = await db.task.findFirst({
+        where: {
+          userId: user.id, projectId: id, nodeId: input.nodeId,
+          status: { in: ['queued', 'running'] },
+          createdAt: { gte: new Date(Date.now() - DUPLICATE_WINDOW_MS) },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, externalTaskId: true, createdAt: true },
+      });
+      if (recent && isDuplicateSubmit(new Date(recent.createdAt).getTime(), Date.now())) {
+        return Response.json({
+          taskId: recent.id, externalTaskId: recent.externalTaskId, status: 'RUNNING', deduped: true,
+        });
+      }
+    }
     /*
      * 用途核对。视频与图片用的是两套不同的工作流，选错的症状是**任务成功、但产出是另一种媒体** ——
      * 没有报错、也没有任何界面会提示，只能靠人眼看结果。所以这里必须硬拦：

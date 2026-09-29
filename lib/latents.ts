@@ -4,7 +4,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { db } from '@/lib/db';
-import { latentRoot } from '@/lib/output-dir';
+import { latentRoot, resolveStoredPath } from '@/lib/output-dir';
 import { isMediaResult } from '@/lib/media';
 
 export const latentAssetPrefix = 'asset:';
@@ -163,7 +163,7 @@ export async function readLatentFile(assetId: string, userId: string) {
   if (!asset) throw new Error('latent 不存在或无权访问。');
   const meta = (asset.metadata || {}) as { path?: string; sequence?: string; kind?: string };
   if (!meta.path) throw new Error('该 latent 未落盘，无法用于续接。');
-  const packed = await readFile(/*turbopackIgnore: true*/ meta.path);
+  const packed = await readFile(/*turbopackIgnore: true*/ await resolveStoredPath(meta.path));
   return {
     buffer: gunzipSync(packed),
     fileName: `${meta.sequence || 'L000'}-${meta.kind === 'fine' ? 'fine' : 'coarse'}.latent`,

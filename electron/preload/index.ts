@@ -256,6 +256,12 @@ contextBridge.exposeInMainWorld('api', {
   codexNewThread: () => ipcRenderer.invoke('codex-new-thread') as Promise<CodexStatus>,
   /** 登录 Codex：主进程拿 OAuth 地址交给系统浏览器，这里只是触发。 */
   codexLogin: () => ipcRenderer.invoke('codex-login') as Promise<{ ok: boolean; message: string }>,
+  /**
+   * 把这张画布交给 WorkBuddy（2026-09-30）：提示词进剪贴板 + 唤起它。
+   * WorkBuddy 是另一个应用（不像 Codex 那样养在这个进程里），所以这里只有「交代过去」这一件事。
+   */
+  workbuddyLaunch: (payload: { projectId: string; projectName: string; ask?: string }) =>
+    ipcRenderer.invoke('workbuddy-launch', payload) as Promise<{ ok: boolean; message: string; copied: boolean }>,
   onCodexEvent: (listener: (event: CodexEvent) => void) => {
     const handler = (_event: unknown, event: CodexEvent) => listener(event);
     ipcRenderer.on('codex:event', handler);

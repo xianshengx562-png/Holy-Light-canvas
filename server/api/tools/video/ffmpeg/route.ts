@@ -16,8 +16,11 @@ export async function POST(request: Request) {
   return api(async () => {
     checkOrigin(request);
     const body = await jsonBody(request);
+    /*
+     * 空串是**一个有效指令**：清掉自定义配置、回到随包自带的那一份。
+     * 以前这里把空串当参数错误挡掉了，于是「用回自带的」这件事没有入口。
+     */
     const value = String(body.path ?? '').trim();
-    if (!value) throw new ApiError(400, '先选一个 ffmpeg.exe，或者它的 bin 目录。');
     return Response.json(await saveFfmpeg(value));
   });
 }
