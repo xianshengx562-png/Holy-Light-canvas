@@ -1,0 +1,53 @@
+/* ============================================================
+   批量选择工具条（`components/ui/SelectionBar.tsx`）—— 项目页与资产页共用。
+
+   两页的容器宽度不一样（首页/项目页是 `.content.home`，资产页是 `.content`），
+   所以这里不写死宽度，只做「一条横条」的版式：左边状态、中间省略、右边动作。
+
+   ⚠️ 不进 `globals.css`：它是这两个组件自己的交互件，跟着组件走。
+   颜色一律走语义令牌，不出现裸色值。
+   ============================================================ */
+
+.sb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 14px;
+  padding: 8px 12px;
+  min-height: 46px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+
+/* 进入选择模式后整条点亮一点：它现在是「当前状态」而不是一句提示。 */
+.sb[data-sb-mode='picking'] {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.sb-idle { background: transparent; border-style: dashed; }
+.sb-hint { font-size: 12px; }
+.sb-spacer { flex: 1; }
+.sb-count { font-size: 12.5px; font-weight: 600; }
+
+/*
+ * 工具条上的按钮统一矮一号（30px），否则一条工具条里塞着 36px 的全局按钮 + 26px 的
+ * 小按钮，高度参差不齐，看着像没对齐。
+ */
+.sb .button.small,
+.sb .subtle {
+  height: 30px;
+  padding: 0 11px;
+  font-size: 12px;
+}
+
+/* 批量动作前面那句说明（比如「归类（只对图片生效）」）：比按钮小一号，别抢戏。 */
+.sb-label { font-size: 12px; }
+
+/* 批量动作里那排分类 chip：与资产页筛选器同一套观感，只是矮一点。 */
+.sb-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.sb-chips .assets-chip { height: 28px; padding: 0 10px; font-size: 12px; }
+/* chip 被禁用时（还没勾任何一项）压暗；全局那套只对 button 生效，这里是自己画的。 */
+.sb-chips .assets-chip:disabled { opacity: 0.45; cursor: not-allowed; }

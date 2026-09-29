@@ -1,0 +1,89 @@
+{
+  "name": "holy-light-canvas",
+  "version": "1.0.32",
+  "private": true,
+  "description": "Holy Light画布桌面版：electron-vite 单进程结构，无本地 HTTP 服务、无外部数据库，数据存 userData 的 JSON",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "dist": "electron-vite build && electron-builder --win --dir",
+    "installer": "electron-vite build && electron-builder --win nsis"
+  },
+  "dependencies": {
+    "@xyflow/react": "^12.11.6",
+    "electron-updater": "^6.8.9",
+    "lucide-react": "^1.45.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "zod": "^4.6.4",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "44.4.2",
+    "electron-vite": "^4.0.1",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vite": "^6.0.0"
+  },
+  "build": {
+    "appId": "cn.holylight.canvas",
+    "productName": "Holy Light画布",
+    "electronDist": "node_modules/electron/dist",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "out/**/*",
+      "package.json",
+      "builtin-skills/**/*",
+      "integrations/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/llama.cpp",
+        "to": "llama.cpp"
+      },
+      {
+        "from": "build/icon.ico",
+        "to": "icon.ico"
+      },
+      {
+        "from": "build/app-update.yml",
+        "to": "app-update.yml"
+      }
+    ],
+    "electronLanguages": [
+      "zh-CN",
+      "en-US"
+    ],
+    "win": {
+      "target": [
+        "dir",
+        "nsis"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "artifactName": "Holy-Light-Setup-${version}.${ext}",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "Holy Light画布"
+    },
+    "portable": {
+      "artifactName": "Holy-Light-${version}-便携版.${ext}"
+    },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://github.com/xianshengx562-png/Holy-Light-canvas/releases/latest/download/"
+      }
+    ]
+  }
+}

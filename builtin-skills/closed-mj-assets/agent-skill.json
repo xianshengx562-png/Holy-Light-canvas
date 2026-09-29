@@ -1,0 +1,12 @@
+{
+  "instructionReferences": [
+    "references/construction-method.md",
+    "references/vocabulary.md",
+    "references/approach-matrix.md",
+    "references/params-shared.md",
+    "references/translation-zh.md",
+    "references/grading-rubric.md",
+    "references/failure-modes.md",
+    "references/model-parameters.md"
+  ]
+}

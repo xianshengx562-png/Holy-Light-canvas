@@ -1,0 +1,15 @@
+{
+  "instructionReferences": [
+    "references/style-contract.md",
+    "references/cases/00-original-style-excerpts.md",
+    "references/cases/index.md",
+    "references/action-patterns.md",
+    "references/directing-manual.md",
+    "references/prompt-template.md",
+    "references/revision-checklist.md",
+    "references/cases/01-coin-swordsman.md",
+    "references/cases/02-blood-umbrella.md",
+    "references/cases/03-phoenix-buddha.md",
+    "references/cases/04-taoist-dragon.md"
+  ]
+}

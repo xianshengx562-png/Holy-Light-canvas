@@ -1,0 +1,159 @@
+/* ============================================================
+   页面装饰层 —— 首页（`app/page.tsx`）那层底纹，样式由 `Backdrop.tsx` 自己 import
+   （和 `home.css` 同一条规矩：CSS 要跟着用它的组件走，写在别人的文件里那个页面拿不到）。
+
+   ⚠️ 2026-09-19 从「星空」换成了「工业底纹」。
+   用户指定的是 ak.hypergryph.com 那套语言（截图见 archive）。原来那版是
+   星云 + 星点 + 闪烁 —— 那是「夜空」的逻辑，和工业冷感不搭：
+   彩色星云尤其明显，它在新配色下就是一片发糊的脏底。
+
+   新版撑质感的是三样，从上到下依次：
+     ① 网格   —— 极细的发丝线，两种密度叠在一起（密网格 + 每 5 格的粗网格）
+     ② 斜切块 —— 几个用 linear-gradient 画出来的大四边形，只比底色亮一点点
+     ③ 颗粒   —— 一层噪点（噪点图是内联的 SVG data URI，见下）
+
+   ⚠️ **不许出现裸色值**。所有颜色只在 `app/globals.css` 的
+   `:root` / `:root[data-theme='light']` 两处定义，这里一律 `var()` 引用 ——
+   日间模式靠那份覆盖块兜住，这里写死一个色号，日间就会变成白底白线。
+   ⚠️ 内联 SVG 里那两个颜色例外：它是「噪点图」不是「页面配色」，
+   `feColorMatrix` 会把所有通道统一成同一个值，所以它跟主题无关。这是
+   「组件样式零裸色值」那条守卫唯一放行的一处，改之前先看它的白名单。
+
+   ⚠️ 文件名没跟着改（还叫 starfield.css）：`.run-*.py` 里有一条守卫显式检查
+   这个路径，改名要连脚本一起改；而且 `home.css` 的注释里也引用了它。
+   ============================================================ */
+
+/* 钉在视口上的一层：比 body 底色高、比所有内容低（z-index 只在定位元素上生效）。
+   `pointer-events: none` 不能省 —— 这一层盖满整屏，能吃点击的话首页按钮就全废了。 */
+.starfield {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.starfield-layer {
+  position: absolute;
+  inset: 0;
+  display: block;
+  pointer-events: none;
+}
+
+/* ---------- 1. 网格 ----------
+   两层叠在一起：小格 32px、大格 160px（= 5 个小格）。
+   两层都用 `background-size` 铺重复线，所以周期是 32 与 160 ——
+   合起来的重复周期是 160，看着不会像单一周期的表格。
+
+   `linear-gradient(... 0 1px, transparent 1px)` 是画 1px 线的标准写法：
+   前两个色停之间填色，后面全透明。用 `background-size` 定周期，
+   不需要额外的伪元素或 border。 */
+.starfield-mesh {
+  background-image:
+    linear-gradient(to right, var(--mesh-line) 0 1px, transparent 1px),
+    linear-gradient(to bottom, var(--mesh-line) 0 1px, transparent 1px),
+    linear-gradient(to right, var(--mesh-line-strong) 0 1px, transparent 1px),
+    linear-gradient(to bottom, var(--mesh-line-strong) 0 1px, transparent 1px);
+  background-size:
+    32px 32px,
+    32px 32px,
+    160px 160px,
+    160px 160px;
+  background-position: 0 0, 0 0, 0 0, 0 0;
+  background-repeat: repeat;
+}
+
+/* ---------- 2. 斜切块 ----------
+   四个大四边形，靠 `linear-gradient` 的角度 + `transparent` 硬切出来
+   （不用 clip-path：那个会强制开一层合成层，而这一层是满屏的）。
+   只比底色亮一点点（--shard 的不透明度在令牌里压到 0.014），
+   目的是让大片黑色「不是一块死黑」，而不是让人一眼看见四个块。 */
+.starfield-shards {
+  background-image:
+    linear-gradient(118deg, transparent 0 22%, var(--shard) 22% 41%, transparent 41%),
+    linear-gradient(118deg, transparent 0 63%, var(--shard) 63% 78%, transparent 78%),
+    linear-gradient(72deg, transparent 0 12%, var(--shard) 12% 19%, transparent 19%),
+    linear-gradient(72deg, transparent 0 84%, var(--shard) 84% 96%, transparent 96%);
+  background-repeat: no-repeat;
+}
+
+/* 斜切块的边：一条比块本身亮一档的细线，这才是「工业感」的来源 ——
+   有它才看得出那些块是**结构**，没有它就只是几片更黑的灰。 */
+.starfield-shards::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(118deg, transparent 0 22%, var(--shard-line) 22% calc(22% + 1px), transparent calc(22% + 1px)),
+    linear-gradient(118deg, transparent 0 41%, var(--shard-line) 41% calc(41% + 1px), transparent calc(41% + 1px)),
+    linear-gradient(72deg, transparent 0 12%, var(--shard-line) 12% calc(12% + 1px), transparent calc(12% + 1px)),
+    linear-gradient(72deg, transparent 0 96%, var(--shard-line) 96% calc(96% + 1px), transparent calc(96% + 1px));
+  background-repeat: no-repeat;
+}
+
+/* ---------- 3. 颗粒 ----------
+   噪点图是一段内联 SVG：`feTurbulence` 生成分形噪声，再被 `feColorMatrix`
+   抽成灰阶。`baseFrequency` 0.8 是实拍调的 —— 低于 0.6 会看出「云」的团块感，
+   高于 1 在高分屏上又糊成一片灰。
+
+   ⚠️ 强度只在令牌里（--grain）。噪点这东西最能毁掉一个界面：
+   它一旦亮到能被「看见」，整页就像蒙了层沙。 */
+.starfield-grain {
+  opacity: var(--grain);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 140px 140px;
+  background-repeat: repeat;
+  /* 颗粒必须混合进底色，否则它就是一整片半透明灰罩在上面（整页会发白）。 */
+  mix-blend-mode: overlay;
+}
+
+/* ---------- 4. 暗角 ----------
+   盖在最后 = 画在最上层。把四角压下去，视线自然收在中间。
+   终点停在 128% 而不是 100%：让 `--bg` 永远不真正铺满，
+   否则四角干净得像没画过东西。 */
+.starfield-vignette {
+  background: radial-gradient(140% 110% at 50% 38%, transparent 48%, var(--bg) 128%);
+}
+
+/* ============================================================
+   5. 鼠标交互：视差
+
+   只有这一条 —— 原先并排还有一个「光标波纹」，按需求已移除（用户不要那个）。
+   它在 JS 里节流好了，CSS 这边只负责把变量翻译成位移。
+   ⚠️ JS 只写派生输入 `--sf-px` / `--sf-py`（-1 ~ 1 的无单位数），
+   **绝不直接写 transform** —— 乘数留在 CSS 里，调手感不用改 JS。
+
+   ⚠️ 换皮之后**只有网格层参与视差**：
+   原来三层各乘不同系数（星云 10px / 远星 7px / 近星 22px）靠「相对位置变化」做出纵深。
+   现在网格是一张连续的结构网，按不同系数位移会让它**对不上缝**——
+   线断开的那一瞬间非常刺眼。所以改成整层同速轻移（12px），
+   它只负责让画面「不是死的」，纵深交给斜切块与暗角去表达。
+   ============================================================ */
+
+/* `will-change: transform`：网格层是满屏的重复背景，不提前提升成合成层的话，
+   每次改 transform 都要**重绘整整一屏** —— 那才是真正的性能坑，不是那几像素的位移。 */
+.starfield-mesh { will-change: transform; }
+
+.starfield-mesh {
+  transform: translate3d(calc(var(--sf-px, 0) * 12px), calc(var(--sf-py, 0) * 12px), 0);
+}
+
+/* ============================================================
+   6. 首页的侧栏与页头换成毛玻璃，底纹才透得过来
+   globals.css 里那份是实心的（那些页面没有底纹，透过去只会显得脏）。
+   加 `.home-shell` 前缀而不是直接改公共类：别的页面还在用那一份。
+   ============================================================ */
+/* 2026-09-22：首页的毛玻璃侧栏**整个去掉了**。
+   它是为「透出底纹」存在的，而极简这套里底纹整层是透明的（没有东西可透），
+   半透明侧栏只会让页头底下的字糊一层 —— 两套主题都回到 globals 那份实心。 */
+
+/*
+   页头**不做成「一条」**（2026-09-21 夜，徐先：上面那条和画面不合，要融入画面）。
+   原来是毛玻璃横条 + 一条底线亮线，横在黑底上像贴上去的贴条。
+   现在换成一段**向下渐隐的底色**：顶上 26% 仍是实底（collapsed 时内容会从页头底下
+   滚过去，这一段保住文字可读），往下渐渐让给黑底 —— 没有边、没有线，自然融进画面。
+   ⚠️ 毛玻璃（backdrop-filter）必须一起关掉：半透明模糊块本身就是一个「看得出边界」的东西。
+   ⚠️ 只覆盖 `.home-shell`：别的页面没有底纹，globals 那份实心 + 底线照旧。
+*/
+/* 同理：页头那条「向下渐隐」也是为融进底纹做的，极简里回到 globals 的实心 + 底线。 */
+

@@ -1,0 +1,441 @@
+/* ============================================================
+   图片生成全页界面（/image → components/start/ImageStudio.tsx）
+
+   版式照徐先给的参考：左侧历史缩略图栏 + 中间大区 + 底部居中生成条。
+   ⚠️ 由 ImageStudio.tsx 自己 import —— 组件样式跟着用它的组件走。
+   ⚠️ 全段不允许裸色值：一律 var()，日间模式靠 globals 的令牌覆盖块兜住。
+   ============================================================ */
+
+/* 这一页不沿用 `.content` 的限宽居中：三段式要铺满 header 以下的整页。
+   ⚠️ margin-top 必须是 0：这页的 workspace-header 是**在文档流里的**（72px 高，
+   globals 默认 relative；首页那套「fixed 头 + margin-top 92px」是 home.css 自己改的）。
+   照搬 92px 就是双重偏移，底部生成条会被顶出视口（实测过）。 */
+.content.studio-page {
+  max-width: none;
+  min-height: 0;
+  margin: 0;
+  padding: 0 20px 0 24px;
+  height: calc(100vh - 72px);
+  display: flex;
+  flex-direction: column;
+}
+
+.studio { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+/* 历史栏 + 大区占一行，生成条单独一行压在底部。 */
+/*
+ * `position: relative` 是给空态那块绝对定位的牌子当基准 —— 它的居中以**整个生成区**
+ * 为准，不是以大区为准（理由见 `.studio-empty` 那段）。
+ */
+.studio-main { position: relative; flex: 1; min-height: 0; display: flex; gap: 14px; }
+
+/* ---------- 左侧历史栏 ---------- */
+.studio-rail {
+  flex: none;
+  width: 76px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+}
+.studio-rail-item { flex: none; }
+.studio-rail-item img {
+  display: block;
+  width: 60px;
+  height: 60px;
+  object-fit: cover;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  transition: border-color var(--t-fast);
+}
+.studio-rail-item:hover img { border-color: var(--accent-line); }
+.studio-rail-empty { font-size: 11px; color: var(--text-mute); writing-mode: vertical-rl; margin: auto; }
+
+/* ---------- 中间大区 ---------- */
+.studio-stage {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  place-items: center;
+}
+/*
+ * 空态 / 出图中那块牌子：**铺满整个 `.studio-main` 再在自己的格子里居中**。
+ *
+ * ⚠️ 别再放回 `.studio-stage` 里居中 —— 大区是从历史栏（76px）+ 间距（14px）之后才开始的，
+ *    照它居中，块心会比整个生成区的中线**右 45px**（2026-09-26 实测）。
+ * ⚠️ `place-content: center` 而不是 `place-items`：它是「大标题 + 一行小字」两行，
+ *    要整块居中；`place-items` 会把两行各自撑开、看起来还是散的。
+ * ⚠️ `pointer-events: none`：牌子而已，不许挡住历史栏和底下的大区。
+ */
+.studio-empty {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  text-align: center;
+  pointer-events: none;
+  padding: 0 24px;
+}
+.studio-empty h3 { margin: 0 0 8px; font-size: 19px; color: var(--text); }
+.studio-empty p { margin: 0; font-size: 12.5px; }
+
+.studio-stage-results {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  justify-content: center;
+  align-items: center;
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 8px;
+}
+.studio-stage-results img {
+  display: block;
+  max-width: 100%;
+  max-height: 56vh;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--line);
+  transition: border-color var(--t-fast);
+}
+.studio-stage-results a:hover img { border-color: var(--accent-line); }
+
+/* ---------- 底部生成条 ----------
+ *
+ * 2026-09-26 改成图 2 那样**上下两段**：
+ *   上段 `.studio-compose` 是一张卡片 —— 参考图一排（虚线加号常显）+ 提示词；
+ *   下段 `.studio-dockbar` 是**无边框**的一排：四颗参数胶囊 + 右侧 ✦ / 正圆发送。
+ *
+ * 原来所有东西挤在同一行（+ / 输入框 / 四个下拉 / 出图），参数把输入框挤成一条缝，
+ * 而且原生 select 方角 + 系统下拉箭头跟整页的胶囊手感对不上。
+ */
+.studio-dock {
+  flex: none;
+  width: min(860px, 100%);
+  margin: 0 auto;
+  padding-bottom: 20px;
+}
+
+.studio-compose {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  padding: 12px 14px 14px;
+  transition: border-color var(--t-fast);
+}
+.studio-compose:focus-within { border-color: var(--accent-line); }
+
+.studio-refs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.studio-ref { position: relative; }
+.studio-ref img {
+  display: block;
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+}
+.studio-ref-x {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  color: var(--text-dim);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: color var(--t-fast), border-color var(--t-fast);
+}
+.studio-ref-x:hover { color: var(--danger); border-color: var(--danger); }
+
+/* 传图那一格（图 2 的虚线方框）：跟旁边的实拍缩略图一样大，点它选图。 */
+.studio-ref-add {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  color: var(--text-mute);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: color var(--t-fast), border-color var(--t-fast);
+}
+.studio-ref-add:hover { color: var(--accent); border-color: var(--accent-line); }
+
+.studio-input {
+  display: block;
+  width: 100%;
+  /*
+   * 跟着内容长高：点一次「优化提示词」会塞进一整段（实测 400+ 字），钉死在 54px 会把文字
+   * **从半行处切开**，看着像坏了。`field-sizing` 是 Chromium 123+ 的属性 ——
+   * 不认它的浏览器退回 `rows={2}` 的两行，功能不受影响。
+   */
+  field-sizing: content;
+  min-height: 54px;
+  max-height: 168px;
+  overflow-y: auto;
+  resize: none;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  outline: none;
+}
+.studio-input::placeholder { color: var(--text-mute); }
+
+/* 下段：参数排。它**自己没有边框** —— 边框在上段那张卡上。 */
+.studio-dockbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.studio-spacer { flex: 1 1 auto; }
+
+/*
+ * 「优化时照 <技能>」那一格（2026-09-26）。
+ *
+ * ⚠️ 它跟旁边那四颗不一样：别的格只显示一个值（`16:9 横屏`），一看就知道是什么；
+ *    这里光写技能标题会被读成「用哪个技能出图」。所以把「优化时照」四个字**放进胶囊里**、
+ *    底色挪到外壳上 —— 整颗看起来还是跟旁边一样，但它自己说明了自己是干嘛的。
+ */
+.studio-pill.skill-pill {
+  gap: 6px;
+  padding-left: 12px;
+  background: var(--surface-2);
+  border-radius: 999px;
+  /*
+   * 🔴 hover / focus 那圈强调色线用**内阴影**画，不能用 border：
+   *    外壳每加 1px 描边，整颗就比旁边的胶囊**高 2px**（2026-09-26 实测 34 vs 32）——
+   *    旁边那几颗的线画在 select 自己的透明描边上，宽度恒定所以高度不跳；box-shadow 同理。
+   */
+  transition: box-shadow var(--t-fast);
+}
+.studio-pill.skill-pill:hover,
+.studio-pill.skill-pill:focus-within { box-shadow: inset 0 0 0 1px var(--accent-line); }
+.studio-pill-tag { font-size: 12px; line-height: 1.5; color: var(--text-mute); white-space: nowrap; }
+/*
+ * 壳已经上了底色，里面的 select 全透明。
+ * 🔴 它自己那套 hover / focus 描边必须一起压掉（`.studio-select:hover` 是 (0,2,1)，
+ *    这里 (0,3,1) 才盖得住）—— 否则鼠标一上去会在胶囊里再画一个小圆角框。
+ */
+.studio-pill.skill-pill .studio-select,
+.studio-pill.skill-pill .studio-select:hover,
+.studio-pill.skill-pill .studio-select:focus {
+  padding: 6px 25px 6px 0;
+  max-width: 210px;
+  background: transparent;
+  border-color: transparent;
+}
+.studio-pill.skill-pill .studio-select:hover,
+.studio-pill.skill-pill .studio-select:focus { color: var(--text); }
+
+/*
+ * 胶囊：外壳是 `.studio-pill`（定位 + 装那个自画的箭头），里面才是原生 `<select>`。
+ * 箭头得自己画 —— 系统那个下拉三角是方角表单的一部分，跟整页胶囊手感对不上。
+ */
+.studio-pill { position: relative; display: inline-flex; align-items: center; flex: none; }
+.studio-select {
+  /* globals 给表单控件的 width:100% / 方角 / 实心描边 / 输入框底色在这里都不成立。 */
+  width: auto;
+  max-width: 190px;
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 6px 25px 6px 12px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color var(--t-fast), border-color var(--t-fast);
+}
+.studio-select:hover,
+.studio-select:focus { color: var(--text); border-color: var(--accent-line); }
+.studio-pill > svg {
+  position: absolute;
+  right: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-mute);
+  pointer-events: none;
+}
+
+/*
+ * 右侧两个动作钮：优化提示词（✦）/ 出图（正圆）。
+ *
+ * 🔴 globals 里那条 `button` 自带 height:36px / padding:0 14px / gap:8px / 强调色底 /
+ *    描边 / white-space:nowrap —— 写死小尺寸时必须**逐条覆盖回来**，不然会被那套主按钮
+ *    样式吃掉（这页和模型服务页都踩过）。
+ */
+.studio-opt,
+.studio-go {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  gap: 0;
+  white-space: normal;
+  border-radius: 50%;
+  transition: color var(--t-fast), background var(--t-fast), border-color var(--t-fast);
+}
+.studio-opt {
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border: 1px solid transparent;
+}
+.studio-opt:hover:not(:disabled) { color: var(--accent); background: var(--accent-soft); }
+.studio-opt.on { color: var(--accent); }
+.studio-opt:disabled { opacity: 0.55; cursor: default; }
+
+/* 发送钮照图 2：**正圆**、无描边，只用强调色底 —— 与画布 dock 那个同款。 */
+.studio-go {
+  color: var(--accent-ink);
+  background: var(--accent-fill);
+  border: 0;
+}
+.studio-go:hover:not(:disabled) { background: var(--accent-fill-hover); }
+.studio-go:disabled { color: var(--text-mute); background: var(--surface-2); cursor: default; }
+
+.studio-error { margin: 8px 4px 0; font-size: 12.5px; color: var(--danger); }
+.studio-status { margin: 8px 4px 0; font-size: 12.5px; color: var(--text-mute); }
+
+/*
+ * 「长宽」那一格（2026-09-26）：默认显示换算出的读数（如 `1024 × 1024`），点开是小弹层。
+ *
+ * 徐先说的是「只能选那几个参数太单调」—— 所以那一格不再是下拉，而是**读数 + 弹层**：
+ * 弹层里两档，档位那档保留常用值（快捷 chip），同时给一个能直接敲的数字框。
+ */
+.studio-size { position: relative; flex: none; }
+
+/*
+ * 触发钮：外观要跟旁边那几颗 `<select>` 胶囊**完全一致**（同样的内边距 / 字号 / 圆角）。
+ *
+ * 🔴 globals 那条 `button` 自带 height:36px / padding:0 14px / gap:8px / 强调色底 / 方角，
+ *    而且 `button:disabled:hover` 是 (0,2,1) 会**反超**这里的 (0,1,0) —— 必须逐条写回来，
+ *    否则禁用那一瞬会闪成实心蓝（这页 `.studio-opt` 那两颗是同一套写法）。
+ */
+.studio-size-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  height: auto;
+  min-height: 0;
+  padding: 6px 25px 6px 12px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: nowrap;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color var(--t-fast), background var(--t-fast), border-color var(--t-fast);
+}
+.studio-size-btn > svg { flex: none; color: var(--text-mute); }
+.studio-size-btn:hover,
+.studio-size-btn:focus-visible,
+.studio-size-btn.on { color: var(--text); background: var(--surface-2); border-color: var(--accent-line); }
+.studio-size-btn:disabled,
+.studio-size-btn:disabled:hover { color: var(--text-mute); background: var(--surface-2); cursor: default; }
+
+/*
+ * 弹层：**往上浮** —— 生成条压在页面底部，往下会被视口切掉。
+ * 平面风没有阴影令牌（`--sh-*` 全是 none），所以靠描边 + 底色把它和底下那张卡分开。
+ */
+.studio-pop {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 20;
+  width: 232px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+}
+.studio-pop-modes { display: flex; gap: 6px; }
+
+/* chip：两档切换 + MP 常用值。同样要抵消 globals 那条 button。 */
+.studio-chip {
+  flex: 1 1 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  height: auto;
+  min-height: 0;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 11.5px;
+  line-height: 1.4;
+  white-space: nowrap;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: color var(--t-fast), background var(--t-fast), border-color var(--t-fast);
+}
+.studio-chip:hover { color: var(--text); border-color: var(--accent-line); }
+.studio-chip.on { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-line); }
+.studio-chip.sm { flex: 0 1 auto; min-width: 34px; padding: 4px 6px; }
+.studio-pop-steps { display: flex; gap: 5px; }
+
+/* 一列一项「标签在上、控件在下」 —— 窄弹层里并排两列会把长标签挤没。 */
+.studio-pop-field { display: flex; flex-direction: column; gap: 5px; }
+.studio-pop-field > span { font-size: 11px; color: var(--text-mute); }
+
+/*
+ * 数字框：globals 给 input 的 `width:100%` 在弹层里正好是要的效果（撑满一行），
+ * 但方角、实心描边、输入框底色要按这一页的胶囊手感改回来。
+ */
+.studio-pop-num {
+  width: 100%;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  outline: none;
+  transition: border-color var(--t-fast);
+}
+.studio-pop-num:focus { border-color: var(--accent-line); }
+
+.studio-pop-hint { margin: 0; font-size: 11px; color: var(--text-mute); }
+.studio-pop-read { margin: 0; font-size: 12px; color: var(--text-dim); }
+.studio-pop-err { margin: 0; font-size: 11.5px; color: var(--danger); }
+
+@media (max-width: 720px) {
+  /* 窄屏：弹层跟着那一格往左收，别被视口右缘切掉。 */
+  .studio-pop { width: min(232px, calc(100vw - 40px)); }
+
+  .content.studio-page { height: calc(100vh - 60px); padding: 0 12px; }
+  .studio-main { flex-direction: column-reverse; }
+  .studio-rail { width: 100%; flex-direction: row; overflow-x: auto; overflow-y: hidden; }
+  .studio-rail-empty { writing-mode: horizontal-tb; }
+}

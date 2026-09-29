@@ -1,0 +1,25 @@
+# 软件内更新的**默认配置**（2026-09-29）。随包打到 `resources/app-update.yml`。
+#
+# ⚠️ 这一份为什么必须存在：`electron-updater` 下载完安装包之后会调
+#    `NsisUpdater.verifySignature()`，它第一件事就是读这个文件；读不到（ENOENT）会
+#    **直接把整个下载判失败**，界面上只看到一句「检查更新失败：ENOENT … app-update.yml」
+#    —— 和「更新源填错了」长得一模一样，非常难查。
+#
+# ⚠️ `package.json` 里配了 `build.publish` 之后，electron-builder **也会**生成一份
+#    `resources/app-update.yml`（内容就是 publish 那一段）。而 `extraResources` 是在它
+#    **之后**拷的，所以最终生效的是**这份手写版**。两者内容一致（都是
+#    `provider: generic` + 同一个占位 url），留着手写版有两个好处：
+#      ① 这里能写注释（publish 那段是 JSON，写不了）；
+#      ② 万一哪天 publish 被删掉，下载也不会立刻炸。
+#    改 publish 的 url 时**这里也要跟着改**，别让两份说两个地址。
+#
+# ⚠️ `url` 是**占位**：真正的地址由用户在设置页填、存在数据目录里，每次检查前
+#    用 `autoUpdater.setFeedURL()` 覆盖（见 `electron/main/updater.ts`）。
+#    这里写 `example.invalid` 是故意的 —— 万一哪天 setFeedURL 那条线断了，
+#    它会去问一个必然解析不了的地址，而不是悄悄问到一个谁也没配过的地方。
+#
+# ⚠️ 没有 `publisherName` 就不校验安装包签名（`verifySignature()` 读到 null 直接跳过）。
+#    要开校验：在这里加一行 `publisherName: "你的签名证书主题里的 CN"`，
+#    并保证出包时用同一张证书签名 —— 否则每个用户的更新都会失败。
+provider: generic
+url: https://github.com/xianshengx562-png/Holy-Light-canvas/releases/latest/download/

@@ -1,0 +1,112 @@
+/* ============================================================
+   右键菜单 + 确认对话框（`components/ui/ContextMenu.tsx`）
+
+   项目卡片与资产卡片共用一份 —— 这两块以前只有项目那边有（写在
+   `components/start/project-grid.css` 里），2026-09-26 资产也要右键，
+   于是把「菜单/确认框」这一层从那个文件里搬到这里，两个页面 import 同一份。
+
+   ⚠️ 全段**不允许出现裸色值**：一律走 globals 的语义令牌，
+   否则切日间模式时这里会留在夜间那一档。
+
+   ⚠️ 菜单与确认框都 `createPortal(…, document.body)`（见 .tsx 头部那段说明）——
+   所以这里的 `position: fixed` 真的相对视口，不会被卡片的 transform 带偏。
+   ============================================================ */
+
+/* ---------- 菜单 ---------- */
+
+/* 遮罩：`fixed inset 0`，只负责「点别处关掉」，本身不改变外观。 */
+.cx-mask { position: fixed; inset: 0; z-index: 60; }
+
+.cx-menu {
+  position: fixed;
+  min-width: 176px;
+  padding: 6px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+}
+.cx-menu:focus { outline: none; }
+
+/* 菜单头顶那一行是**点的是谁**。长了就省略号，菜单不能被一个长名字撑宽。 */
+.cx-head {
+  padding: 5px 8px 7px;
+  margin-bottom: 4px;
+  font-size: 11px;
+  color: var(--text-mute);
+  border-bottom: 1px solid var(--line);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cx-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 0 8px;
+  height: 32px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--text);
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;   /* 全局 button 有描边，这里要透明的一根来占位 */
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.cx-item:hover, .cx-item.hot { background: var(--surface-3); }
+.cx-item:disabled { opacity: 0.45; cursor: not-allowed; }
+.cx-item:disabled:hover { background: transparent; }
+.cx-item .cx-glyph { display: grid; place-items: center; width: 18px; color: var(--text-mute); }
+.cx-item:hover .cx-glyph { color: var(--accent); }
+.cx-item .cx-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 删除单独一档、用危险色：它跟上面几项不是一类操作。 */
+.cx-item.danger { color: var(--danger); }
+.cx-item.danger .cx-glyph { color: var(--danger); }
+.cx-item.danger:hover, .cx-item.danger.hot { background: var(--danger-soft); }
+
+/* ---------- 确认对话框 ---------- */
+
+.cx-confirm-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 70;          /* 压过菜单（60）与资产灯箱（60） */
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--scrim);
+}
+.cx-confirm {
+  width: min(460px, 100%);
+  padding: 20px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+}
+.cx-confirm h3 { margin: 0 0 8px; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.cx-confirm p { margin: 0 0 4px; font-size: 12.5px; line-height: 1.75; }
+.cx-confirm p strong { color: var(--danger); font-weight: 600; }
+/* 确认框里那份「要动哪些东西」的清单：长名单自己滚，别把对话框撑到屏幕外。 */
+.cx-confirm-list {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  /* 它本身就是那个 `<ul>`（调用方直接给一列 `<li>`），所以自己把项目符号收掉。 */
+  list-style: none;
+  max-height: 180px;
+  overflow-y: auto;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.cx-confirm-list li { overflow-wrap: anywhere; }
+.cx-confirm-error { color: var(--danger); }
+.cx-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+/* 全局 button 带 padding / height，这里写死尺寸要顺手把内边距归零再给（踩过）。 */
+.cx-confirm-actions button { height: 34px; padding: 0 14px; }

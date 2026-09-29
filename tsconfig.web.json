@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    /*
+     * 光有 vite/client 不够：`lib/**` 里带 `node:fs` 的文件也参与这一侧的类型检查
+     * （src 只对它们做 `import type`，但 tsc 仍要把整个文件读完）。
+     * 少了 node 类型，它们会报「找不到模块 'node:fs'」——而那些文件本身没问题。
+     */
+    "types": ["vite/client", "node"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "lib/**/*.ts"]
+}

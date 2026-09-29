@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    /*
+     * 带上 DOM：`fetch` / `Request` / `Response` / `Headers` 这几个全局类型在 Node 的
+     * @types/node 里没有（它们在 undici-types 里，且不是全局可见），而主进程现在**到处都在用**
+     * ——38 个路由文件全是 `NextResponse.json(...)`、`request.headers.get(...)`。
+     * `lib/appearance.ts` 还会碰到 `document`（它被渲染进程和主进程两侧同时引用）。
+     */
+    /* DOM.Iterable：`formData.entries()` 这类方法在 `DOM.Iterable` 里，登录/注册/新建项目都用。 */
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node"]
+  },
+  /*
+   * `tools/**` 里只有 MCP 那一套（纯 Node + `@/lib` + `@/electron/backend/dispatch`），
+   * 与 electron 后端同属于「服务端那一侧」，所以放进这一个配置里一起 typecheck ——
+   * 不放进来的话它只在 esbuild 打包时被看一眼，而 esbuild 不做类型检查。
+   */
+  "include": ["electron/**/*.ts", "lib/**/*.ts", "server/**/*.ts", "tools/**/*.ts", "electron.vite.config.ts"]
+}

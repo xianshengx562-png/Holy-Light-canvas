@@ -1,0 +1,293 @@
+/*
+ * 「设置 · 模型服务」那一页的样式（2026-09-21）。
+ *
+ * 只补 globals 里没有的几块：**两栏并排的站卡片、厂商网格、自定义接口的可展开行**。
+ * 颜色一律走 token —— 这页是「别人家的服务」清单，最容易被人塞裸色值进去，
+ * 而两套主题一换就露馅（design token 三处同步那条规矩）。
+ */
+
+/* 两个 RunningHub 站并排。窄屏自动堆成一列，别让它在小窗口里挤成两坨。 */
+.ms-sites { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-top: 18px; }
+.ms-site {
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-2);
+  padding: 14px 16px; display: grid; gap: 10px;
+}
+/* 当前启用的那个站：边框和外发光都走 accent，别只靠一行小字说明「哪个在用」。 */
+.ms-site.active { border-color: var(--accent-line); background: var(--accent-soft); }
+.ms-site-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.ms-site-head strong { font-size: 14px; font-weight: 600; }
+.ms-site-host { font-family: var(--font-mono); font-size: 11px; color: var(--text-mute); word-break: break-all; }
+.ms-site-meta { display: grid; gap: 4px; font-size: 12px; color: var(--text-dim); }
+.ms-site-meta span { color: var(--text-mute); }
+.ms-site-meta .ok { color: var(--accent); }
+.ms-site-meta .off { color: var(--danger); }
+
+/* 官方大语言模型：一行一个厂商，右边是状态与操作。 */
+.ms-vendors { display: grid; gap: 10px; margin-top: 18px; }
+.ms-vendor {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-2); padding: 12px 14px;
+}
+.ms-vendor.active { border-color: var(--accent-line); background: var(--accent-soft); }
+.ms-vendor-main { min-width: 0; }
+.ms-vendor-main strong { font-size: 13px; font-weight: 600; }
+.ms-vendor-main p { margin: 3px 0 0; font-size: 12px; color: var(--text-mute); }
+.ms-vendor-side { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* 命令行形态那两家：不给填 Key 的框，所以整行压暗 + 斜体标注「未安装」。 */
+.ms-vendor.cli { opacity: 0.62; }
+.ms-vendor.cli .ms-vendor-main strong { color: var(--text-dim); }
+
+/* 自定义接口：一行一条，点开看模型。 */
+.ms-custom { display: grid; gap: 10px; margin-top: 18px; }
+.ms-custom-row { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-2); }
+.ms-custom-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 14px; }
+.ms-custom-head strong { font-size: 13px; font-weight: 600; }
+.ms-custom-head .ms-host { font-family: var(--font-mono); font-size: 11px; color: var(--text-mute); }
+.ms-custom-body { border-top: 1px solid var(--line); padding: 12px 14px; display: grid; gap: 10px; }
+/*
+  模型清单筛选（2026-09-22）：中转站一次能报几百个模型，
+  没有筛选就等于没有清单 —— 用途猜错了要改，前提是能**找到**那一条。
+*/
+.ms-model-filter {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-bottom: 8px; font-size: 12px;
+}
+.ms-model-filter input {
+  flex: 1 1 220px; min-width: 180px;
+  padding: 5px 9px; font-size: 12px;
+  background: var(--surface-3); color: var(--text);
+  border: 1px solid var(--line); border-radius: 6px;
+}
+/*
+  清单限高滚动（2026-09-22）：中转站一次能报几百个模型，全铺出来整页变成一条长带，
+  筛选框自己先滚出视野 —— 那筛选框就白加了。让清单在自己框里滚，筛选框钉住。
+*/
+.ms-models { display: grid; gap: 6px; max-height: 340px; overflow-y: auto; padding-right: 4px; }
+.ms-models::-webkit-scrollbar { width: 8px; }
+.ms-models::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+.ms-models::-webkit-scrollbar-track { background: transparent; }
+.ms-model {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  font-size: 12px; padding: 6px 8px; border-radius: 6px; background: var(--surface-3);
+}
+.ms-model code { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-dim); word-break: break-all; }
+/*
+  用途是**多选**（2026-09-23）：出图 / 出视频 / 文本三个勾选框，
+  一个模型可以同时勾几个。原来那个单选下拉做不到 —— 勾「文本」就把「出图」挤掉了。
+*/
+.ms-model-kinds { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.ms-kind { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-dim); }
+.ms-kind input { width: 13px; height: 13px; margin: 0; accent-color: var(--accent); }
+
+.ms-form { display: grid; gap: 12px; margin-top: 18px; }
+.ms-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+/* 「用网站账号登录」：默认收起，只露一颗按钮 + 一句「不登录也行」。 */
+.ms-site { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ms-site-form {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.ms-site-form .muted { flex: 1 1 100%; margin: 0; }
+
+.ms-result { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; font-size: 12.5px; }
+.ms-result.ok { border-color: var(--accent-line); color: var(--accent); background: var(--accent-soft); }
+.ms-result.off { border-color: var(--danger-line); color: var(--danger); background: var(--danger-soft); }
+
+/*
+ * 站点面板**就地**的那条回执（2026-09-25）。跟顶部 `.ms-result` 说的是同一句话，
+ * 但它长在「登录并填入」按钮下面 —— 点完不用回头去整页最顶上找。
+ * 为什么要两份：顶部那条的位置离按钮一屏远，徐先点完看到的就是「没反应」。
+ */
+.ms-site-note {
+  flex: 1 1 100%;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 9px 11px;
+  font-size: 12.5px;
+}
+.ms-site-note.ok { border-color: var(--accent-line); color: var(--accent); background: var(--accent-soft); }
+.ms-site-note.off { border-color: var(--danger-line); color: var(--danger); background: var(--danger-soft); }
+
+/*
+ * 「Key 刚填好」闪一下。登录成功后会自动滚到那张表单，这一下是让眼睛知道**看这儿**。
+ * 只闪外圈光晕，不闪内容 —— 用户可能已经在里面打了字。
+ */
+@keyframes ms-flash-ring {
+  0% { box-shadow: 0 0 0 0 var(--accent-soft); }
+  35% { box-shadow: 0 0 0 6px var(--accent-soft); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+.ms-flash { animation: ms-flash-ring 0.9s ease-out 2; border-radius: var(--radius); }
+
+/*
+ * 「这一路是怎么走的」—— 站点登录的排查流水账（2026-09-25）。
+ * 默认收起：一切顺利时它不该占地方；出问题时用户点开、复制、发我，一句话都不用猜。
+ */
+.ms-site-trace {
+  flex: 1 1 100%;
+  font-size: 12px;
+  color: var(--text-dim);
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  padding: 8px 11px;
+}
+.ms-site-trace summary { cursor: pointer; color: var(--text-mute); }
+.ms-site-trace ol { margin: 8px 0 0; padding-left: 20px; display: grid; gap: 4px; }
+.ms-site-trace li { line-height: 1.55; overflow-wrap: anywhere; }
+
+/*
+ * 「国内站密钥」（2026-09-22）：「设置 · 服务连接」整页并进这一页之后，
+ * 填 Key / 清除密钥就落在 RunningHub 段里。给它一条虚线分隔 ——
+ * 不分开的话，会被看成第三张站点卡。
+ */
+.ms-key-box { margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--line); }
+.ms-key-box-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.ms-key-box-head strong { font-size: 13px; }
+.ms-key-box-head .muted { font-size: 12px; line-height: 1.5; }
+
+/*
+ * 2026-09-23 三段重排（文本 / 图片 / 视频）后新增的两块：
+ * `.ms-sub` 是段内「内置服务 / 兼容接口」的小标题，`.ms-error` 是接口行里那句失败原因。
+ */
+.ms-sub {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  margin-top: 16px; padding-top: 12px; border-top: 1px dashed var(--line);
+}
+.ms-sub strong { font-size: 13px; font-weight: 600; }
+.ms-sub .muted { font-size: 12px; line-height: 1.5; }
+
+/*
+ * 上次拉取失败的原因，就摆在接口行里。
+ * 状态徽章只有「连不上」三个字，说不清是 Key 错、地址错、还是那个地址回的是网页 ——
+ * 而这句话是服务端原样带回来的，能直接照着改。
+ */
+.ms-error { margin-top: 4px; font-size: 12px; line-height: 1.5; color: var(--danger); word-break: break-word; }
+
+/*
+ * 站点账号那一把把密钥（2026-09-25）。
+ *
+ * 一行一把：`名字 · 分组 · 打码的 key` + 三颗「添加为…」按钮。
+ * 分组单独做成徽章 —— 徐先要的就是「显示对应的分组」，而站点上常常同一个名字
+ * 挂好几个分组，光看名字分不出哪把是哪把。
+ */
+.ms-tokens { display: grid; gap: 8px; margin-top: 12px; }
+.ms-token {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.ms-token-main { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; min-width: 0; }
+.ms-token-main strong { font-size: 13px; font-weight: 600; }
+.ms-token-main code {
+  font-family: var(--font-mono); font-size: 11.5px; color: var(--text-mute);
+  word-break: break-all;
+}
+.ms-token-side { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ms-token-side .button { padding: 0 10px; height: 28px; font-size: 12px; }
+
+/*
+ * 三段的收纳（2026-09-26 徐先：「这个界面的内容有点多，加一个收纳效果」）。
+ *
+ * 文本 / 图片 / 视频三段进来只留一条标题栏，点标题展开、再点收起，**各自独立**
+ * （不是手风琴 —— 「图片」和「视频」常常要对着看，RunningHub 是两段共用的一把 Key）。
+ * 「站点账号」那段**不参与**收纳：那是进来第一件要做的事，藏起来只会让人找不到。
+ */
+.ms-fold {
+  /*
+    整条标题是按钮，但不能长得像按钮：全局 `button` 的底色 / 内边距 / 居中全得收回来。
+    `height: 36px` 尤其要命 —— 不收回来时标题栏被压成一条，说明文字直接溢出去。
+    还有 `white-space: nowrap`：不收回来那段说明会横着冲出一屏。
+  */
+  width: 100%;
+  height: auto;
+  padding: 0;
+  gap: 16px;
+  justify-content: space-between;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: var(--text);
+  font-weight: inherit;
+  text-align: left;
+  white-space: normal;
+}
+/* 全局 button:hover 会铺一层 accent 底色，摊在一整条卡片标题上太吵 —— 只把字点亮。 */
+.ms-fold:hover { background: transparent; }
+.ms-fold:hover .ms-fold-title h2 { color: var(--accent); }
+/* 全局 button:active 是「按压回弹」，一整条标题跟着缩一下很怪。 */
+.ms-fold:active { transform: none; }
+
+.ms-fold-title { min-width: 0; }
+.ms-fold-title h2 { transition: color 0.15s ease; }
+.ms-fold-side { display: flex; align-items: center; gap: 10px; flex: none; }
+
+/* 右侧那颗箭头：纯 CSS 画的两条边，展开时翻上去。 */
+.ms-fold-chev {
+  width: 9px;
+  height: 9px;
+  margin: -4px 3px 0;
+  border-right: 2px solid var(--text-mute);
+  border-bottom: 2px solid var(--text-mute);
+  transform: rotate(45deg);
+  transition: transform 0.18s ease, margin 0.18s ease;
+}
+.ms-fold.open .ms-fold-chev { transform: rotate(225deg); margin-top: 4px; }
+
+/* 展开后正文起一段间距；正文里第一个块自己的上边距要去掉，否则空两截。 */
+.ms-fold-body { margin-top: 18px; }
+.ms-fold-body > *:first-child { margin-top: 0; }
+
+/* ── 本地模型（2026-09-27）───────────────────────────────────────────
+ * 复用 .ms-site 那张竖排卡：本地模型的信息是**上下四行**（选择器 / 动作 / 状态 / 日志），
+ * 塞进 .ms-vendor 那种「左说明右按钮」的横排会挤成两坨。
+ */
+.ms-local { gap: 12px; }
+/* 四颗选择器在窄窗口里自动折行 —— 模型那两格比数字那两格宽，权重写在 style 里。 */
+.ms-local .ms-row { margin-top: 0; align-items: flex-end; }
+.ms-local .field select, .ms-local .field input { width: 100%; }
+/* 装载中时整卡给一点「在动」的暗示：只有徽章上的字容易看不见。 */
+.ms-local[data-ms-local-llm="starting"] { border-color: var(--accent-line); }
+/* 已装载：绿（accent）—— 与「已配置」同一个语义。 */
+.ms-local[data-ms-local-llm="ready"] .badge { border-color: var(--accent-line); color: var(--accent); }
+.ms-local[data-ms-local-llm="error"] .badge { border-color: var(--danger-line); color: var(--danger); }
+.ms-local-log summary { cursor: pointer; color: var(--text-mute); }
+.ms-local-log pre {
+  margin: 8px 0 0; padding: 10px 12px; max-height: 220px; overflow: auto;
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface);
+  font-family: var(--font-mono); font-size: 11px; line-height: 1.55; color: var(--text-dim);
+  white-space: pre-wrap; word-break: break-all;
+}
+
+/* ── 找模型那一排（2026-09-26：加文件夹 / 选文件 / 深度扫描）──────────
+ * 三颗动作挨在一起会被当成「三选一」—— 它们其实是三种不同的找法，
+ * 所以第三颗（带盘符下拉的那组）跟前两颗之间留点缝。
+ */
+.ms-local-find { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ms-local-scan { display: inline-flex; gap: 6px; align-items: center; margin-left: 6px; }
+.ms-local-scan select { width: auto; min-width: 96px; }
+
+/* 记着哪些目录：路径很长 → 单独一行、可折行，每个后面一个 × 去掉它。 */
+.ms-local-dirs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ms-local-dirs-tag { color: var(--text-mute); font-size: 12px; }
+.ms-local-dir {
+  display: inline-flex; align-items: center; gap: 4px;
+  max-width: 100%; padding: 2px 4px 2px 8px;
+  border: 1px solid var(--line); border-radius: 999px;
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ms-local-dir button {
+  padding: 0 4px; border: 0; background: none; cursor: pointer;
+  color: var(--text-mute); font-size: 13px; line-height: 1;
+}
+.ms-local-dir button:hover { color: var(--danger); }

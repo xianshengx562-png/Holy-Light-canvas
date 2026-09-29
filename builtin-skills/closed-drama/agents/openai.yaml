@@ -1,0 +1,4 @@
+interface:
+  display_name: "剧本转文戏提示词模版"
+  short_description: "将小说或剧本拆成有呼吸感且声线一致的30秒文戏提示词"
+  default_prompt: "使用 $script-to-drama-prompt 将这段剧本划分为30秒文戏，并输出第一段提示词。"

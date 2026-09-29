@@ -1,0 +1,24 @@
+.workflow-binding-select {
+  display: grid;
+  gap: 7px;
+  max-width: 440px;
+  margin: 0 0 20px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.workflow-binding-select select { width: 100%; }
+
+/*
+ * 绑定下拉下面那句提示（「还能再加一份」/ 参考图数量的说明）。
+ * 上边距取负是故意的：`.workflow-binding-select` 自带 20px 下边距，
+ * 再隔一整段空白就看不出这句话说的是哪个下拉。
+ */
+.workflow-binding-hint {
+  display: block;
+  max-width: 440px;
+  margin: -14px 0 20px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-dim);
+}

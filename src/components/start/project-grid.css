@@ -1,0 +1,146 @@
+/* ============================================================
+   项目卡片：改名输入框 / 提示条 / **批量选择**（`components/start/ProjectGrid.tsx`）
+
+   ⚠️ 卡片本身的样式在 `app/home.css`（`.home-project` 那一族），这里只加「卡片上多出来的那层」。
+   两份不在同一个文件，是因为卡片是**页面版式**的一部分（两页共用同一张网格的版式），
+   而这些是组件自己的交互件 —— 跟着组件走（这条规矩见 home.css 头部那段自省）。
+
+   ⚠️ 右键菜单与确认框的样式**不在这里**了（2026-09-26）：资产卡片也要右键，
+   于是那一层搬去了 `components/ui/context-menu.css`，两页 import 同一份。
+   这个文件现在只剩「改名框」和「选择模式」两块。
+
+   ⚠️ 全段**不允许出现裸色值**：一律走 globals 的语义令牌，
+   否则切日间模式时这里会留在夜间那一档。
+   ============================================================ */
+
+/* ---------- 改名 ---------- */
+
+/* 卡片里那个输入框：跟原来的 `<strong>` 占同一行、同一个字号，不做成「表单控件」的样子。 */
+.home-project .pg-rename {
+  width: 100%;
+  padding: 2px 6px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--field);
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-xs);
+}
+.home-project .pg-rename:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* 改名时不要那 2px 上抬：卡片在抖、用户正在打字，这一下会显得像点错了什么。 */
+.home-project.editing:hover { transform: none; }
+
+/* ---------- 提示条 ---------- */
+
+.pg-notice {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  color: var(--danger);
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-line);
+  border-radius: var(--r-sm);
+}
+/* 批量删完的「删掉了 N 个」走这一档 —— 那条是**成功**回执，不能长成报错的样子。 */
+.pg-notice.ok {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+}
+
+/* ---------- 批量选择（2026-09-26）---------- */
+
+/*
+ * 选择模式下卡片是一个勾选目标，不再是链接：
+ *  - 光标从 `pointer` 改成 `default` 不合适 —— 它确实可点，只是点了不跳走；
+ *    用 `pointer` 更符合「点一下有反应」的预期。
+ *  - 卡片整体加一圈描边会跟 hover 的强调线打架，所以「选中」只靠左上角那个勾选框 + 底部一条强调条。
+ */
+.home-project.picking { cursor: pointer; }
+.home-project.picking:hover { transform: none; }
+
+/* 左上角那颗勾：**必须**盖在封面上，所以放 `absolute`。 */
+.home-project .pg-pick {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  color: var(--surface);
+  background: var(--surface-2);
+  border: 1.5px solid var(--line-strong);
+  border-radius: 6px;
+}
+.home-project.picked .pg-pick {
+  color: var(--accent-ink);
+  background: var(--accent-fill);
+  border-color: var(--accent-fill);
+}
+/* 选中那张卡整体压一层强调底色，扫一眼就知道勾了哪些。 */
+.home-project.picked { border-color: var(--accent-line); background: var(--accent-soft); }
+.home-project.picked::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--accent);
+}
+.home-project.picking:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+
+/* ============================================================
+   加载骨架屏（2026-09-29）。
+   原来「数据还没回来」是一整块 `.empty`（一句「正在读取项目…」），列表回来时版式会
+   从"一小块"弹成"一整屏卡片" —— 跳一下。骨架屏的高度照着真卡片给，回来时不跳版。
+
+   ⚠️ 微光是**扫过去的一条高光**（`::after` 位移），不是整块闪：整块闪在灰阶界面里
+   看着像"接触不良"。黑白配色里它只能靠明度表达 —— 用 --surface 扫在 --surface-3 上。
+   ============================================================ */
+.home-skeleton { display: grid; gap: 12px; }
+.home-skeleton-tip { margin: 0; }
+.sk-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
+}
+.home-skeleton-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+}
+.home-skeleton-thumb,
+.home-skeleton-line {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  background: var(--surface-3);
+  border-radius: var(--r-sm);
+}
+.home-skeleton-thumb { height: 96px; }
+.home-skeleton-line { height: 10px; width: 60%; border-radius: var(--r-full); }
+.home-skeleton-line.wide { width: 88%; }
+.home-skeleton-thumb::after,
+.home-skeleton-line::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, var(--surface) 50%, transparent 100%);
+  transform: translateX(-100%);
+  animation: sk-sweep 1.4s ease-in-out infinite;
+}
+@keyframes sk-sweep {
+  to { transform: translateX(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-skeleton-thumb::after,
+  .home-skeleton-line::after { animation: none; opacity: 0; }
+}

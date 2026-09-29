@@ -1,0 +1,4 @@
+interface:
+  display_name: "武戏导演"
+  short_description: "参考图驱动的高密度强冲击武戏，结合连续拆招、变速运镜与大招递进"
+  default_prompt: "使用 $wuxi-action-director，根据我的参考图和战斗目标，按指定时长输出高密度、强冲击、动作连贯的完整武戏提示词；保留图像分工、分级碰撞和技能递进。"

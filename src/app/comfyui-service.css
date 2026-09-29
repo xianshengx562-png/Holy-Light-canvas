@@ -1,0 +1,268 @@
+/* ---------- 设置 · ComfyUI 服务 ----------
+   只服务 `app/settings/comfyui` 这一页，所以跟着页面走，不进 globals.css。
+
+   颜色一律走变量：这一页参考的是浅色仪表盘的样子，但**不能写死白色** ——
+   用户在暗色主题下打开它时，卡片必须是暗的（见 globals.css 里那条
+   「组件里不要写裸色值」的纪律）。`--surface` / `--well` / `--line` 在
+   两套主题里都已经是对的值，用它就自动两边都对。 */
+
+.comfy-service {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.cfy-card {
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+}
+
+.cfy-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.cfy-head h3 {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: 0.01em;
+}
+
+/* 右上的状态小标签。默认是「中性/未就绪」的中灰，ok 才变强调色。 */
+.cfy-tag {
+  flex: none;
+  padding: 2px 9px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-mute);
+  background: var(--well);
+  border: 1px solid var(--line);
+  border-radius: var(--r-full);
+}
+
+.cfy-tag.ok {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+}
+
+.cfy-tag.off { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-line); }
+
+.cfy-value {
+  margin: 0 0 3px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.cfy-value.muted { color: var(--text-mute); font-weight: 400; }
+
+.cfy-note {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.75;
+  color: var(--text-dim);
+}
+
+/* 「该怎么办」那几条：用列表而不是一段散文，用户是来对清单的。 */
+.cfy-list {
+  margin: 7px 0 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+  line-height: 1.85;
+  color: var(--text-mute);
+}
+
+.cfy-list li::marker { color: var(--text-mute); }
+
+.cfy-list code,
+.cfy-card .field code,
+.cfy-hint code {
+  padding: 1px 5px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-dim);
+  background: var(--well);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+}
+
+.cfy-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.75;
+  color: var(--text-mute);
+}
+
+/* 扫到的候选地址。整块用强调色描边：这是这一页上唯一一条「点一下就能修好」的路，
+   在连不上的时候它必须比旁边的说明文字更显眼。 */
+.cfy-found {
+  margin-top: 9px;
+  padding: 9px 11px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-sm);
+}
+
+.cfy-found-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 7px;
+}
+
+.cfy-found-row code {
+  padding: 2px 6px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text);
+  background: var(--well);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+}
+
+/* 候选那行里的说明不该抢地址的位置，所以让它吃掉中间的空白、把按钮顶到右边。 */
+.cfy-found-row .cfy-note { flex: 1 1 120px; min-width: 0; }
+
+.cfy-found-row .button { padding: 3px 10px; font-size: 12px; }
+
+/* 启动命令 / 路径这类要先看清再判断的文本。 */
+.cfy-path {
+  margin: 6px 0 0;
+  padding: 7px 10px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  background: var(--well);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  overflow-wrap: anywhere;
+}
+
+.cfy-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 11px;
+}
+
+/* 本地模式开关（只有 web 版有）。整行可点，不然那颗 checkbox 太小、容易点空。 */
+.cfy-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 11px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.cfy-switch input { accent-color: var(--accent); cursor: pointer; }
+
+/* 卡片正文里的跳页链接：画布那个浮层会把它拦下来切成左列切页，不会真的跳走。 */
+.cfy-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* 这一页里的输入框跟着卡片走，不要被全局的 field 样式拉到整行高。 */
+.cfy-card .field { margin: 6px 0 0; }
+
+/* ---------- ComfyUI 扩展 ----------
+   两张卡片，每张四行：标题 + 状态、说的是什么、装了以后好在哪、按钮。
+   刻意不用表格：三段文字的长度差很多（用途 / 好处 / 不装的后果），
+   挤进表格列会变成「一列被拉到很宽、另一列挤成一条」。
+   卡片底色用 --well 而不是 --surface：它嵌在「ComfyUI 扩展」这张卡里面，
+   两层层级要看得出来（同一色会糊成一块）。 */
+.cfy-ext-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 10px 0 0;
+}
+
+.cfy-ext {
+  padding: 12px 13px;
+  background: var(--well);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+
+.cfy-ext-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 5px;
+}
+
+.cfy-ext-head strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* 状态文字：默认中性灰。**「未安装」不用红** —— 它是默认状态不是故障；
+   真的「还装不了」才走 .off 变红（配合卡片里那句原因）。 */
+.cfy-ext-state {
+  flex: none;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-mute);
+}
+
+.cfy-ext-state.ok { color: var(--accent); }
+.cfy-ext-state.off { color: var(--danger); }
+
+/* 卡片里几段文字挨紧一点：它们是同一张卡的四行，不是四段独立说明。 */
+.cfy-ext .cfy-note { margin: 0 0 2px; }
+.cfy-ext .cfy-hint { margin: 0 0 2px; }
+.cfy-ext .cfy-actions { margin-top: 9px; }
+
+/* 上一版 Holy Light画布装的 frame_* 还在 —— 它和新扩展的编号徽标画在同一坐标，
+   不处理的话界面上就是一团糊字。这一块比「清理垃圾」重要，所以给个明显的边框。 */
+.cfy-legacy {
+  margin-top: 12px;
+  padding: 11px 12px;
+  background: var(--well);
+  border: 1px dashed var(--line);
+  border-radius: var(--r-md);
+}
+
+.cfy-legacy-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.cfy-legacy-row code {
+  font-size: 12px;
+  color: var(--text);
+}
+
+/* 路径可能很长，让它自己占一行也吃得下 —— 挤成两行比截断好，用户要靠它确认删的是哪儿。 */
+.cfy-legacy-row .cfy-hint {
+  flex: 1 1 220px;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.cfy-legacy-row .cfy-actions { margin: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .cfy-tag { transition: none; }
+}

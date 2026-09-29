@@ -1,0 +1,25 @@
+# 依赖与构建产物
+node_modules/
+dist/
+out/
+*.log
+
+# 随包的原生运行时（llama.cpp 的 66 MB 二进制）——
+# 它跟着安装包分发，不该进源码仓库；许可说明单独留下（见文件末尾那条例外）。
+resources/llama.cpp/*
+!resources/llama.cpp/来源与许可.txt
+
+# MCP 工具包的构建产物（zip 有 5.9 MB，源码在上层）
+tools/frame-mcp/dist/
+
+# 编辑器 / 系统杂项
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# 本地配置与任何密钥
+.env
+.env.*
+*.local

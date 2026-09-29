@@ -1,0 +1,599 @@
+/* ============================================================
+   主界面 /（`app/page.tsx` + `components/start/ComposeBar.tsx` + `StartEntries`）
+
+   ⚠️ 由 `ComposeBar.tsx` 自己 import —— 组件样式要跟着用它的组件走：
+   写在别人的 CSS 里，那个页面拿到的就是「没有样式的结构」（这个坑真踩过，见 start.css 头部）。
+   同理，星空那层在它自己的 `starfield.css` 里，由 `Starfield.tsx` 引。
+
+   ⚠️ 全段**不允许出现裸色值**：日间模式靠 `:root[data-theme='light']` 那份覆盖块兜住。
+   渐变与星空的原始色号只准待在 `globals.css` 的令牌块里，这里一律 var()。
+   ============================================================ */
+
+/* 比其它页面宽一档：这一页的主角是中间那个输入框和下面那排卡片。 */
+.content.home { max-width: 1400px; }
+
+/*
+ * ⚠️ 这一格**不能有 `overflow: hidden`**（2026-09-19 用户实报「下拉选项被遮挡了」）。
+ *
+ * 它是两层面板（`.home-mode-menu` / `.home-prefs`）的定位基准，而面板是
+ * `top: calc(100% - 10px)` —— **本来就该探出这张卡片的下沿**，那正是「贴在胶囊下面弹出来」的样子。
+ * 卡片高度此时是 183px（下沿 423），面板是 411~533：加一句 `overflow: hidden` 就等于把面板
+ * 下沿那 110px 直接裁掉，只剩顶上十来个像素。
+ *
+ * 而且失败的样子极具迷惑性：被裁剩的那一条**紧挨着 `.home-chips`**（热门词那行，436~472），
+ * 后者是普通文档流内容，绘制层级在定位元素**之下**……但它盖住的是同一块空间 ——
+ * 于是用户看到的是「下拉被下面那行字压住了」，第一反应会去查 z-index，
+ * 而 z-index（面板 12 > 卡片 5）其实完全正确。真正的刀是这句 `overflow`。
+ *
+ * 换皮时加它的动机是「别让左边缘那道竖条跑到圆角外面」—— 那是 self-inflicted 的问题：
+ * 竖条本来就是 `border-radius` 的内侧，给 `::before` 自己带上门角半径就够了，见下。
+ * 另外 `position: relative` 本身**不裁**绝对定位子孙（和 `overflow` 不是一回事），放心留着。
+ */
+.home-compose { text-align: left; }
+/* 浮层以它为基准，`z-index` 是必要的 —— 下面那些「最近项目」卡片各自可能形成层叠上下文。 */
+.home-compose-box {
+  position: relative;
+  z-index: 5;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  padding: 16px 16px 13px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  transition: border-color var(--t-fast);
+}
+/* 左边缘那道竖条：这套语言里所有「主面板」都靠它起头。
+   用伪元素而不是 border-left —— 后者会把 grid 的两列整体右移 3px，
+   里面的 padding 就得跟着补，改一次位移要动两处。
+   ⚠️ 门角半径必须自己给（`border-radius: var(--r-xl) 0 0 var(--r-xl)`）：
+   卡片已经不能再靠 `overflow: hidden` 帮它修圆了，不给的话这道 2px 的竖条
+   会**方着顶出**左上/左下那两个圆角（就是这么一点点毛刺曾经引诱我加了 overflow）。 */
+.home-compose-box::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  border-radius: var(--r-xl) 0 0 var(--r-xl);
+  background: var(--line-strong);
+  transition: background var(--t-fast);
+}
+/* 焦点在输入框里时整块亮起来 —— 用户不用去猜光标在哪儿。
+   竖条跟着变成强调色：这是整页唯一一处「活的」强调色，位置很值。 */
+.home-compose-box:focus-within { border-color: var(--accent-line); }
+.home-compose-box:focus-within::before { background: var(--accent-fill); }
+.home-compose-glyph { margin-top: 6px; color: var(--accent); }
+/* 第 2 列那一坨 = 参考图 + 写字区（2026-09-17 傍晚：粘图之后加进来的这一层）。
+ * 之前 textarea 是直接的 grid item，参考图只能横跨整行排在它**下面** —— 那位置紧挨工具行，
+ * 视觉上像属于工具区，不像属于这段描述。包一层之后两者同属第 2 列，图在上、字在下，
+ * 图就落在「文本框中间偏上」那一块。min-width: 0 不能省：它是 grid item，
+ * 不给会由 textarea 的固有宽度把这一列撑破。 */
+.home-compose-field { display: grid; gap: 10px; min-width: 0; align-content: start; }
+/*
+ * 输入区从「两行的窄条」加高成一块**写作区**：一口气写完整段分镜描述是很正常的事，
+ * 原来 54px 的高度写第二行就开始滚。`max-height` 留着 —— 长文自己滚，而不是把卡片撑到天上去。
+ */
+.home-compose-input {
+  width: 100%;
+  min-height: 104px;
+  max-height: 300px;
+  padding: 4px 0;
+  font-size: 14.5px;
+  line-height: 1.75;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  outline: none;
+  resize: none;
+}
+.home-compose-input::placeholder { color: var(--text-mute); }
+
+/* ---------- 工具行：参考图 / 去向 / 生成偏好 / 出发键 ---------- */
+.home-tools { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; min-width: 0; }
+/* 全局对 button 有 width: 100% 的铺满规则，这几颗都必须显式收回宽高。
+   ⚠️ 2026-09-19 换皮：圆角从 `--r-full`（胶囊）收成 `--r-sm`（方角）。
+   胶囊是「消费级 App」的形状，和这套工业线条语言冲突 ——
+   整排胶囊摆在一起尤其明显，看着像某套 UI 库的默认样式。 */
+.home-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  height: 30px;
+  padding: 0 11px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  transition: color var(--t-fast), background var(--t-fast), border-color var(--t-fast);
+}
+.home-tool:hover { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-line); }
+/* 展开中的那颗要保持「按下去」的样子，不然点开之后看不出是哪一颗开的。 */
+.home-tool.on { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-line); }
+/* 参数摘要可能不短（16:9 横屏 · 720p · 10 秒），超了截断而不是把出发键挤下去。 */
+.home-tool-label { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-tool-caret { flex: none; opacity: 0.65; }
+/* 参考图张数：`em` 只是排版上的强调，别让它带上斜体。 */
+.home-tool > em { font-style: normal; font-variant-numeric: tabular-nums; color: var(--accent); }
+/* 出发键同样收成方角（平面风：内高光一并去掉 —— 主按钮整体不再做厚度）。 */
+.home-send {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  margin-left: auto;
+  color: var(--accent-ink);
+  background: var(--accent-fill);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-sm);
+  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast);
+}
+.home-send:hover:not(:disabled) { background: var(--accent-fill-hover); border-color: var(--accent-hover); }
+/* 没写字时它是「还不能走」的中性态，而不是一颗亮着却没反应的按钮。 */
+.home-send:disabled { color: var(--text-mute); background: var(--surface-2); border-color: var(--line); }
+
+.home-compose-error { margin: 10px 2px 0; font-size: 12.5px; color: var(--danger); }
+/* 未登录说明：不是错误，用中性色 —— 用户什么都没做错，只是还没登录。 */
+.home-compose-guest { margin: 10px 2px 0; font-size: 12.5px; color: var(--text-mute); }
+
+/* ---------- 浮层（去向菜单 / 生成偏好）----------
+ * 都以输入卡片为基准往**下**展开：贴在那颗胶囊下面，像它自己弹出来的。
+ * 两层面板互斥（同一时刻只开一层），所以不用管谁盖住谁。
+ */
+.home-pop {
+  position: absolute;
+  top: calc(100% - 10px);
+  left: 12px;
+  z-index: 12;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+}
+/* 菜单只有一行名字，宽度跟着收（原来 340px 是为了容下那句说明）。 */
+.home-mode-menu { width: min(232px, calc(100vw - 64px)); }
+.home-mode-item {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  text-align: left;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-radius: var(--r-md);
+  transition: background var(--t-fast);
+}
+.home-mode-item:hover { background: var(--surface-2); }
+.home-mode-item.on { background: var(--accent-soft); }
+.home-mode-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.home-mode-item.on .home-mode-icon { color: var(--accent); background: var(--surface); border-color: var(--accent-line); }
+/* 只有名字，没有下面那句淡色说明 —— 说明留在触发器胶囊的 title 上。 */
+.home-mode-name { font-size: 13px; font-weight: 600; }
+.home-mode-check { flex: none; margin-left: auto; color: var(--accent); }
+
+.home-prefs { left: 12px; right: 12px; padding: 10px 12px 12px; }
+.home-prefs-head { display: flex; align-items: baseline; gap: 8px; padding: 0 2px 6px; }
+.home-prefs-head strong { font-size: 13px; }
+.home-prefs-head .muted { font-size: 11.5px; }
+/* 一行 = 一个标签 + 一组档位。标签列定宽，几行的控件才对得齐。 */
+.home-prefs-row { display: grid; grid-template-columns: 62px 1fr; gap: 10px; align-items: start; padding: 6px 2px; }
+.home-prefs-row > span { padding-top: 7px; font-size: 12px; color: var(--text-mute); white-space: nowrap; }
+/* 同上：全局对 select 有铺满规则，这一颗必须显式收回宽度。 */
+.home-prefs-row > select {
+  width: min(220px, 100%);
+  height: 30px;
+  padding: 0 8px;
+  font-size: 12.5px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.home-prefs-row > select:focus-visible { border-color: var(--accent-line); outline: none; }
+.home-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.home-opt {
+  width: auto;
+  height: 30px;
+  padding: 0 11px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-full);
+  transition: color var(--t-fast), background var(--t-fast), border-color var(--t-fast);
+}
+.home-opt:hover { color: var(--accent); border-color: var(--accent-line); }
+/* 选中的档位用实心强调底，字色走 --accent-ink（它是为「压在实心 --accent 上」准备的）。 */
+.home-opt.on { color: var(--accent-ink); background: var(--accent-fill); border-color: var(--accent); font-weight: 600; }
+
+/* ---------- 参考图缩略图 ---------- */
+/* 排在第 2 列、写字区**上面**（`.home-compose-field` 的第一个孩子）。
+   原来是横跨整行压在工具行上面的 —— 那样离工具行比离这段描述还近，看着像工具区的附件。
+   一行排满自己折行，不参与 grid 的列分配（它是 flex 容器里的孩子在 column 2 内部排）。 */
+.home-refs { display: flex; flex-wrap: wrap; gap: 8px; }
+.home-ref { position: relative; display: inline-flex; animation: home-ref-in 180ms ease-out both; }
+/* 粘进来的图给一点「落下」的动感：凭空冒出来会让人怀疑是不是粘上了。 */
+@keyframes home-ref-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.94); }
+  to { opacity: 1; transform: none; }
+}
+.home-ref img {
+  width: 46px;
+  height: 46px;
+  object-fit: cover;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+/* 还是「全局 button 铺满」那一类，必须收回成一个浮在缩略图角上的小圆点。 */
+.home-ref > button {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  color: var(--text-mute);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-full);
+}
+.home-ref > button:hover { color: var(--accent-ink); background: var(--danger); border-color: var(--danger); }
+
+/* 原生 input 只当「被点击的目标」用，不占位也不该被看到。 */
+.home-ref-input { display: none; }
+
+/* ---------- 右上角的账号 / 登录 ---------- */
+/*
+ * 整页唯一一个和账号有关的位置。未登录时这颗「登录」就是进站的第一步，
+ * 所以它排在 `.workspace-header` 的右半边（那个容器是 space-between）。
+ */
+.home-account {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: right;
+}
+/* 右上角那颗小头像。**这一块现在只有它一个**（昵称/邮箱已撤，见 `app/page.tsx`），
+   所以尺寸不再需要跟旁边的文字对齐 —— 32px 是它自己的分量：够看清是谁，
+   又不至于比左边「创作空间」那行标题还重。 */
+.home-avatar {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface-2);
+}
+.home-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.home-avatar .avatar-initial { font-size: 14px; }
+/* 全局对 button 有铺满规则（width: 100%），这里必须显式收回，否则「退出登录」会撑满右半边。 */
+.home-account button { width: auto; }
+
+/* 未登录时的最近项目位置：引导，不是「没有数据」。 */
+.home-guest { padding: 44px 24px; }
+
+/* 面板是画在**这张输入卡片外面**的（见 `.home-compose-box` 那条 ⚠️），
+   所以这里要显式抬一层：热门词与卡片同属普通文档流，不抬的话它照样会盖在面板可见的那一截上。
+   抬一层而不是给面板调 z-index —— 比较的是文档顺序，两边同在根层叠上下文里才有效。 */
+.home-chips { position: relative; z-index: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; }
+.home-chips .muted { font-size: 12px; }
+.home-chip {
+  width: auto;
+  padding: 5px 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-full);
+  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast);
+}
+.home-chip:hover { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-line); }
+
+/* ---------- 最近项目：横排卡片（首页不复用 `.projects`，那是给列表页的网格） ---------- */
+/* 200px 起：224px 那档在当前窗口里只排得下 4 张，一屏看不到几个项目。 */
+.home-projects { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
+/*
+   极简板块（2026-09-22 换掉终末地那套）：干净的圆角矩形 ——
+   没有右上切角、没有切角缝里那片三角、没有投影，层级只靠留白。
+   hover 只做两件事：描边转成强调色、整块上抬 2px。
+   「透视立起来」那一手是工业那套的语言：浅色极简里它只会让卡片里的字发糊，
+   而且圆角矩形一旦倾斜，切边与描边之间的关系就不成立了。
+*/
+.home-project {
+  position: relative;
+  display: grid;
+  overflow: hidden;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  transition: border-color var(--t), transform var(--t), background var(--t);
+}
+.home-project:hover {
+  border-color: var(--accent-line);
+  background: var(--surface-2);
+  transform: translateY(-2px);
+}
+.home-project-thumb {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  color: var(--text-mute);
+  /* 空占位就是一块浅灰。原来叠的那层方格是工业网格那套的语言，
+     浅色极简底上它比缩略图本身还抢眼（图片是 `<img>` 时会被盖住，不用另外分叉）。 */
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+}
+.home-project-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+/* hover 才出现：常驻的话每张卡都挂着一句「打开 →」，反而没人看。
+   压在缩略图右下角（那里平时是空的），不参与布局、不影响卡片高度。 */
+.home-project-open {
+  position: absolute;
+  right: 9px;
+  bottom: 7px;
+  font-size: 11px;
+  color: var(--accent);
+  /* 缩略图可能是任何颜色的照片 —— 压在图上时给一层投影，别让这句「打开」糊进画面里。 */
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.55);
+  opacity: 0;
+  transition: opacity var(--t-fast);
+}
+.home-project:hover .home-project-open,
+.home-project:focus-visible .home-project-open { opacity: 1; }
+.home-project:hover .home-project-thumb { color: var(--accent); }
+.home-project-body { display: grid; gap: 3px; padding: 10px 12px 12px; }
+.home-project-body strong { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-project-body small { font-size: 11.5px; }
+/* 时间那截：平时只是比「最后编辑」亮一档，一天内的才点亮成强调色。
+   数字用等宽字形，免得「1 小时前 / 22 小时前」之间整行宽度跳来跳去。 */
+.home-project-body em.home-when { font-style: normal; font-variant-numeric: tabular-nums; color: var(--text-dim); }
+.home-project-body em.home-when.fresh { color: var(--accent); }
+
+/* ---------- 区块标题（「从这里开始」/「最近项目」）----------
+   结构：`<h2>` 前面挂一个全大写的拉丁眉题（`01 / STUDIO ENTRIES`）。
+   横线由 `.section-head::after` 那类做法做不到（它得横在中间而不是末尾），
+   所以这里用 h2 自己的 `::before` 画一小段 —— 长度固定，不抢内容的宽度。 */
+.home-section-head { align-items: baseline; }
+.home-section-head h2 { display: flex; align-items: baseline; gap: 10px; }
+/* 全局那根 3px 竖线在首页换成一颗小圆点：编号（01/02…）本身已经是强调色，
+   再来一块斜切的同色实块，在浅色极简底上就是「多出来的一个图形」。 */
+.home-section-head h2::before {
+  width: 6px;
+  height: 6px;
+  margin-right: 8px;
+  background: var(--bracket);
+  border-radius: var(--r-full);
+  transform: none;
+}
+.home-section-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+}
+/* 编号本身用强调色：一眼能把五个区块数清楚，这是「控制台」该有的可读性。 */
+.home-section-index { font-family: var(--font-mono); font-size: 10.5px; color: var(--accent); }
+
+/* ---------- 页脚水印 ----------
+   超大半透明文字压在页面最下面，只露出一部分。
+   截图里那个 WORLD 就是这么用的：它不是「标题」，是给整页收尾的一块底纹。
+   ⚠️ `overflow: hidden` + 负 `bottom` 一起用：让字的下半截被裁掉，
+   露出来的是「一部分字」而不是一个完整的词 —— 完整反而会读成一句文案。
+   ⚠️ `user-select: none`：它是装饰，被选中会让人以为那是正文。 */
+.home-watermark {
+  position: relative;
+  height: 96px;
+  margin-top: 56px;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+.home-watermark span {
+  position: absolute;
+  left: -6px;
+  bottom: -22px;
+  font-size: 118px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  color: var(--watermark);
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .home-compose-actions { justify-content: stretch; }
+  .home-go { flex: 1; justify-content: center; }
+  /* 水印在窄屏上按比例收 —— 118px 的字在这时候比正文还抢眼。 */
+  .home-watermark { height: 64px; margin-top: 36px; }
+  .home-watermark span { font-size: 76px; bottom: -14px; }
+}
+
+/* ============================================================
+   悬浮版式（2026-09-17 下午）：导航与页头都不再占布局流
+
+   原来是「侧栏占 248px 一列 + 页头占 72px 一行」，主内容被挤在剩下的地方。
+   现在侧栏 `fixed`（收起时整条滑出屏幕），页头也 `fixed` 浮在内容之上 ——
+   主内容拿到整宽，视觉上更像一块工作台。
+
+   ⚠️ 列宽只用 `--nav-w` 一处控制：侧栏宽度、页头左边界都读它。
+   分开写两份，收起时两处会各动各的、错开着抖。
+   ⚠️ 状态只看 `<html data-nav>`，组件**不写内联样式** —— 防闪脚本在 <head> 里
+   就先写好了它，首帧就是对的；改由组件写必然先画一帧展开再跳收起。
+   ⚠️ 侧栏收起是 `transform` 滑出而不是 `display: none`：后者没有过渡，
+   展开时会「啪」地跳出来（而且动画期间拿不到宽度，页面会重排一次）。
+   ============================================================ */
+.home-shell {
+  --nav-w: 248px;
+  grid-template-columns: var(--nav-w) 1fr;
+  transition: grid-template-columns 240ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+html[data-nav='collapsed'] .home-shell { --nav-w: 0px; }
+
+/* ⚠️ 必须显式钉在第 2 列。`.sidebar` 改成 fixed 之后就**脱离了 grid**、不再是 grid item ——
+   于是 `.workspace` 成了唯一的 item，被自动放进第 1 列（248px 那一列），
+   主内容被压成一条竖排文字（截图一眼能看到，但它**不报任何错**，光读 CSS 很容易漏）。 */
+.home-shell .workspace { grid-column: 2; }
+
+.home-shell .sidebar {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 248px;
+  z-index: 20;
+  overflow-y: auto;
+  transition: transform 240ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+html[data-nav='collapsed'] .home-shell .sidebar { transform: translateX(-100%); }
+
+.home-shell .workspace-header {
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: var(--nav-w);
+  z-index: 15;
+  transition: left 240ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 页头浮起来之后没人占那 72px 了，内容得自己留出位置（72 + 原来那点间距）。 */
+.content.home { padding-top: 104px; }
+
+.home-head-main { display: flex; align-items: center; gap: 12px; min-width: 0; }
+
+/* 那颗「收起 / 展开左侧导航」钮的样式 2026-09-26 挪去了 globals 的 `.nav-toggle` ——
+   通用外壳（资产 / 用户 / 图片生成 / 设置各页 / 实用工具）也要用同一颗，
+   而 home.css 只给首页与项目列表加载，写在那边那几页就拿不到了。 */
+/* 小屏：侧栏改成**覆盖式** —— 不再占那一列，内容拿整宽；展开时它浮在内容上面。 */
+@media (max-width: 860px) {
+  .home-shell { --nav-w: 0px; }
+  html[data-nav='expanded'] .home-shell .sidebar { border-right: 1px solid var(--line); }
+}
+
+/*
+   侧栏展开 = 主内容是一块**常驻的梯形透视板**；收起 = 回到平面矩形。
+   （2026-09-21 夜，徐先两张示意图定稿：展开像一块向右后方退去的板，
+   收起完全回平 —— 这是常驻形态，不是播完就散的过渡动画。）
+
+   ⚠️ 不能挂在 `.workspace` 上 —— `workspace-header` 是 `position: fixed`，
+   祖先一旦有 transform，它就改成相对 workspace 定位，页头直接错位到屏幕中间。
+   挂在 `main.content.home` 上（已核实它内部没有 fixed / sticky 元素）。
+   ⚠️ `transform-origin: left center`：左边缘贴着侧栏不动，右边缘向后退，
+   出来的正是示意图那个「左边小、右边大」的梯形。角度别加大 —— 常驻透视下
+   右侧文字是斜着渲染的，2.6° 是「有景深」和「文字发糊」之间的平衡点。
+   ⚠️ rotateY 的视觉放大**不改变布局**，右缘超出视口的部分不会出横向滚动条。
+*/
+/* 侧栏展开时那块梯形透视板（`rotateY(-8deg)`）2026-09-22 **整套去掉了**：
+   它是上一套「工业冷感」的形态语言 —— 极简里常驻透视会让正文斜着渲染，
+   而且两套主题形态不一致会像两个产品。现在深浅两套都是平面矩形、正常文档流。 */
+
+/* 过渡是装饰性的，用户说不要就不要。 */
+@media (prefers-reduced-motion: reduce) {
+  .home-shell,
+  .home-shell .sidebar,
+  .home-shell .workspace-header,
+  .content.home { transition: none; }
+  .home-ref { animation: none; }
+  /* 常驻的梯形透视是**形态**不是运动：保留 transform，只关掉过渡。 */
+}
+
+
+/* ============================================================
+   主界面的动态效果（2026-09-29，徐先要的「主界面添加一些动态效果」）。
+   定调是**克制**：能感觉到画面是活的，但没有任何一个东西在抢注意力。
+   三样：① 内容整块淡入上移一次；② 卡片逐个错开进场；③ 背景一层极慢的柔光流动。
+
+   🔴 `animation-fill-mode` 一律写 **backwards**，不许写 `both` / `forwards`：
+      终值会一直压在 transform 上，`.home-project:hover` 那一下上抬就永远不动了 ——
+      「动画把交互吃掉」这类 bug 在界面上看不出任何原因，只能靠这条注释挡住。
+      `backwards` 只在延迟期间生效（动画开始前不闪），跑完就把 transform 还回去。
+   ============================================================ */
+@keyframes home-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+main.content.home {
+  animation: home-rise 260ms cubic-bezier(0.4, 0, 0.2, 1) backwards;
+}
+/* 卡片逐个进场：只给前 6 个排延迟，再多就是「排队入场」了，反而慢。 */
+.home-projects > *,
+.entry-grid > * {
+  animation: home-rise 240ms cubic-bezier(0.4, 0, 0.2, 1) backwards;
+}
+.home-projects > *:nth-child(1), .entry-grid > *:nth-child(1) { animation-delay: 40ms; }
+.home-projects > *:nth-child(2), .entry-grid > *:nth-child(2) { animation-delay: 90ms; }
+.home-projects > *:nth-child(3), .entry-grid > *:nth-child(3) { animation-delay: 140ms; }
+.home-projects > *:nth-child(4), .entry-grid > *:nth-child(4) { animation-delay: 180ms; }
+.home-projects > *:nth-child(5), .entry-grid > *:nth-child(5) { animation-delay: 210ms; }
+.home-projects > *:nth-child(n+6), .entry-grid > *:nth-child(n+6) { animation-delay: 240ms; }
+
+/* 背景那层柔光：42 秒走一个来回 —— 慢到「看不出它在动，但画面不是死的」。
+   ⚠️ `z-index: -1`：它是 fixed，不给负值会盖在正文上面（哪怕只有 3% 的白，也会让文字发灰），
+   而 `pointer-events: none` 只挡点击、不挡"盖住"。 */
+@keyframes home-drift {
+  from { transform: translate3d(-3%, -2%, 0) scale(1.05); }
+  to { transform: translate3d(3%, 2%, 0) scale(1.12); }
+}
+.home-shell .workspace::before {
+  content: '';
+  position: fixed;
+  inset: -15%;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(60% 45% at 30% 20%, var(--text) 0%, transparent 70%),
+    radial-gradient(50% 40% at 78% 70%, var(--text) 0%, transparent 72%);
+  opacity: 0.035;
+  animation: home-drift 42s ease-in-out infinite alternate;
+}
+/* 深底上那层光要更淡一点才不会"起雾"。 */
+html[data-theme='dark'] .home-shell .workspace::before { opacity: 0.06; }
+
+/* ---------- 页头右上角的软件 logo（2026-09-29） ---------- */
+.home-logo {
+  display: block;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+}
+html[data-theme='dark'] .home-logo { filter: invert(1); }
+
+/* 系统里勾了「减少动效」：上面三样一起关，尤其是背景那层 —— 它是 infinite。
+   🔴 这一段**必须待在文件末尾**，不能并进上面 `home.css` 已有的那个 @media 块：
+      媒体查询**不增加特异性**，同特异性下后写的赢 —— 而 `home-drift` 那条规则就
+      在它下面（本段之前）。2026-09-29 探针就是这么红的：写在前面那份等于没写。 */
+@media (prefers-reduced-motion: reduce) {
+  main.content.home,
+  .home-projects > *,
+  .entry-grid > *,
+  .home-shell .workspace::before { animation: none; }
+}

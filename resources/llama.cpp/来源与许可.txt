@@ -1,0 +1,9 @@
+这一层是随包内置的 llama.cpp 运行时（Windows Vulkan 版）。
+来源：llama.cpp 官方 nightly b11146 发行包（MIT）
+  https://github.com/ggml-org/llama.cpp/releases/download/b11146/llama-b11146-bin-win-vulkan-x64.zip
+  · 只保留了 llama-server 及其依赖（其它 CLI 小工具、ggml-rpc、多余 CPU 变体都去掉了）
+  · mtmd.dll = 视觉库（配合 --mmproj 才能看图）
+  · 4 个 MSVC 运行库是微软可再分发件，官方包不带，从本机补上
+  · LICENSE-LLVM-OpenMP 一并保留
+打包时整个目录被 electron-builder 拷到 <安装目录>/resources/llama.cpp。
+目录空着也能打包 —— 内置那套不存在时会自动回落到本机已装好的 llama-server。

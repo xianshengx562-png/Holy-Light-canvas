@@ -1,0 +1,465 @@
+/* 工作流配置页 —— 与全站同一套现代深色令牌 */
+
+.workflow-page {
+  min-height: 100vh;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg);
+}
+
+.workflow-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  min-height: 52px;
+  padding: 10px 24px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+.workflow-header strong { font-size: 14px; font-weight: 600; }
+.workflow-back { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--text-dim); }
+.workflow-back:hover { color: var(--text); }
+.workflow-header > a:last-child { font-size: 13px; color: var(--accent); }
+.workflow-header > a:last-child:hover { color: var(--accent-hover); }
+
+.workflow-content { max-width: 1120px; margin: 0 auto; padding: 24px 24px 56px; }
+
+.workflow-title {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.workflow-title h1 {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 4px 0 0;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+/* 份数挂到标题后面：它是对**当前这一份列表**的注脚，不该跟「模型服务」并排抢右上角。 */
+.workflow-count-inline { font-size: 12px; font-weight: 400; letter-spacing: 0; color: var(--text-mute); }
+.workflow-kicker { font-size: 11px; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); }
+.workflow-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.workflow-actions > span { font-size: 12px; color: var(--text-mute); }
+.workflow-actions .button { height: 32px; padding: 0 12px; font-size: 12.5px; }
+.workflow-muted { font-size: 13px; color: var(--text-dim); overflow-wrap: anywhere; }
+
+/*
+ * 「来源」那一段：分段控件 + 它自己的一句说明。
+ * 说明**从控件里搬出来**、落到下面一行 —— 挤在控件右边时那一行会被压成窄条，
+ * 还得跟着按钮宽度变化重排（截图里那块就是这么乱的）。
+ */
+.workflow-source { display: grid; gap: 10px; margin-bottom: 18px; }
+.workflow-seg-hint { margin: 0; font-size: 12.5px; }
+
+.workflow-id {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding-bottom: 20px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+.workflow-id label { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--text-dim); }
+.workflow-id input { width: 260px; }
+.workflow-count { margin-left: auto; font-size: 12px; color: var(--text-mute); }
+
+.workflow-layout {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  min-height: 560px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  overflow: hidden;
+}
+.workflow-list { min-width: 0; padding: 18px; border-right: 1px solid var(--line); }
+.workflow-search { display: flex; align-items: center; gap: 8px; color: var(--text-mute); }
+.workflow-search input { min-width: 0; }
+.workflow-search svg { flex: none; }
+.workflow-filter { display: flex; gap: 8px; margin: 10px 0; }
+.workflow-filter select { flex: 1; min-width: 0; }
+
+.workflow-page input,
+.workflow-page select,
+.workflow-page textarea {
+  min-width: 0;
+  padding: 8px 10px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--text);
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.workflow-page input:hover,
+.workflow-page select:hover,
+.workflow-page textarea:hover { border-color: var(--line-strong); }
+.workflow-page textarea { resize: vertical; line-height: 1.6; }
+.workflow-page input[type='checkbox'] { width: 16px; height: 16px; flex: none; accent-color: var(--accent); }
+.workflow-page :is(input, textarea, select):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.workflow-rows { max-height: 600px; overflow: auto; }
+.workflow-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  min-height: 58px;
+  padding: 10px;
+  margin-bottom: 3px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text);
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  transition: background var(--t-fast), border-color var(--t-fast);
+}
+.workflow-row:hover { background: var(--surface-2); }
+.workflow-row.selected { background: var(--accent-soft); border-color: var(--accent-line); }
+
+.workflow-kind {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  color: var(--accent);
+  background: var(--surface-3);
+  border-radius: var(--r-xs);
+}
+.kind-image { color: var(--info); }
+.kind-latent { color: var(--violet); }
+.kind-video { color: var(--warn); }
+
+.workflow-row-copy { flex: 1; min-width: 0; }
+.workflow-row-copy strong { display: block; font-size: 12px; font-weight: 500; overflow-wrap: anywhere; }
+.workflow-row-copy small { display: block; margin-top: 4px; font-size: 12px; color: var(--text-mute); overflow-wrap: anywhere; }
+
+.workflow-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--line-strong); }
+.workflow-dot.enabled { background: var(--accent-fill); }
+
+.workflow-icon { flex: none; width: 34px; height: 34px; padding: 0; }
+
+.workflow-editor { min-width: 0; padding: 24px 28px; }
+.workflow-editor fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.workflow-editor fieldset:disabled { opacity: 0.5; }
+.workflow-editor-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 26px; }
+.workflow-editor-head > div { min-width: 0; }
+.workflow-editor h2 { margin: 6px 0; font-size: 18px; font-weight: 600; overflow-wrap: anywhere; }
+.workflow-toggle { display: flex; align-items: center; gap: 7px; margin-top: 4px; font-size: 12px; color: var(--text-dim); white-space: nowrap; }
+.workflow-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.workflow-grid label,
+.workflow-value,
+.workflow-add-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.workflow-value { margin-top: 20px; }
+
+.workflow-upload { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 14px 0; }
+.workflow-upload > label { position: relative; overflow: hidden; font-size: 13px; cursor: pointer; }
+.workflow-upload input { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
+.workflow-upload p { width: 100%; margin: 0; }
+
+.workflow-warning {
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--warn);
+  background: var(--warn-soft);
+  border: 1px solid var(--warn-line);
+  border-radius: var(--r-sm);
+}
+
+.workflow-editor-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 16px;
+  color: var(--text-mute);
+  border-top: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.workflow-editor-footer code { font-family: var(--font-mono); font-size: 12px; color: var(--info); word-break: break-all; }
+
+.workflow-error,
+.workflow-success {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 13px;
+  margin: 12px 0;
+  font-size: 13px;
+  line-height: 1.6;
+  border-radius: var(--r-sm);
+  overflow-wrap: anywhere;
+}
+.workflow-error { color: var(--danger); background: var(--danger-soft); border: 1px solid var(--danger-line); }
+.workflow-success { color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent-line); }
+.workflow-success svg { flex: none; }
+
+.workflow-empty {
+  padding: 30px 12px;
+  font-size: 12.5px;
+  color: var(--text-mute);
+  text-align: center;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-md);
+}
+
+/* ---------- 工作流列表（设置后台进这个页面的默认面孔） ---------- */
+
+/*
+ * 新建 / 导入那一区：原来是"贴着一条分隔线的一排控件"，现在改成**一张卡**。
+ * 分隔线读起来是"列表从这里开始"，而这一区是"在这儿新建一份" —— 它是个动作，不是分界。
+ * 说明文字也改成占满整行（`flex: 1 1 100%`），不再跟四个控件抢同一行的宽度。
+ */
+.workflow-new {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px 16px 16px;
+  margin-bottom: 20px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+.workflow-new-head { flex: 1 1 100%; margin: 0 0 2px; font-size: 12.5px; color: var(--text); }
+.workflow-new-head .workflow-muted { font-size: 12px; }
+.workflow-new label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--text-dim); }
+.workflow-new input { width: 240px; }
+.workflow-new select { width: 132px; }
+.workflow-new > .workflow-muted { flex: 1 1 100%; min-width: 0; padding-bottom: 0; }
+
+/* 从正在运行的 ComfyUI 抓回来的那份图。取代粘贴框出现，所以形状要跟它差不多宽。
+   用强调色描边：这是「已经拿到了」的确认，不是又一块说明文字。 */
+.workflow-pulled {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 260px;
+  max-width: 420px;
+  padding: 10px 12px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-sm);
+}
+.workflow-pulled strong { font-size: 13px; font-weight: 600; color: var(--text); }
+.workflow-pulled .workflow-muted { font-size: 12px; line-height: 1.7; }
+
+/*
+ * 列表的「用途 + 分类」两级筛选。
+ * 用途是分段控件（两个只能选一个，没有「全部」这一档），分类是可多选一个的胶囊 ——
+ * 两级形状不一样是有意的：混用同一个样式会让人以为它们同级，而「用途」错了是硬伤、
+ * 「分类」只是筛得快不快。
+ */
+.workflow-filters { display: grid; gap: 12px; margin-bottom: 18px; }
+/* 用途与工序并到同一行：它们都是"分段二选一"，并排之后整页少掉一整条横带。 */
+.workflow-filter-segs { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+/* 两段之间的竖线：并排之后总得有东西说明"这是两组，不是一组四选一"。 */
+.workflow-vrule { flex: none; width: 1px; height: 22px; background: var(--line); }
+.workflow-chiprow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.workflow-filter-label { flex: none; font-size: 12px; color: var(--text-mute); }
+.workflow-seg { display: inline-flex; gap: 4px; padding: 3px; background: var(--field); border: 1px solid var(--line); border-radius: var(--r-md); }
+.workflow-seg button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 12px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  background: transparent;
+  /* 透明描边先占好位：选中时才上色，免得选中 / 取消的一瞬间宽度变化让整排字跳一下。 */
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.workflow-seg button:hover { color: var(--text); }
+/* 平面：选中不再是"浮起来一块带阴影的白片"，改成强调色底 + 描边 ——
+   与下面那排分类胶囊用同一套说法，四组筛选控件终于长得像一类东西。 */
+.workflow-seg button.active { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-line); }
+
+/* 行上的「超清」小标：一眼能把后处理类和生成类分开（普通生成不标，标了等于每行都多一串字）。 */
+.workflow-tag {
+  margin-left: 6px;
+  padding: 1px 7px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.6;
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-full);
+}
+
+.workflow-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.workflow-chip {
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-full);
+  cursor: pointer;
+}
+.workflow-chip:hover { color: var(--text); border-color: var(--line-strong); }
+.workflow-chip.active { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
+
+.workflow-library { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.workflow-lib-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  transition: border-color var(--t-fast);
+}
+/* 平面：整行 hover 只把描边提亮一档 —— 不抬、不投影（列表里几十行一起动起来很吵）。 */
+.workflow-lib-row:hover { border-color: var(--line-strong); }
+.workflow-lib-row.editing { background: var(--accent-soft); border-color: var(--accent-line); }
+.workflow-lib-main { min-width: 0; }
+.workflow-lib-name { display: block; font-size: 14px; font-weight: 500; color: var(--text); overflow-wrap: anywhere; }
+.workflow-lib-main small { display: block; margin-top: 5px; font-size: 12px; color: var(--text-mute); overflow-wrap: anywhere; }
+.workflow-lib-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+/*
+ * 行上动作统一 32px 高，改名 / 检查 / 删除都收成**图标键**（语义靠 title + aria-label 兜住），
+ * 只留「配置」一个带字的 —— 原来一行右边挂着五个带字按钮，名字那一列被挤成一条。
+ */
+.workflow-lib-actions .button,
+.workflow-lib-actions button,
+.workflow-lib-actions select { height: 32px; }
+.workflow-lib-actions .workflow-icon { width: 32px; padding: 0; }
+.workflow-lib-actions > .workflow-muted { font-size: 11.5px; }
+
+/*
+ * 行上的「就地改分类」下拉。
+ * ⚠️ 全局有 `select { width: 100% }`，不收回宽度它会把整行的操作区撑满（把时间、按钮全挤下去）。
+ */
+.workflow-lib-cat {
+  width: auto;
+  min-width: 112px;
+  padding: 5px 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.workflow-lib-cat:hover:not(:disabled) { color: var(--text); border-color: var(--line-strong); }
+.workflow-lib-cat:disabled { opacity: 0.55; }
+
+.workflow-lib-rename { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.workflow-lib-rename input { flex: 1; min-width: 180px; }
+.workflow-lib-count { font-size: 12px; color: var(--text-mute); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.workflow-lib-warn { display: block; margin-top: 8px; font-size: 12px; color: var(--danger); }
+
+/* 配置页顶部的「名称」一行。单独一行，不跟工作流 ID 挤在同一个表单里。 */
+.workflow-name { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
+.workflow-name label { font-size: 13px; color: var(--text-dim); }
+.workflow-name input { width: 320px; }
+.workflow-name > .workflow-muted { flex: 1; min-width: 220px; }
+
+.workflow-dialog {
+  width: min(620px, calc(100% - 32px));
+  max-height: 85vh;
+  padding: 22px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-xl);
+}
+/* 平面：对话框靠描边立着，不投影；遮罩也不做毛玻璃（一模糊，底下的列表就糊成一片色）。 */
+.workflow-dialog::backdrop { background: var(--scrim); }
+.workflow-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.workflow-dialog h2 { margin: 0; font-size: 17px; font-weight: 600; }
+.workflow-dialog pre {
+  max-height: 55vh;
+  overflow: auto;
+  padding: 14px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  background: var(--well);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow-wrap: anywhere;
+}
+.workflow-add-form { display: grid; gap: 16px; margin-top: 20px; }
+
+.workflow-page button:disabled,
+.workflow-page input:disabled { cursor: not-allowed; }
+
+@media (max-width: 900px) {
+  .workflow-content { padding: 18px; }
+  .workflow-layout { grid-template-columns: 260px minmax(0, 1fr); }
+  .workflow-editor { padding: 20px; }
+  .workflow-title { align-items: flex-start; }
+  .workflow-grid { grid-template-columns: 1fr; }
+  .workflow-editor-head { flex-wrap: wrap; }
+  /* 列表行换成两列：操作区挪到名字下面，别把名字挤成一列竖排。 */
+  .workflow-lib-row { grid-template-columns: auto minmax(0, 1fr); align-items: start; }
+  .workflow-lib-actions { grid-column: 2; justify-content: flex-start; }
+}
+
+@media (max-width: 640px) {
+  .workflow-header { padding: 12px 16px; }
+  .workflow-content { padding: 18px 16px; }
+  .workflow-layout { display: block; }
+  .workflow-list { border-right: 0; border-bottom: 1px solid var(--line); }
+  .workflow-rows { max-height: 240px; }
+  .workflow-editor { padding: 20px 16px; }
+  .workflow-count { margin-left: 0; width: 100%; }
+  .workflow-id input { width: 100%; }
+  .workflow-name { align-items: flex-start; }
+  .workflow-name input { width: 100%; }
+  .workflow-new input { width: 100%; }
+  .workflow-new label { width: 100%; }
+}
+
+
+/* ---------- 工作流页头也当标题栏用（2026-09-23）----------
+ * 这一页用的是自己的 `.workflow-header`（不是 `.workspace-header`），所以右侧让位和拖拽
+ * 得在自己的文件里补（原理见 globals.css 末尾那段）。
+ *
+ * 不给它让位的后果很具体：这一页右上角是「返回项目」那个链接，而窗口按钮正好压在那儿。
+ *
+ * ⚠️ 必须留在文件最后：下面 `@media` 里还有 `.workflow-header { padding: 12px 16px }`
+ *    这种简写，同特异性、靠顺序赢 —— 写前面会被抹掉。
+ */
+.workflow-header {
+  -webkit-app-region: drag;
+  padding-right: calc(var(--window-controls-inset, 138px) + 16px);
+}
+.workflow-header a,
+.workflow-header button,
+.workflow-header input,
+.workflow-header select,
+.workflow-header [role='button'] {
+  -webkit-app-region: no-drag;
+}

@@ -1,0 +1,3 @@
+import Link from 'next/link';
+import RememberField from '@/components/auth/RememberField';
+export default function Login(){return <main className="auth-wrap"><Link className="brand" href="/"><span className="brand-mark">✦</span> Holy Light画布</Link><h1>欢迎回来</h1><p className="muted">登录你的创作空间，继续未完成的想法。</p><form className="auth-form" action="/api/auth/login" method="post"><label className="field">邮箱<input name="email" type="email" required autoComplete="email" /></label><label className="field">密码<input name="password" type="password" required minLength={8} autoComplete="current-password" /></label><RememberField /><button type="submit">登录</button></form><p className="muted">还没有账户？ <Link className="text-link" href="/register">创建一个</Link></p></main>}

@@ -1,0 +1,118 @@
+/* ============================================================
+   开始界面的创作入口卡片（components/start/StartEntries.tsx）
+
+   ⚠️ 单独一个文件、由 `StartEntries.tsx` 自己 import —— 这些卡片**只在首页**，
+   把它们塞进某个别的页面专属的 css 里，首页拿不到样式：页面结构还在、文字也都在，
+   但卡片会退化成一条条竖排裸文本，而**没有任何断言会红**
+   （e2e 只断言 `.entry-card` 存在）。2026-09-16 截图才发现。
+
+   ⚠️ 全段**不允许出现裸色值**：日间模式靠 `:root[data-theme='light']` 那份覆盖块兜住，
+   写死一个 #101013 之类的值，在日间就是「白底上一块黑」，而且没有任何测试能发现。
+   所有颜色只能来自 globals.css 的 token。
+   ============================================================ */
+
+/* `auto-fit` 而不是 `auto-fill` + 210px 起：入口现在是 3 个（画布 / 图片生成 /
+   资产库），`auto-fill` 在窄屏会把它们排成「2 + 1」、孤一张挂在第二行；
+   `auto-fit` 会把空 track 塌缩，少一张时又自动摊回原来的宽度。 */
+.entry-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin: 4px 0 30px; }
+/*
+   极简板块（2026-09-22 换掉终末地那套）：干净的圆角矩形 ——
+   右上切角、切角缝里那片三角、顶部那条扫过的亮线一并去掉。
+   浅色极简里「反馈」交给描边与底色，不交给多画出来的图形。
+*/
+.entry-card {
+  position: relative;
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  padding: 16px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  transition: border-color var(--t-fast), transform var(--t-fast), background var(--t-fast);
+  overflow: hidden;
+}
+a.entry-card:hover {
+  border-color: var(--accent-line);
+  background: var(--surface-2);
+  transform: translateY(-2px);
+}
+.entry-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-xs);
+}
+.entry-card strong { font-size: 14px; font-weight: 600; }
+.entry-card p { margin: 0; font-size: 12.5px; line-height: 1.65; }
+.entry-cta { font-size: 12px; color: var(--accent); }
+.entry-note {
+  justify-self: start;
+  padding: 2px 9px;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-full);
+}
+/* 「开发中」的卡片整体压暗、图标去强调色：一眼能看出它和能点的那些不是一类东西。 */
+.entry-card.planned { opacity: 0.62; }
+.entry-card.planned .entry-icon { color: var(--text-mute); background: var(--surface-2); border-color: var(--line); }
+
+/* ---------- 空库时的「画布」卡：它是个 button，不是链接 ----------
+
+   （2026-09-26）一个项目都没有时，点这张卡要**先建一个项目再进去**
+   （见 `lib/start/entryTarget.ts` 的 `create-canvas`）—— 于是它渲染成 `<button>`。
+   两条必须一起看的规则：
+
+   1. `a.entry-card:hover` 只覆盖 `<a>`，按钮拿不到那套悬停反馈；
+   2. 全局 `button`（globals.css 的 `button, .button`）是「36px 高、内容居中、不换行」的
+      实心主按钮 —— 直接套上去它会变成一颗被压扁的蓝色药丸，
+      而不是另外两张那样的卡片。所以照 `button.plan-card` 那套逐个抵消。
+      语法上 `.entry-card`（0,1,0）本来就压得住 `button`（0,0,1），
+      但 `button:disabled:hover`、`button:active` 这些带伪类的会反超，得显式写回来。 */
+button.entry-card {
+  height: auto;
+  padding: 16px;
+  text-align: left;
+  align-items: stretch;
+  justify-content: stretch;
+  font-weight: 400;
+  /* `inherit` 而不是 1.5：旁边那两张链接卡片继承的是页面行高，
+     写死任何一个数都会让这张卡比它们高/矮几个像素。 */
+  line-height: inherit;
+  white-space: normal;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+}
+button.entry-card:hover:not(:disabled),
+button.entry-card:focus-visible {
+  border-color: var(--accent-line);
+  background: var(--surface-2);
+  transform: translateY(-2px);
+}
+button.entry-card:active { transform: translateY(0); }
+/* ⚠️ 全局那条 `button:disabled:hover { background: var(--accent-fill) }` 是 (0,2,1)，
+   `button.entry-card` 只有 (0,1,1) —— 不显式写回来，建项目那几百毫秒里鼠标正停在按钮上，
+   卡片会整块闪成主按钮的实心蓝。 */
+button.entry-card:disabled,
+button.entry-card:disabled:hover {
+  opacity: 0.7;
+  background: var(--surface);
+  border-color: var(--line);
+  transform: none;
+}
+
+/* 建项目失败时那一行（`StartEntries.tsx` 的 `error`）。颜色走 token，别写裸色值。 */
+.entry-error {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  color: var(--danger);
+}

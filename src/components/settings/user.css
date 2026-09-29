@@ -1,0 +1,165 @@
+/* ---------- 用户（/user）----------
+ *
+ * 版式（2026-09-26 重排）：**两列卡**，列宽自己算（`auto-fit`），窄了自动塌成一列。
+ * 原来是一张 `max-width: 660px` 的卡片贴在左边，宽窗口下右边三分之一全空着，
+ * 看着像页面没做完；而且「保存」和「登录站点」挤在同一张卡底部，读起来像同一件事。
+ * 现在按职责拆两张卡：个人资料（可改 + 保存）/ 网站账号（另一组按钮）。
+ * （2026-09-26 晚删掉了原来的「账号（只读）」卡，`.user-meta` 随之作废 —— 见下。）
+ *
+ * 层次一律靠**描边 + 底色差**，没有阴影 —— 全站平面化（2026-09-23）的规矩，
+ * 这一页从一开始就不用任何 box-shadow。
+ *
+ * ⚠️ `.user-card button` 那两条 `box-shadow: none`：globals 里那条主按钮内高光
+ *    （`button:not(.secondary):not(.subtle):not(:disabled)`，特异性 (0,4,1) 又排在最前）
+ *    会盖掉后面任何用 box-shadow 画的样式。这一页现在不用 box-shadow 画东西，留着是
+ *    给以后打算在这儿画焦点环 / 选中态的人提个醒：**别用 box-shadow，改用 border**。
+ */
+
+/* ---------- 骨架 ---------- */
+.user-grid {
+  display: grid;
+  gap: 20px;
+  /*
+   * 列宽交给浏览器算：内容区够宽就是两列，否则塌成一列。
+   * 比 media query 好在**不用猜窗口有多宽** —— 侧栏收起/展开会让内容区差 240px，
+   * 拿视口宽度当判据就会有一档算错。
+   */
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  align-items: start;
+}
+.user-col { display: grid; gap: 20px; align-content: start; min-width: 0; }
+
+.user-card {
+  padding: 20px 22px 22px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+.user-card > * + * { margin-top: 16px; }
+/* 有未保存的改动时，这张卡的描边点亮 —— 让人一眼看到「要动手的是这一张」。 */
+.user-card[data-dirty='yes'] { border-color: var(--accent-line); }
+
+.user-card-head { display: grid; gap: 6px; }
+.user-card-head h2 { margin: 0; font-size: 14px; font-weight: 600; }
+.user-card-head .user-hint { max-width: none; }
+
+/* 页面标题下面那句说明（写在 `app/user/page.tsx` 里）。 */
+.user-lead {
+  max-width: 64ch;
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--text-mute);
+}
+
+/* ---------- 头像 + 昵称 ---------- */
+.user-head { display: flex; align-items: flex-start; gap: 20px; flex-wrap: wrap; }
+.user-head-body { flex: 1 1 210px; min-width: 0; }
+.user-head-body .user-hint { margin-top: 8px; }
+
+/*
+ * 104px：比正文大字号的区大一档就够，再大就压过这一页真正的主角（昵称那一行）。
+ * 圆形 + 1px 描边不是装饰 —— 没有描边时，浅色头像在浅底上会"融"进去看不出边界。
+ */
+.user-avatar {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 104px;
+  height: 104px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--text-dim);
+}
+.user-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* 加粗 / 行高 / 不选中在 globals 的 `.avatar-initial`，这里只定字号。 */
+.user-avatar .avatar-initial { font-size: 36px; }
+
+/* ---------- 按钮行 ---------- */
+.user-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+/* 这一层包 `<span>` 是为了把「上传头像」按钮和那个隐藏的 `<input type="file">`
+   关在同一个 inline-flex 里 —— 隐藏 input 会贡献一个看不见的行内盒，
+   不包一层的话它会在按钮旁边占掉一小段宽度，让「上传」和「移除」挨得不均匀。 */
+.user-upload-wrap { display: inline-flex; }
+/* 格式说明紧跟在按钮下面，所以比常规的块间距小一档。 */
+.user-card > .user-note { margin-top: 8px; }
+
+/* ---------- 说明文字 ---------- */
+.user-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.75;
+  color: var(--text-mute);
+}
+.user-hint strong { color: var(--text-dim); font-weight: 600; }
+
+/* ---------- 表单 ---------- */
+.user-form { display: grid; gap: 14px; }
+/* 一行两格（用户名 / 密码）。窄了自动各占一行，不用 media query。 */
+.user-form-row { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+.user-field { display: grid; gap: 7px; min-width: 0; }
+.user-label { font-size: 12px; color: var(--text-dim); }
+.user-field input {
+  width: 100%;
+  padding: 9px 12px;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--text);
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  transition: border-color var(--t), background-color var(--t);
+}
+.user-field input:hover { border-color: var(--line-strong); }
+.user-field input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
+
+/* ---------- 网站账号 ---------- */
+/*
+ * 这一块是**身份的动作**，跟上面「昵称 / 头像」那块资料不是一类事 ——
+ * 所以它是独立一张卡、带自己的一组按钮和自己的状态行，不跟「保存」共用。
+ */
+.user-account { display: grid; gap: 14px; }
+.user-account a[data-user-site] { color: var(--accent); text-decoration: none; }
+.user-account a[data-user-site]:hover { text-decoration: underline; }
+
+/* 已登录：账号一行 + 三个小指标（比一句逗号连起来的说明好扫）。 */
+.user-live { display: grid; gap: 12px; }
+.user-live-who {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  word-break: break-all;
+}
+.user-stats { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); }
+.user-stat {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+}
+.user-stat span { font-size: 11px; color: var(--text-mute); }
+.user-stat strong { font-size: 14px; font-weight: 600; color: var(--text-dim); word-break: break-all; }
+
+/* ---------- 底部操作（只在「个人资料」那张卡里）---------- */
+.user-foot,
+.user-card-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.user-status { margin: 0; font-size: 13px; }
+.user-status.ok { color: var(--accent); }
+.user-status.err { color: var(--danger); }
+
+.user-loading { padding: 20px 0; font-size: 13px; color: var(--text-mute); }
+
+.user-card button { box-shadow: none; }
+.user-card button:disabled { box-shadow: none; }
