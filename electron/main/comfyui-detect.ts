@@ -33,6 +33,19 @@ const PORT_RE = /--port(?:=|\s+)(\d{2,5})\b/;
 const COMFY_RE = /main\.py|comfyui/i;
 /** 往下钻一层时才看目录名：只有这些名字的目录才可能是整合包/ComfyUI 的藏身处。 */
 const INTERESTING_RE = /comfy|^ai$|^tools$|^apps$|^software$|整合包|绘世|绘图/i;
+/**
+ * 「这目录像个便携整合包的根」—— 命中就多往下钻一层。
+ *
+ * 为什么需要它：整合包几乎都是 `<根>/ComfyUI/main.py` 这种结构，而根自己的名字长得
+ * 五花八门（`ComfyUI_portable_TE_v260619`、`ComfyUI-aki-v3`、`绘世整合包`）。
+ * 统一的两层深度在 `D:\ai\ComfyUI_portable_TE_v260619\ComfyUI` 这里**正好差一层** ——
+ * 2026-09-30 实测：徐先用 TE 启动器装的 ComfyUI **整盘扫出 0 处**，
+ * 而把那个目录直接喂进来，main.py / models / custom_nodes / python 明明全都在。
+ *
+ * 只给命中的目录多一层，其余保持两层：不加这条护栏，深度一放开 visits 就爆
+ * （400 个目录 / 8 秒的预算是给「钻得少」设计的，不是给「钻得深」设计的）。
+ */
+const PORTABLE_RE = /portable|整合包|绘世|aki|(^|[_.-])te([_.-]|$)|comfy.*_v?\d/i;
 /** 扫盘的时间预算。超了就带着已经找到的收工。 */
 const TIME_BUDGET_MS = 8_000;
 /** 访问目录数上限，防止在巨型目录树里跑飞。 */
@@ -231,8 +244,10 @@ function yieldToEventLoop(): Promise<void> {
 /**
  * 扫一遍本机，找 ComfyUI 装在哪。
  *
- * 广度优先、最多两层：整合包几乎都躺在 `<盘>:\xxx\ComfyUI` 或 `<盘>:\ComfyUI` 这种深度，
+ * 广度优先、默认最多两层：整合包常躺在 `<盘>:\xxx\ComfyUI` 或 `<盘>:\ComfyUI` 这种深度，
  * 再深就是用户自己的文件夹了，钻进去只会拖慢速度还带来一堆误报。
+ * **例外**：目录名像个便携整合包的根时给三层（见 `PORTABLE_RE`）—— 那个根下面
+ * 才是真正的 `ComfyUI\main.py`，少一层就整个包都看不见。
  *
  * ⚠️ **它是 async 的，而且每 20 个目录让出一次事件循环** —— 这个函数的调用方是
  * **主进程**，而主进程同时还负责窗口。同步扫 8 秒 = 整个应用假死 8 秒（标题栏点不动、
@@ -278,7 +293,7 @@ export async function findComfyuiInstalls(configuredDir = ''): Promise<ComfyuiIn
       hits.push(info);
       continue;
     }
-    if (depth >= 2) continue;
+    if (depth >= (PORTABLE_RE.test(info.name) ? 3 : 2)) continue;
 
     let entries: fs.Dirent[] = [];
     try {
