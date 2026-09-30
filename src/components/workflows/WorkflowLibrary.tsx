@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { AppWindow, Check, Cpu, Download, Film, ImageIcon, Pencil, Plus, SlidersHorizontal, Stethoscope, Trash2, Upload, X } from 'lucide-react';
+import { AppWindow, Check, Cpu, Download, FileJson, Film, ImageIcon, Pencil, Plus, SlidersHorizontal, Stethoscope, Trash2, Upload, X } from 'lucide-react';
 /* 只能 `import type`：`WorkflowSummary` 所在的模块引了数据库，值导入会把 Prisma 拖进浏览器包。 */
 import type { WorkflowSummary } from '@/lib/workflows/drafts';
 import { normalizeWorkflowName, WORKFLOW_NAME_MAX, workflowDisplayName } from '@/lib/workflows/label';
@@ -34,6 +34,29 @@ const kindIcon = (kind: GeneratorKind) => kind === 'image' ? <ImageIcon size={17
  * - `local` —— 本机 ComfyUI（图就在我们这边）。
  */
 type WorkflowSource = 'cloud' | 'app' | 'local';
+
+/** 一份从本机 .json 文件里读出来的工作流图。 */
+type PickedFile = { name: string; graph: unknown; nodeCount: number };
+
+/**
+ * 图里有多少个节点。**只用来显示一句摘要** —— 真正的形状校验在服务端
+ * （`parseLocalGraph`），规则只有一份，不在浏览器里抄第二遍。
+ */
+function countGraphNodes(graph: unknown): number {
+  return graph && typeof graph === 'object' && !Array.isArray(graph) ? Object.keys(graph).length : 0;
+}
+
+/**
+ * 用文件名当工作流的名字：去扩展名，再去 ComfyUI 导出去常带的 `_api` 后缀。
+ *
+ * 「xxx_api」不是人起的名字，那只是导出格式的标记，留在名字里只会让人以为它本来就叫这个。
+ * 超长就地截断 —— 写入路径对**用户手打**的名字是报错的（见 `normalizeWorkflowName`，
+ * 静默截断会让人以为自己起的名字存下来了），但这里是自动推出来的兜底名，
+ * 报错等于让用户为一个他没打过的名字重来一遍。
+ */
+function nameFromFile(fileName: string): string {
+  return fileName.replace(/\.json$/i, '').replace(/_api$/i, '').trim().slice(0, WORKFLOW_NAME_MAX);
+}
 
 async function readResponse(response: Response) {
   const body = await response.json().catch(() => null);
@@ -97,6 +120,22 @@ export default function WorkflowLibrary({ workflows, defaultWorkflowId, onOpen, 
    * 是「接本地工作流」这件事实际做不下去的真正原因。
    */
   const [pulled, setPulled] = useState<{ graph: unknown; nodeCount: number; promptId: string } | null>(null);
+  /**
+   * 从**本机 .json 文件**读进来的图（可以一次好几份）。
+   *
+   * 和 `pulled` 是同一个流程的第三条入口，差别只在「图从哪来」：之前只有粘贴框和
+   * 「从正在运行的 ComfyUI 抓」两条，手上有个 workflow.json 就只能先打开、全选、
+   * 复制、再粘进来 —— 那一步每改一次图就得重来一遍。
+   *
+   * 允许多份：工作流常常是一整个文件夹（改一版存一份），一份份点太难受。
+   * 多份时名字各按文件名来，不再共用上面那个「名字」输入框。
+   */
+  const [picked, setPicked] = useState<PickedFile[] | null>(null);
+  /** 拖放高亮。只为「松手会怎样」给个反馈 —— 没有它，用户看不出这块地方能拖。 */
+  const [dragging, setDragging] = useState(false);
+  /* 藏起来的文件选择框。藏它是因为系统那个框的样式改不了，
+     露出来的应该是我们自己那个「选择 .json 文件」按钮。 */
+  const fileInputRef = useRef<HTMLInputElement>(null);
   /**
    * 工序。也是**新建表单里那一项的值** —— 在「超清」这一格下填新 ID，
    * 进去的当然该是超清工作流，让人再选一遍等于多一次犯错机会。
@@ -202,31 +241,112 @@ export default function WorkflowLibrary({ workflows, defaultWorkflowId, onOpen, 
   }
 
   /**
-   * 导入一份本机 ComfyUI 工作流。
-   *
-   * 先自己 `JSON.parse` 一次：贴错东西最常见的情况是少了一个大括号，那属于「用户该去改」，
-   * 在这儿就报出来比让服务端回一句 400 干净（也更省一次几十 KB 的往返）。别的形状问题
-   * （多半是贴成了 UI 格式）由服务端那句更会说话的报错负责。
+   * 真正的那一次 POST。抽出来是为了「一份」和「一次好几份」共用同一条路 ——
+   * 两条各写一遍，迟早会不一样（比如只有一条记得带上 `operation`）。
    */
-  async function doImport(graph: unknown) {
-    const cleaned = normalizeWorkflowName(importName);
+  async function postImport(graph: unknown, name: string) {
+    return readResponse(await fetch('/api/workflows/local', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        graph, name, kind: newKind, category: activeNewCategory, operation: operationFilter,
+      }),
+    }));
+  }
+
+  async function doImport(graph: unknown, nameOverride?: string) {
+    const cleaned = normalizeWorkflowName(nameOverride ?? importName);
     if (!cleaned.ok) { setError(cleaned.message); return; }
     setBusy('import'); setError(''); setNotice('');
     try {
-      const body = await readResponse(await fetch('/api/workflows/local', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          graph, name: cleaned.name, kind: newKind, category: activeNewCategory, operation: operationFilter,
-        }),
-      }));
-      setImportText(''); setImportName(''); setImportOpen(false); setPulled(null);
+      const body = await postImport(graph, cleaned.name);
+      setImportText(''); setImportName(''); setImportOpen(false); setPulled(null); setPicked(null);
       setNotice(body?.notice ? `已导入 ${body.nodeCount} 个节点。${body.notice}` : '已导入这份本地工作流。');
       refresh();
     } catch (err) { setError(err instanceof Error ? err.message : '导入失败。'); }
     finally { setBusy(null); }
   }
 
+  /**
+   * 一次导入好几份（多选文件时用）。
+   *
+   * **一份一份来，坏掉的那份单独报出来** —— 一整批里有一份是 UI 格式就把其余的也丢掉，
+   * 用户只会看到一句笼统的失败，还得自己猜是哪一份。
+   */
+  async function importPicked(list: PickedFile[]) {
+    setBusy('import'); setError(''); setNotice('');
+    const done: string[] = [];
+    const bad: string[] = [];
+    try {
+      for (const item of list) {
+        /*
+         * 只有一份时**认上面那个「名字」输入框**：文件名是预填进去的，用户完全可以改，
+         * 改了却仍按文件名存等于把他的输入悄悄扔掉。好几份时那份输入框没有意义，
+         * 各按文件名来。
+         */
+        const wanted = list.length === 1 ? (importName.trim() || nameFromFile(item.name)) : nameFromFile(item.name);
+        const cleaned = normalizeWorkflowName(wanted);
+        if (!cleaned.ok) { bad.push(`${item.name}（${cleaned.message}）`); continue; }
+        try {
+          await postImport(item.graph, cleaned.name);
+          done.push(cleaned.name);
+        } catch (err) {
+          bad.push(`${item.name}（${err instanceof Error ? err.message : '导入失败'}）`);
+        }
+      }
+    } finally { setBusy(null); }
+    setImportText(''); setImportName(''); setImportOpen(false); setPulled(null); setPicked(null);
+    /* 一份都没成就**报错**，不说成成功：绿条里写「导入 0 份」是自相矛盾的，
+       而这时候用户真正要看的正是那句失败原因。部分成功才用提示条 —— 成功了多少也要说。 */
+    if (!done.length) setError(`这几份都没导进来：${bad.join('；')}`);
+    else setNotice(bad.length
+      ? `导入 ${done.length} 份：${done.join('、')}；${bad.length} 份没成：${bad.join('；')}`
+      : `已导入 ${done.length} 份：${done.join('、')}`);
+    refresh();
+  }
+
+  /**
+   * 读一个或多个 .json 文件，把里面的图取出来。
+   *
+   * 这里只做「是不是合法 JSON」这一层判断；更细的形状问题（多半是 UI 格式）交给服务端
+   * 那句更会说话的报错 —— 规则只有一份，在浏览器里抄一遍迟早会对不上。
+   */
+  async function pickFiles(fileList: FileList | null) {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    setBusy('pick'); setError(''); setNotice('');
+    const ok: PickedFile[] = [];
+    const bad: string[] = [];
+    try {
+      for (const file of files) {
+        try {
+          const graph = JSON.parse(await file.text()) as unknown;
+          ok.push({ name: file.name, graph, nodeCount: countGraphNodes(graph) });
+        } catch {
+          bad.push(file.name);
+        }
+      }
+    } finally { setBusy(null); }
+    if (!ok.length) {
+      setError(`这${files.length > 1 ? '些' : ''}个文件里读不出 JSON${bad.length ? `：${bad.join('、')}` : ''}。请确认拿的是 ComfyUI「导出（API）」出来的那份 .json。`);
+      return;
+    }
+    setPicked(ok);
+    setImportOpen(true);
+    /* 单份时把文件名填进「名字」：文件名通常就是人已经起好的名字，让人再打一遍没道理。 */
+    if (ok.length === 1 && !importName.trim()) setImportName(nameFromFile(ok[0].name));
+    setNotice(bad.length
+      ? `读到 ${ok.length} 份，另有 ${bad.length} 个不是合法 JSON：${bad.join('、')}`
+      : `已从文件读到 ${ok.length} 份工作流。`);
+  }
+
+  /**
+   * 从粘贴框导入一份。
+   *
+   * 先自己 `JSON.parse` 一次：贴错东西最常见的情况是少了一个大括号，那属于「用户该去改」，
+   * 在这儿就报出来比让服务端回一句 400 干净（也更省一次几十 KB 的往返）。别的形状问题
+   * （多半是贴成了 UI 格式）由服务端那句更会说话的报错负责。
+   */
   async function submitImport() {
     let graph: unknown;
     try {
@@ -345,22 +465,55 @@ export default function WorkflowLibrary({ workflows, defaultWorkflowId, onOpen, 
     {source === 'local'
       ? (
 
-        <div className="workflow-new">
-          <p className="workflow-new-head">导入本机工作流<span className="workflow-muted"> · 图在本机 ComfyUI 上，导入后自动扫出可配字段</span></p>
+        <div
+          className={dragging ? 'workflow-new workflow-new-dragover' : 'workflow-new'}
+          /* 只接住「拖的是文件」：拖一段选中的文字进来不该把这里点亮，
+             也不该拦下浏览器默认的拖选行为。 */
+          onDragOver={event => { if (!event.dataTransfer.types.includes('Files')) return; event.preventDefault(); setDragging(true); }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={event => {
+            if (!event.dataTransfer.types.includes('Files')) return;
+            event.preventDefault(); setDragging(false);
+            void pickFiles(event.dataTransfer.files);
+          }}
+        >
+          <p className="workflow-new-head">导入本机工作流<span className="workflow-muted"> · 图在本机 ComfyUI 上，导入后自动扫出可配字段，也可以直接把 .json 拖到这里</span></p>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json,application/json"
+            multiple
+            hidden
+            /* 读完就把 value 清掉：否则再选同一个文件不会触发 change，
+               看着像「点了没反应」—— 改一份图重新导入正是最常见的用法。 */
+            onChange={event => { void pickFiles(event.target.files); event.target.value = ''; }}
+          />
           {!importOpen
             ? <div className="workflow-new-buttons">
               <button type="button" onClick={() => setImportOpen(true)} disabled={!!busy}><Upload size={16} />粘贴 ComfyUI 图</button>
+              <button type="button" className="secondary" onClick={() => fileInputRef.current?.click()} disabled={!!busy}>
+                <FileJson size={16} />{busy === 'pick' ? '正在读…' : '选择 .json 文件'}
+              </button>
               <button type="button" className="secondary" onClick={() => void pullFromComfyui()} disabled={!!busy}>
                 <Download size={16} />{busy === 'pull' ? '正在抓…' : '从正在运行的 ComfyUI 抓取'}
               </button>
-              <span className="workflow-muted">ComfyUI 开着的时候直接抓它最近一次跑过的那份图，不必先去导出 JSON。</span>
+              <span className="workflow-muted">手上已经有导出好的 .json 就直接选它（可以按住 Ctrl 一次选好几份，也可以直接把文件拖到这块地方）；ComfyUI 正开着的话，也能直接抓它最近一次跑过的那份图，不必先去导出。</span>
             </div>
             : <>
               <label htmlFor="import-name">名字<input id="import-name" value={importName} maxLength={WORKFLOW_NAME_MAX} placeholder="给它起个名字（留空 = 显示 ID）" onChange={event => setImportName(event.target.value)} /></label>
               <label htmlFor="import-kind">用途<select id="import-kind" value={newKind} onChange={event => setNewKind(readGeneratorKind(event.target.value))}>{GENERATOR_KIND_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
               <label htmlFor="import-category">分类<select id="import-category" value={activeNewCategory} onChange={event => setNewCategory(readWorkflowCategory(event.target.value, newKind))}>{newCategoryOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
               <label htmlFor="import-operation">工序<select id="import-operation" value={operationFilter} onChange={event => setOperationFilter(readWorkflowOperation(event.target.value))}>{WORKFLOW_OPERATION_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-              {pulled
+              {picked
+                ? <div className="workflow-pulled" data-workflow-picked={picked.length}>
+                  <strong>{picked.length > 1 ? `已从 ${picked.length} 个文件读到工作流` : `已从「${picked[0].name}」读到 ${picked[0].nodeCount} 个节点`}</strong>
+                  <span className="workflow-muted">
+                    {picked.length > 1
+                      ? `各按文件名起名：${picked.map(item => nameFromFile(item.name)).join('、')}。用途 / 分类 / 工序按上面这几项统一给。`
+                      : '名字已经按文件名填进上面那格了，要改直接改。'}
+                  </span>
+                </div>
+                : pulled
                 ? <div className="workflow-pulled" data-workflow-pulled={pulled.nodeCount}>
                   <strong>已从 ComfyUI 抓到 {pulled.nodeCount} 个节点</strong>
                   <span className="workflow-muted">
@@ -381,10 +534,14 @@ export default function WorkflowLibrary({ workflows, defaultWorkflowId, onOpen, 
               <div className="workflow-new-buttons">
                 <button
                   type="button"
-                  disabled={(pulled ? false : !importText.trim()) || !!busy}
-                  onClick={() => void (pulled ? doImport(pulled.graph) : submitImport())}
-                >{busy === 'import' ? '正在导入…' : '导入这份工作流'}</button>
-                <button type="button" className="secondary" onClick={() => { setImportOpen(false); setImportText(''); setImportName(''); setPulled(null); setError(''); }} disabled={busy === 'import'}>取消</button>
+                  disabled={(pulled || picked ? false : !importText.trim()) || !!busy}
+                  onClick={() => {
+                    if (picked) void importPicked(picked);
+                    else if (pulled) void doImport(pulled.graph);
+                    else void submitImport();
+                  }}
+                >{busy === 'import' ? '正在导入…' : picked && picked.length > 1 ? `导入这 ${picked.length} 份` : '导入这份工作流'}</button>
+                <button type="button" className="secondary" onClick={() => { setImportOpen(false); setImportText(''); setImportName(''); setPulled(null); setPicked(null); setError(''); }} disabled={busy === 'import'}>取消</button>
               </div>
               <span className="workflow-muted">导入后会自动扫出这份图里所有可填的节点字段（默认都不勾选），去配置页挑要用哪些、接到画布的提示词 / 参考图上。</span>
             </>}
