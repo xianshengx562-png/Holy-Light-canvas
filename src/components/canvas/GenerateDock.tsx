@@ -36,11 +36,11 @@ import Link from 'next/link';
 import type { NodeData } from './types';
 import {
   ASPECT_RATIOS, DEFAULT_RATIO, IMAGE2_RATIOS, IMAGE2_RESOLUTIONS, IMAGE2_SIZE_AUTO,
-  IMAGE_DEFAULTS, IMAGE_SIZE_MODES, MAX_BATCH, MAX_CFG, MAX_CUSTOM_SIDE,
+  IMAGE_DEFAULTS, IMAGE_SIZE_MODES, INSTANCE_TYPE_OPTIONS, MAX_BATCH, MAX_CFG, MAX_CUSTOM_SIDE,
   MAX_MEGAPIXELS, MAX_STEPS, MIN_CUSTOM_SIDE, MIN_MEGAPIXELS, SAMPLERS, VIDEO_API_RATIOS,
-  VIDEO_API_RESOLUTIONS, deriveImageSize, generatorKindLabel, imageEngineOptions, videoEngineOptions,
+  VIDEO_API_RESOLUTIONS, deriveImageSize, generatorKindLabel, imageEngineOptions, instanceTypeHint, videoEngineOptions,
   groupWorkflowsByProvider, imageEngineLabel, imageEngineProvider, isVideoUrl, readImage2Params,
-  readImageEngine, readImageSizeMode, readVideoApiParams, readVideoEngine, resolveImageSize,
+  readImageEngine, readImageSizeMode, readInstanceType, readVideoApiParams, readVideoEngine, resolveImageSize,
   validateCustomSize, videoEngineLabel,
   videoEngineProvider, workflowDisplayName, workflowLabel, workflowMismatchHint,
   workflowsForApp, workflowsForGeneration, workflowsForProvider,
@@ -339,6 +339,33 @@ export default function GenerateDock({ data, nodeId, anchor }: {
       {engineOptions.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
     </select>
   );
+
+  /*
+   * RunningHub 的**运行规格**（2026-09-30，徐先要的）。
+   *
+   * 在这之前界面上一个字都没有：提交时永远不带 `instanceType`，官方就按 24G 派机器 ——
+   * 吃显存的工作流在 24G 上跑不动时，报出来的是上游的显存不足，
+   * 而用户在自己这一侧找不到任何能调的东西。
+   *
+   * ⚠️ 只在这一节点**真的走 RunningHub** 时才画出来：本机 ComfyUI 用的是用户自己的显卡，
+   *    网关那两档（videoapi / custom）是别人家的机房 —— 都没有「租哪种机器」这回事。
+   *    应用节点恒为云端（`engineProvider` 对它直接返回 runninghub），所以它也照常显示。
+   * ⚠️ 默认那一档也照常列着，**不做**「只在非默认时才显示」那套：
+   *    一个忽隐忽现的下拉，用户只会以为这功能时好时坏。
+   */
+  const instanceType = readInstanceType(data.instanceType);
+  const instanceSelect = engineProvider === 'runninghub' ? (
+    <select
+      className={`cv-select sm cv-dock-eng cv-dock-instance${instanceType === 'default' ? '' : ' on'}`}
+      data-dock-instance=""
+      aria-label="运行规格"
+      title={`跑在多大的机器上 —— ${instanceTypeHint(instanceType)}（只对 RunningHub 云端有效）`}
+      value={instanceType}
+      onChange={event => data.onField?.('instanceType', event.target.value)}
+    >
+      {INSTANCE_TYPE_OPTIONS.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
+    </select>
+  ) : null;
 
   /*
    * 选了「自定义接口」才出现的模型下拉。
@@ -1198,6 +1225,8 @@ export default function GenerateDock({ data, nodeId, anchor }: {
       <div className="cv-dock-bar nodrag nowheel">
         {/* 应用节点没有「引擎」这一说 —— 它只有云端一条路，摆一个下拉只会让人选到跑不通的那档。 */}
         {!isApp && engineSelect}
+        {/* 应用节点没有「引擎」这一说，但**有规格** —— 它也是跑在 RunningHub 上的。 */}
+        {instanceSelect}
         <button
           className={`cv-dock-chip cv-dock-summary${pop ? ' on' : ''}`}
           type="button"

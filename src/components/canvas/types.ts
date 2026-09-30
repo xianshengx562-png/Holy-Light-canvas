@@ -274,6 +274,20 @@ export type NodeData = {
    */
   engine?: 'runninghub' | 'local' | 'videoapi' | 'workflow' | 'custom';
   /**
+   * RunningHub 的**运行规格** —— 这一发跑在多大的机器上（2026-09-30）。
+   *
+   * `default`（24G 显存）/ `plus`（48G）/ `ultra`（84G），值域与说明在
+   * `lib/workflows/instanceType.ts`（官方定义见 RunningHub API 文档那份「发起 ComfyUI 任务-高级」）。
+   *
+   * 🔴 **不填就是 `default`**，而且不带这个字段时提交也照旧不带 `instanceType` ——
+   * 老画布上所有节点都是这个状态，它们必须继续按 24G 跑。
+   * 所以这个字段只在「用户真的在节点上改过」时才写进来，别在别处给它补默认值。
+   *
+   * 只对 RunningHub 云端有意义：本机 ComfyUI 用的是用户自己的显卡，
+   * 网关那两档是别人家的机房，都没有「租哪种机器」这回事。
+   */
+  instanceType?: string;
+  /**
    * 引擎 = `custom`（自定义接口）时选的是**哪条接口的哪个模型**，形如 `<providerId>::<modelId>`
    * （拆法见 `lib/providers/custom.ts` 的 `splitCustomModelValue`）。
    *

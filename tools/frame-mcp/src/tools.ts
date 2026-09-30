@@ -7,6 +7,7 @@ import {
   ACCEPTS, CREATE_KINDS, NODE_META, canConnect, connectionHint, newNodeData, purposeOfNode,
   upscaleWorkflowFor, type NodeKind,
 } from '@/src/components/canvas/nodeMeta';
+import { readInstanceType } from '@/lib/workflows/instanceType';
 
 /*
  * 工具的实现。**这里没有一条业务规则是 MCP 自己写的** —— 连线合法性用 `canConnect`、
@@ -508,6 +509,7 @@ export const TOOLS: Tool[] = [
         },
         paramRows: { type: 'array', description: '可选，额外的自定义参数行 {nodeId, fieldName, value}。' },
         operation: { type: 'string', enum: ['generate', 'upscale'], description: '默认 generate。选 upscale 时会自动挑这个用途的超清工作流，输入取节点已有的生成结果。' },
+        instanceType: { type: 'string', enum: ['default', 'plus', 'ultra'], description: 'RunningHub 的运行规格（default 24G 显存 / plus 48G / ultra 84G）。不填就用节点上选的那一档。只对 RunningHub 云端有效，本机 ComfyUI 与网关那两档不适用。' },
         confirm: { type: 'boolean', description: '必须传 true 才会真的提交。' },
         dryRun: { type: 'boolean', description: 'true = 只算出并提交看看，不发请求。' },
       },
@@ -553,6 +555,12 @@ export const TOOLS: Tool[] = [
         bindingValues: values,
       };
       if (operation !== 'generate') body.operation = operation;
+      /*
+       * 运行规格（2026-09-30）—— **不传参数时也读节点上选的那一档**，用的是跟界面提交
+       * 同一个 `readInstanceType`。这一个字段漏掉的后果是静默的：节点上写着 48G，
+       * 这一次却按 24G 跑，任务照样成功 —— 只有账单和显存知道区别。
+       */
+      body.instanceType = readInstanceType(text(input, 'instanceType') ?? node.data?.instanceType);
       const rows = input['paramRows'];
       if (Array.isArray(rows)) body.paramRows = rows.map((row, index) => ({
         id: String((row as Record<string, unknown>)?.id ?? `row-${index + 1}`),

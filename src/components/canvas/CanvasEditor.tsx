@@ -61,7 +61,7 @@ import {
   isRunnableKind, isTextValueKind, displayLabelOf,
   latentBrokenHint, latentBrokenLabel, latentLabel, purposeOfNode, workflowMismatchHint, upscaleWorkflowFor,
   workflowDisplayName, generatorKindLabel, newNodeData, isReferenceSource, referenceUrlsOf, latentNodeIdOf,
-  mediaReadyForRun, isResolvableUrl, workflowsForProvider, engineSwitchPatch,
+  mediaReadyForRun, isResolvableUrl, workflowsForProvider, engineSwitchPatch, readInstanceType,
 } from './nodeMeta';
 import type { NodeKind } from './nodeMeta';
 import { validateImageParams } from '@/lib/workflows/imageParams';
@@ -1879,6 +1879,12 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
            * 而界面上一个字都不会说。网关那两档（videoapi / custom）在服务端会被跳过。
            */
           engine: String(node.data.engine || ''),
+          /*
+           * RunningHub 的运行规格（2026-09-30）。**总是带上读出来的值**，而不是「非默认才带」：
+           * 读法只有一个（`readInstanceType`，缺省 = default），带上去与老行为完全等价
+           * （服务端本来也是 `instanceType || 'default'`），少一个分支就少一处会分叉的真相。
+           */
+          instanceType: readInstanceType(node.data.instanceType),
           paramRows,
           ...(latentNodeIds.coarse || latentNodeIds.fine ? { latentNodeIds } : {}),
           bindingValues: {
@@ -2267,6 +2273,8 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
           workflowId: target.workflowId,
           kind: purpose,
           operation: 'upscale',
+          /* 超清跑的同样是一份 RunningHub 工作流，所以要跟节点上选的规格一致（本机那一档用不上它，服务端会跳过）。 */
+          instanceType: readInstanceType(node.data.instanceType),
           bindingValues: { upscaleInput: source },
         }),
       }));

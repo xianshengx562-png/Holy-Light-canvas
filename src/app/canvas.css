@@ -3881,6 +3881,17 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   border-color: var(--cv-danger);
   border-style: dashed;
 }
+/*
+  运行规格（2026-09-30）：选了 48G / 84G 时染成提示色。
+
+  48G / 84G 比 STANDARD 贵，而「这一发多花了钱」不该只藏在没展开的下拉里。
+  用 warn 橙而不是 danger 红 —— 它不是错，是一个价格档位；
+  连续粗体也不加：规格是个**持续存在的状态**，闪得越厉害越像出了故障。
+*/
+.cv-dock-instance.on {
+  color: var(--cv-warn);
+  border-color: var(--cv-warn-line);
+}
 
 /* 参数摘要 chip：点开分组弹层的那颗。文字超长省略，档位一看即知。 */
 .cv-dock-summary { max-width: 240px; padding: 6px 12px; }

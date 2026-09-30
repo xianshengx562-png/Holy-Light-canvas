@@ -602,6 +602,11 @@ export {
   VIDEO_API_DEFAULTS, VIDEO_API_RATIOS, VIDEO_API_RESOLUTIONS, readVideoApiParams, validateVideoApiParams,
 } from '@/lib/workflows/videoApiParams';
 export type { VideoApiParamValues, VideoApiRequest } from '@/lib/workflows/videoApiParams';
+export {
+  DEFAULT_INSTANCE_TYPE, INSTANCE_TYPE_OPTIONS, RUNNINGHUB_INSTANCE_TYPES, instanceTypeHint,
+  instanceTypeLabel, isDefaultInstanceType, isInstanceType, readInstanceType,
+} from '@/lib/workflows/instanceType';
+export type { RunningHubInstanceType } from '@/lib/workflows/instanceType';
 
 export const latentAssetPrefix = 'asset:';
 
