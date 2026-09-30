@@ -589,8 +589,8 @@ export {
 } from '@/lib/workflows/imageEngine';
 export type { ImageEngine } from '@/lib/workflows/imageEngine';
 export {
-  IMAGE2_BACKGROUNDS, IMAGE2_DEFAULTS, IMAGE2_RATIO_AUTO, IMAGE2_RATIOS, IMAGE2_RESOLUTIONS,
-  IMAGE2_SIZE_AUTO, image2Size, readImage2Params, validateImage2Params,
+  IMAGE2_BACKGROUNDS, IMAGE2_DEFAULTS, IMAGE2_FIXED_RATIO, IMAGE2_RATIO_AUTO, IMAGE2_RATIOS,
+  IMAGE2_RESOLUTIONS, IMAGE2_SIZE_AUTO, image2Size, readImage2Params, validateImage2Params,
 } from '@/lib/workflows/image2Params';
 export type { Image2ParamValues, Image2Request } from '@/lib/workflows/image2Params';
 export {

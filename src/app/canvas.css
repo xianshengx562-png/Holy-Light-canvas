@@ -4672,3 +4672,59 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   border: 1px dashed var(--cv-line-strong);
   border-radius: var(--cv-radius-sm);
 }
+
+/* ---------- 读数上**真的能点**的那一种（2026-09-30） ---------- */
+/*
+ * 它原来只是个读数（虚线框），因为比例自适应时分辨率确实不生效。
+ * 可「只有读数、没有出路」是不行的：用户只会得出「这儿选不了」
+ * —— 徐先就是这么问的（「这里怎么选择不了 1k，2k，4k 的了」），
+ * 而唯一的提示原来藏在 hover 的 title 里。
+ *
+ * 现在点它 = 先把比例定成一档具体画幅，下拉当场就出来。
+ *
+ * 虚线边**保留**：它仍然不是下拉，仍然是「这一档此刻不由你定」；
+ * 变的是鼠标移上去变实线 + 强调色，右边多一句「点这里固定尺寸」——
+ * 让人看得出这里有出路，而不是一个坏掉的控件。
+ */
+.cv-dock-readout-action {
+  gap: 8px;
+  height: auto;
+  min-height: 22px;
+  padding: 3px 8px;
+  /* button 的默认字体跟周围不一样，不拉回来会突然变成另一种字 */
+  font: inherit;
+  font-size: 11px;
+  color: var(--cv-dim);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.cv-dock-readout-action em {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--cv-accent);
+  white-space: nowrap;
+}
+.cv-dock-readout-action:hover {
+  border-style: solid;
+  border-color: var(--cv-accent-line);
+  background: var(--cv-accent-veil);
+  color: var(--cv-accent);
+}
+.cv-dock-readout-action:focus-visible {
+  outline: 2px solid var(--cv-accent-ring);
+  outline-offset: 1px;
+}
+
+/*
+ * 点完之后把「比例」那一栏闪一下 —— 用户下一步八成就是去那儿换画幅
+ * （1:1 只是先替他指的一档，不是锁死的值）。
+ * 用 box-shadow 画这圈光：**不占布局**，闪完不会让弹层里的东西挪位置。
+ */
+.cv-dock-flash {
+  border-radius: var(--cv-radius-sm);
+  animation: cv-dock-flash 0.9s ease-out;
+}
+@keyframes cv-dock-flash {
+  0% { box-shadow: 0 0 0 3px var(--cv-accent-soft); }
+  100% { box-shadow: 0 0 0 3px transparent; }
+}

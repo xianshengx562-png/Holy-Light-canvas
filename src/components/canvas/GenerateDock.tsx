@@ -27,7 +27,7 @@
  *    「面板里有没有这个控件」的判断依据 —— 判断控件存在与否照常用 DOM 查询，
  *    但「可不可点」要看它当前是不是开着的。
  */
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { apiPost } from '@/lib/client';
 import { useApi } from '@/lib/client';
 import { customEngineVisible } from '@/lib/providers/custom-visible';
@@ -35,7 +35,7 @@ import { ArrowUp, ChevronDown, Download, Loader, Plus, SlidersHorizontal, Sparkl
 import Link from 'next/link';
 import type { NodeData } from './types';
 import {
-  ASPECT_RATIOS, DEFAULT_RATIO, IMAGE2_RATIOS, IMAGE2_RESOLUTIONS, IMAGE2_SIZE_AUTO,
+  ASPECT_RATIOS, DEFAULT_RATIO, IMAGE2_FIXED_RATIO, IMAGE2_RATIOS, IMAGE2_RESOLUTIONS, IMAGE2_SIZE_AUTO,
   IMAGE_DEFAULTS, IMAGE_SIZE_MODES, INSTANCE_TYPE_OPTIONS, MAX_BATCH, MAX_CFG, MAX_CUSTOM_SIDE,
   MAX_MEGAPIXELS, MAX_STEPS, MIN_CUSTOM_SIDE, MIN_MEGAPIXELS, SAMPLERS, VIDEO_API_RATIOS,
   VIDEO_API_RESOLUTIONS, deriveImageSize, generatorKindLabel, imageEngineOptions, instanceTypeHint, videoEngineOptions,
@@ -461,8 +461,35 @@ export default function GenerateDock({ data, nodeId, anchor }: {
     value,
   );
 
+  /**
+   * 「点一下就把尺寸定下来」——分辨率那一栏里那个只读读数上的一下（2026-09-30）。
+   *
+   * 起因：徐先问「这里怎么选择不了 1k，2k，4k 的了」。查下来不是坏了 ——
+   * 比例还是默认的**自适应**，而自适应时尺寸归上游，分辨率本来就不生效，
+   * 所以那一栏摆的是读数不是下拉。可唯一的提示藏在 hover 的 `title` 里，
+   * 不把鼠标悬上去根本看不见，人的结论自然就是「选不了」。
+   *
+   * 于是读数变成可点的动作：点它 = 「我要自己定尺寸」→
+   * 先把比例从自适应换成 `IMAGE2_FIXED_RATIO`（1:1，最中性的一档），
+   * 下拉当场就出来。同时把**比例那一栏**滚进视野并闪一下 ——
+   * 用户下一步八成就是想换个画幅（1:1 只是先替他指一个），
+   * 得让他一眼看到「画幅在这儿改」，而不是以为被锁死成方图了。
+   */
+  const ratioGroupRef = useRef<HTMLDivElement | null>(null);
+  const [ratioFlash, setRatioFlash] = useState(false);
+  const pickFixedRatio = () => {
+    data.onField?.('image2Ratio', IMAGE2_FIXED_RATIO);
+    setRatioFlash(true);
+    window.setTimeout(() => setRatioFlash(false), 900);
+    ratioGroupRef.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+  };
+
   const ratioGroup = (
-    <div className="cv-dock-group">
+    <div
+      className={`cv-dock-group${ratioFlash ? ' cv-dock-flash' : ''}`}
+      ref={ratioGroupRef}
+      data-dock-ratio-group=""
+    >
       <span className="cv-dock-grouplabel">比例</span>
       <div className="cv-dock-ratios" data-dock-ratio="" role="radiogroup" aria-label="画面比例">
         {ratioOptions.map(opt => {
@@ -505,15 +532,26 @@ export default function GenerateDock({ data, nodeId, anchor }: {
              *
              * 摆着它也照样显示 4K，可这一次发出去的是「尺寸由接口决定」——
              * 用户看着自己选的 4K、拿到一张 1K 的图，整条事情就是这么来的。
-             * 换成一行读数 + 一句怎么办，比一个点了没用的下拉诚实。
+             * 换成一行读数比一个点了没用的下拉诚实。
+             *
+             * ⚠️ 但**只给读数是不够的**（2026-09-30 徐先：「这里怎么选择不了 1k，2k，4k 的了」）：
+             * 那句「想固定尺寸就在上面选一个比例」原来只在 hover 的 `title` 里，
+             * 不悬上去看不见，人只会得出「选不了」。所以读数现在**可以点**
+             * （见 `pickFixedRatio` 上的注释）：点一下就把比例定成一档具体画幅，
+             * 下拉当场出来。`data-dock-resolution-auto` 这个钩子留着别删 ——
+             * 旧探针靠它认这一态。
              */
-            ? <span
-              className="cv-dock-readout"
+            ? <button
+              type="button"
+              className="cv-dock-readout cv-dock-readout-action"
               data-dock-resolution-auto=""
-              title="尺寸由接口自己决定；想固定尺寸就在上面选一个比例"
+              data-dock-resolution-fix=""
+              title={`尺寸由接口自己决定（点一下：先把比例设为 ${IMAGE2_FIXED_RATIO}，就能选 1K / 2K / 4K 了）`}
+              onClick={pickFixedRatio}
             >
-              {`跟随上游（${String(image2.resolution).toUpperCase()} 不生效）`}
-            </span>
+              <span>{`跟随上游（${String(image2.resolution).toUpperCase()} 不生效）`}</span>
+              <em>点这里固定尺寸</em>
+            </button>
             : <select
               className="cv-select sm"
               data-dock-resolution=""
