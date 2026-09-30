@@ -1,5 +1,6 @@
 import type { AnchorHTMLAttributes, MouseEvent, ReactNode } from 'react';
 import { canOpenNewWindow } from '@/lib/desktop-fs';
+import { confirmLeave } from '@/lib/unsaved';
 import { navigate } from './router';
 
 /**
@@ -52,6 +53,21 @@ export default function Link({ href, replace, target, onClick, children, prefetc
          */
         const wantNewPlace = event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0;
         if (external || (keepTarget && (target || wantNewPlace))) {
+          return;
+        }
+        /*
+         * 有没保存的改动就先问一句（2026-09-30）。
+         *
+         * 站内跳转只改 hash、页面**不卸载**，所以 `beforeunload` 根本不触发 ——
+         * 从工作流配置页点「返回项目」，改了一屏的字段就这么没了，一个提示都没有。
+         * 于是问的责任落在这里（判定在 `lib/unsaved.ts`，只有登记过的编辑页才会被问）。
+         *
+         * ⚠️ 用户选「留下」时**也必须 preventDefault**：
+         * 这是个真的 `<a href>`，不挡掉默认行为，浏览器会照着 href 做整页导航
+         * （桌面版里那会被 `will-navigate` 兜回 hash 路由 —— 结果还是走了）。
+         */
+        if (!confirmLeave()) {
+          event.preventDefault();
           return;
         }
         event.preventDefault();

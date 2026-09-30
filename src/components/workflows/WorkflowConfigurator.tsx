@@ -19,6 +19,7 @@ import {
   type WorkflowOperation,
 } from '@/lib/workflows/operation';
 import { DEFAULT_GENERATOR_KIND, GENERATOR_KIND_OPTIONS, generatorKindLabel, readGeneratorKind, type GeneratorKind } from '@/lib/workflows/purpose';
+import { registerUnsaved } from '@/lib/unsaved';
 
 const kindLabels = { text: '提示词 / 文本', number: '数字', boolean: '开关', image: '图像', video: '视频', audio: '音频', latent: 'H3 latent' };
 const kinds = Object.keys(kindLabels) as WorkflowField['kind'][];
@@ -122,6 +123,20 @@ export default function WorkflowConfigurator({ initialWorkflowId, initialKind = 
   const checkedName = normalizeWorkflowName(nameInput);
   /** 页面标题显示的名字：起过就是名字，没起过回落工作流 ID。 */
   const displayName = workflowDisplayName({ name: nameInput, workflowId });
+
+  /*
+   * 登记进「未保存登记处」（2026-09-30）。
+   *
+   * `beforeunload` 只兜得住「刷新 / 关页面」这一条路，而离开这一屏还有两条它碰不到的：
+   *   - 点「返回项目」「工作流列表」这些 `<Link>` —— 它们是 hash 路由，只改 hash，
+   *     页面根本没卸载，`beforeunload` 不触发；
+   *   - 桌面版点右上角关闭 —— 主进程先拦下再推 IPC，弹的是 `CloseConfirmDialog` 自己的框。
+   * 这两条路都得有人主动问一句「还有没保存的」，问的人就是 `lib/unsaved.ts`。
+   *
+   * 登记的是 `dirty` 这屏自己的状态：谁脏谁知道，不该让问的人去猜。
+   * `displayName` 进依赖是因为提醒里要说清是**哪一份**（起过名就是名字，没起过就是 ID）。
+   */
+  useEffect(() => registerUnsaved(`工作流「${displayName}」`, () => dirty), [displayName, dirty]);
   /** 当前用途那一档的说明（「含续接 latent…」/「含步数 / CFG…」），只有一处文案来源。 */
   const kindHint = GENERATOR_KIND_OPTIONS.find(option => option.value === kind)?.hint ?? '';
   /** 当前用途下能选的分类。切换用途后旧分类可能不成立，所以每次现算、并就地退回一个成立的。 */

@@ -2444,6 +2444,17 @@ input[type='color']::-webkit-color-swatch { border: 0; border-radius: 5px; }
   color: var(--text-dim);
   margin-bottom: 18px;
 }
+/* 关应用时那句「还有没保存的」—— 整框里唯一一件值得先看的，所以给它一个独立的块。 */
+.cv-close-warn {
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--warn);
+  background: var(--warn-soft);
+  border: 1px solid var(--warn-line);
+  border-radius: var(--r-sm);
+}
 .cv-close-actions {
   display: flex;
   gap: 10px;
