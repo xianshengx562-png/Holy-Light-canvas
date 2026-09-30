@@ -470,7 +470,9 @@ export default function WorkflowLibrary({ workflows, defaultWorkflowId, onOpen, 
           /* 只接住「拖的是文件」：拖一段选中的文字进来不该把这里点亮，
              也不该拦下浏览器默认的拖选行为。 */
           onDragOver={event => { if (!event.dataTransfer.types.includes('Files')) return; event.preventDefault(); setDragging(true); }}
-          onDragLeave={() => setDragging(false)}
+          /* 只看「真的离开了这一整块」：dragleave 会在移到子元素上时也冒上来，
+             不加这道判断，高亮就会在块内移动时一路闪。 */
+          onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }}
           onDrop={event => {
             if (!event.dataTransfer.types.includes('Files')) return;
             event.preventDefault(); setDragging(false);
