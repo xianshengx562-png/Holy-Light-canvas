@@ -1,8 +1,9 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Handle, NodeResizeControl, Position } from '@xyflow/react';
 import { Move3d, Play, Sparkles, TriangleAlert } from 'lucide-react';
 import type { NodeData, ParamRow } from './types';
+import { nodeTintVars } from '@/lib/appearance';
 import {
   LATENT_SLOTS, NODE_META, NODE_SIZE,
   isGeneratorKind, isLatentKind, isVideoUrl, latentAssetPrefix, latentBrokenHint, latentLabel, paramRowLabel,
@@ -411,11 +412,20 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
   const inputHandle = meta.input ? <Handle type="target" position={Position.Left} /> : null;
   const outputHandle = meta.output ? <Handle type="source" position={Position.Right} /> : null;
 
+  /**
+   * 这一个节点自己挑的卡片色（2026-10-01）。
+   *
+   * 没挑过（`data.color` 为空）= **一个变量都不往 DOM 上写** —— 卡片照旧吃设置里
+   * 那支全局「卡片底色」。写上去反而是错的：那会把「跟随全局」变成「钉死在现在的全局值上」，
+   * 用户回头改设置，这个节点不跟着变。
+   */
+  const nodeTint = data.color ? nodeTintVars(data.color) : undefined;
+
   return (
     <div
       className={`cv-node ${selected ? 'selected' : ''} ${running ? 'running' : ''} ${sizedWidth ? 'sized-w' : ''} ${!mediaFace && sizedHeight ? 'sized-h' : ''} ${writable && kind === 'text' ? 'editing' : ''} ${bypassed ? 'bypassed' : ''}`}
       /* 正面是媒体：高度不写死 —— 交给图自己的宽高比，画框永远贴着图（2026-09-24）。 */
-      style={{ width: sizedWidth, height: mediaFace ? undefined : sizedHeight }}
+      style={{ width: sizedWidth, height: mediaFace ? undefined : sizedHeight, ...nodeTint } as CSSProperties}
       onPointerDown={event => {
         pressSelectedRef.current = !!selected;
         pressRef.current = { x: event.clientX, y: event.clientY };

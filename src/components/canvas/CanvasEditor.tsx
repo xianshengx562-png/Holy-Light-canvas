@@ -4,7 +4,7 @@ import Link from 'next/link';
 import {
   ReactFlow, ReactFlowProvider, Background, BackgroundVariant, MiniMap,
   addEdge, useEdgesState, useNodesState, useReactFlow, useStore, ConnectionLineType, SelectionMode,
-  type Connection, type Edge, type Node, type NodeTypes, type OnConnect,
+  type Connection, type Edge, type EdgeTypes, type Node, type NodeTypes, type OnConnect,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import {
@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import '@/app/canvas.css';
 import NodeCard from './NodeCard';
+import StarEdge from './StarEdge';
 import { NodeGlyph } from './nodeIcons';
 import CanvasRail from './CanvasRail';
 import CanvasAssetPanel, { type CanvasAssetItem } from './CanvasAssetPanel';
@@ -42,6 +43,7 @@ import { optimizeInputOf as optimizeInputIn, promptTextOf as promptTextIn, resol
 import type { TextChainEdge, TextChainNode } from './textChain';
 import { compositionPrompt, describeShot, readDirectorScene, type DirectorScene } from '@/lib/director';
 import { buildArchiveForm } from '@/lib/image-tools';
+import { NODE_CARD_COLORS } from '@/lib/appearance';
 import { apiPost } from '@/lib/client';
 /* 生成落终态时顺手刷站点余额（钱只在生成时变）。 */
 import { refreshSiteAccount } from '@/lib/site-account';
@@ -460,6 +462,14 @@ function inputSlots(
 }
 
 const nodeTypes: NodeTypes = { frame: NodeCard };
+/**
+ * 连线只有一种（2026-10-01 起换成 `StarEdge`）：平时就是普通贝塞尔线，
+ * 两端有节点在跑时才在上面撒流动的星星 —— 详见 StarEdge 里的注释。
+ *
+ * ⚠️ 必须和 `nodeTypes` 一样定义在**组件外面**：每次渲染新建一个对象会让 React Flow
+ * 认为边类型整个换掉了，于是所有边全部重新挂载（动画从头开始、选中态也会掉）。
+ */
+const edgeTypes: EdgeTypes = { star: StarEdge };
 
 /** A drag carrying files, as opposed to an internal React Flow drag. */
 function carriesFiles(event: { dataTransfer?: DataTransfer | null }) {
@@ -3371,7 +3381,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
   }, [extractFrames, frameSourceOf, nodes]);
 
   /** Old edges were stored as smoothstep; render everything as bezier without rewriting persisted data. */
-  const displayEdges = useMemo(() => edges.map(edge => ({ ...edge, type: 'default' })), [edges]);
+  const displayEdges = useMemo(() => edges.map(edge => ({ ...edge, type: 'star' })), [edges]);
 
   const add = useCallback((kind: NodeKind) => setNodes(ns => [...ns, {
     id: crypto.randomUUID(),
@@ -3612,6 +3622,22 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     ? dockAnchorFor(dockNode, { x: viewX, y: viewY, zoom: viewZoom, width: paneW, height: paneH })
     : undefined;
 
+  /**
+   * 给选中的节点换卡片色（2026-10-01）。
+   *
+   * `null` = 恢复「跟随主题」：写 `undefined` 而不是空串 —— 空串会被存进库里，
+   * 于是「没挑过」和「挑了一个空色」变成两种状态，而后者渲染出来什么都不是。
+   * `undefined` 在序列化时整个键消失，读回来就是「没挑过」。
+   *
+   * 多选时一起改：挑色本来就是为了把一组节点并成一类，一个个改反而做不成这件事。
+   */
+  const paintNodes = useCallback((color: string | null) => {
+    const ids = nodes.filter(node => node.selected).map(node => node.id);
+    if (!ids.length) return;
+    ids.forEach(id => patch(id, { color: color || undefined }));
+    setNotice(color ? `已改 ${ids.length} 个节点的卡片色` : `${ids.length} 个节点恢复跟随主题`);
+  }, [nodes, patch, setNotice]);
+
   const allRuns = useMemo(() => collectRuns(hydrated), [hydrated]);
   const saveText = saveState === 'saving' ? '保存中…' : saveState === 'failed' ? '保存失败' : saveState === 'conflict' ? '有冲突' : '已保存';
 
@@ -3629,6 +3655,16 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
        写着「绕过」点下去却是取消，是这种开关最容易犯的错。 */
     const allBypassed = count > 0 && nodes.filter(node => node.selected).every(node => node.data.bypassed);
     const target = menu.nodeId ? nodes.find(node => node.id === menu.nodeId) : undefined;
+    /**
+     * 选中这批节点当前挑的卡片色：**全同色才有值**。
+     * 几个节点色不一样时一支都不打勾 —— 打在其中一支上等于说「它们是同一个色」，
+     * 而用户看到的却是好几种。
+     */
+    const pickedNodes = nodes.filter(node => node.selected);
+    const firstColor = String(pickedNodes[0]?.data.color || '');
+    const colorNow = pickedNodes.length && pickedNodes.every(node => String(node.data.color || '') === firstColor)
+      ? firstColor
+      : '';
 
     /* ---------- 选类型 ---------- */
     if (menu.kind === 'add-nodes') {
@@ -3688,6 +3724,35 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
             {
               id: 'chain', label: '接上新节点', icon: <GitBranch size={14} strokeWidth={2} />, note: '自动连上它',
               disabled: !target, run: () => { if (!target) return; setPendingLink(target.id); setMenu({ ...at, kind: 'add-nodes' }); },
+            },
+          ],
+        },
+        {
+          /*
+           * 卡片颜色（2026-10-01）：**每个节点各挑一支**，跟设置里那支全局「卡片底色」
+           * 是两件事 —— 那边改的是一整块画布，这里改的是手上这几个节点。
+           * 第一块（斜杠）是退回：清掉这一支，节点重新跟着全局走。
+           */
+          title: count > 1 ? `卡片颜色 · ${count} 个` : '卡片颜色',
+          items: [
+            {
+              /* 这一行只有色块，没有文字：组标题已经写了「卡片颜色」，
+                 再在行首摆一个「卡片」是同一个词说两遍。 */
+              id: 'node-color',
+              label: '',
+              ariaLabel: '卡片颜色',
+              swatches: [
+                { id: 'follow', value: null, label: '跟随主题', on: !colorNow, run: () => paintNodes(null) },
+                ...NODE_CARD_COLORS.map(item => ({
+                  id: item.value,
+                  value: item.value,
+                  label: item.label,
+                  on: !!colorNow && colorNow === item.value,
+                  run: () => paintNodes(item.value),
+                })),
+                /* 最后一块是取色器：九支不够挑时自己来。 */
+                { id: 'pick', value: colorNow || '#14161a', label: '自己挑', pick: true, onPick: hex => paintNodes(hex) },
+              ],
             },
           ],
         },
@@ -3965,7 +4030,8 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
            * 提太大的代价是「同一侧有多个端口时容易挑错」，这里节点最多一个入口一个出口，不冲突。
            */
           connectionRadius={90}
-          defaultEdgeOptions={{ type: 'default', animated: true }}
+          defaultEdgeOptions={{ type: 'star', animated: true }}
+          edgeTypes={edgeTypes}
           /*
            * 框选「碰到就选中」（徐先 2026-09-26，对着 ComfyUI 的框选提的）。
            *

@@ -1330,6 +1330,20 @@ html[data-theme='light'] .cv-skill-mask {
 .flow-shell .react-flow__edge-path { stroke: var(--cv-edge); stroke-width: 1.6; }
 .flow-shell .react-flow__edge.selected .react-flow__edge-path { stroke: var(--cv-accent); stroke-width: 2; }
 .flow-shell .react-flow__edge.animated .react-flow__edge-path { stroke: var(--cv-edge-active); }
+/*
+ * 连线上的星星（2026-10-01）：**只有两端有节点在跑时**才进 DOM（见 StarEdge），
+ * 平时一个元素都没有 —— 所以这里不必写「隐藏」那一档，只需要管它们长什么样。
+ *
+ * 🔴 颜色必须**两档都立得住**，所以是琥珀而不是暖白：
+ *    第一版按「夜里发光的星」做成了暖白 (#fff7e0)，深色地板上很好看 ——
+ *    可浅色那档的画布地板是纯白，实测星星（255,247,224）压在白底上
+ *    亮度只差 8~31 级，等于没画（这正是当时截图里「一个亮点都找不到」的原因）。
+ *    琥珀 #ffc235 在白底与深底上跟地板都差着 60 级以上，一档搞定，不必再去分主题。
+ *    外面那圈深棕描边是给浅色档准备的轮廓 —— 深色档上用不到，但也不碍事。
+ */
+.cv-star-flow { pointer-events: none; filter: drop-shadow(0 0 2.5px rgba(255, 176, 32, 0.75)); }
+.cv-star-spark { fill: #ffc235; stroke: rgba(80, 45, 0, 0.9); stroke-width: 0.7; stroke-linejoin: round; }
+.cv-star-halo { fill: rgba(255, 194, 53, 0.3); }
 .flow-shell .react-flow__connection-path { stroke: var(--cv-accent); stroke-width: 2; }
 .flow-shell .react-flow__edge.animated path { animation-duration: 0.6s; }
 
@@ -2207,6 +2221,51 @@ html[data-theme='light'] .cv-skill-mask {
   padding: 0 6px;
 }
 .cv-menu-item.icon-only .cv-menu-glyph { width: 18px; }
+
+/*
+ * 卡片颜色那一行的色块（2026-10-01）。
+ * 11 块（跟随主题 + 九支预设 + 自己挑）在 232px 的菜单里排一行放不下，
+ * 所以让它换行：一行排不下就排两行，别把色块压成 10px 的圆点（那样的点
+ * 在深色与浅色两档之间几乎看不出区别，等于没法挑）。
+ */
+.cv-menu-item.swatches {
+  height: auto;
+  min-height: 34px;
+  padding: 7px 10px;
+  flex-wrap: wrap;
+  gap: 6px;
+  cursor: default;
+}
+/* 这一行不是「点了就执行」的菜单项，悬停不该亮 —— 亮了像能点出什么。 */
+.cv-menu-item.swatches:hover { background: transparent; }
+.cv-menu-swatches { display: flex; flex-wrap: wrap; gap: 5px; }
+.cv-swatch {
+  flex: none;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--cv-line-strong);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: box-shadow 0.12s ease;
+}
+.cv-swatch:hover { box-shadow: 0 0 0 2px var(--cv-node-accent-ring); }
+/* 当前那一支：描边走强调色，平面效果（不加位移、不加粗）。 */
+.cv-swatch.on { box-shadow: 0 0 0 2px var(--cv-node-accent); }
+/* 「跟随主题」：画一道斜杠表示「这一支不指定」。 */
+.cv-swatch.none {
+  background:
+    linear-gradient(to top right, transparent 44%, var(--cv-mute) 44%, var(--cv-mute) 56%, transparent 56%);
+}
+/* 「自己挑」：浏览器自己的取色器。默认那圈厚边框要抹掉，否则它比别的色块大一圈。 */
+.cv-swatch.pick {
+  border-style: dashed;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.cv-swatch.pick::-webkit-color-swatch-wrapper { padding: 0; }
+.cv-swatch.pick::-webkit-color-swatch { border: 0; border-radius: 3px; }
 
 /* ---------- 画布上的浮层 ---------- */
 .flow-shell .cv-drop-hint {

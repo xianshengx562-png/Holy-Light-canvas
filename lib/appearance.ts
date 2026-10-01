@@ -259,6 +259,25 @@ export const NODE_ACCENT_PRESETS: { value: string; label: string }[] = [
   { value: '#f2f2f2', label: '月白' },
 ];
 
+/**
+ * 单个节点可以挑的卡片色（2026-10-01，徐先："同时也可以改变画布选项卡的颜色"）。
+ *
+ * 与上面那几份「全局预设」的区别：这里是**每个节点各挑一支**，存节点自己的 data 上，
+ * 不是整块画布一个色。前三支是中性色（跟没挑过几乎一样，用来把某个节点压回常态），
+ * 后面六支是彩色 —— 用途是把一条链上的节点分出组别，扫一眼就知道谁是素材、谁在生成。
+ */
+export const NODE_CARD_COLORS: { value: string; label: string }[] = [
+  { value: '#14161a', label: '石墨' },
+  { value: '#000000', label: '纯黑' },
+  { value: '#ececf0', label: '雾白' },
+  { value: '#4fb38a', label: '墨绿' },
+  { value: '#e8b44a', label: '琥珀' },
+  { value: '#8b9cf7', label: '靛蓝' },
+  { value: '#f2896f', label: '珊瑚' },
+  { value: '#5a9ceb', label: '湖青' },
+  { value: '#a97bd6', label: '紫藤' },
+];
+
 const HEX_RE = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
 
 export function isHexColor(value: unknown): value is string {
@@ -287,6 +306,37 @@ export function relativeLuminance(hex: string): number {
 
 export function isLightColor(hex: string): boolean {
   return relativeLuminance(hex) > 0.45;
+}
+
+/**
+ * 单个节点挑了色之后，卡内那几个派生色（文字 / 次级面板 / 描边）。
+ *
+ * ⚠️ 写的是 `--cv-node-*` 而不是 `--cv-node-*-custom`：后者只有 <html> 上的那份
+ *    会被 `.canvas-studio { --cv-node-bg: var(--cv-node-bg-custom, …) }` 读到 ——
+ *    自定义属性是在**声明它的那个元素**上解析 var() 的，在节点上改 `-custom`
+ *    不会让祖先已经算好的 `--cv-node-bg` 重新求值（这是 CSS 变量最容易踩的一条）。
+ *    直接把算好的值写到节点元素上，子树里读到的就是它。
+ *
+ * 六个派生比例与 canvas.css 里 `:root[data-node-bg='custom']` 那一段**必须一致**，
+ * 否则「全局自定义」与「单个节点挑色」两档同一个色会渲染成两个样子。
+ */
+export function nodeTintVars(color: string): Record<string, string> {
+  const bg = normalizeHex(String(color || ''));
+  if (!isHexColor(bg)) return {};
+  /** 派生往哪一头推：浅色卡片往黑里推（字才压得住），深色卡片往白里提。 */
+  const opposite = isLightColor(bg) ? '#101215' : '#ffffff';
+  const mix = (percent: number) => `color-mix(in oklab, ${bg} ${percent}%, ${opposite})`;
+  return {
+    '--cv-node-bg': bg,
+    '--cv-node-ink': mix(6),
+    '--cv-node-dim': mix(48),
+    '--cv-node-mute': mix(66),
+    '--cv-node-elev': mix(90),
+    '--cv-node-field': mix(84),
+    '--cv-node-line': mix(78),
+    '--cv-node-line-hover': mix(55),
+    '--cv-node-opposite': opposite,
+  };
 }
 
 /** 画布底色定下来之后，网格点与连线要跟着走，否则浅底上根本看不见。 */

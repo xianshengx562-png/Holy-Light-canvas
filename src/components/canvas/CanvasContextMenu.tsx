@@ -53,6 +53,26 @@ export type MenuItem = {
   disabled?: boolean;
   danger?: boolean;
   run?: () => void;
+  /**
+   * 一排色块（2026-10-01：给节点挑卡片色）。
+   *
+   * 菜单项原本是「一行 = 一个动作」，而挑色是「一行 = 九个候选」，形状对不上，
+   * 所以另开一个字段：有它的时候这一行**不渲染成按钮**（按钮里不能再套按钮），
+   * 也不进键盘上下键的那条链 —— 九个色块塞进方向键里，按到第七下才到想要的那支，
+   * 比用鼠标点还慢。
+   */
+  swatches?: {
+    id: string;
+    /** 色值；`null` = 「跟随主题」那一项（把自定义色清掉）。 */
+    value: string | null;
+    label: string;
+    /** 这一支是当前正在用的（画一个勾）。 */
+    on?: boolean;
+    /** 这一项不是固定色，而是「自己挑」—— 渲染成取色器。 */
+    pick?: boolean;
+    run?: () => void;
+    onPick?: (hex: string) => void;
+  }[];
 };
 
 export type MenuGroup = { title?: string; items: MenuItem[] };
@@ -157,6 +177,50 @@ export default function CanvasContextMenu({
               {group.title && <div className="cv-menu-title">{group.title}</div>}
               {group.items.map(item => {
                 const hot = !item.disabled && active >= 0 && flat[active]?.id === item.id;
+                if (item.swatches?.length) {
+                  return (
+                    <div
+                      key={item.id}
+                      className="cv-menu-item swatches"
+                      role="group"
+                      aria-label={item.label || item.ariaLabel}
+                    >
+                      {item.label ? <span className="cv-menu-text">{item.label}</span> : null}
+                      <span className="cv-menu-swatches">
+                        {item.swatches.map(swatch => {
+                          const style = swatch.value ? { background: swatch.value } : undefined;
+                          /* 「自己挑」那一项：浏览器自己的取色器，选完立刻落色。 */
+                          if (swatch.pick) {
+                            return (
+                              <input
+                                key={swatch.id}
+                                type="color"
+                                className="cv-swatch pick nodrag"
+                                value={swatch.value || '#14161a'}
+                                data-tip={swatch.label}
+                                aria-label={swatch.label}
+                                onChange={event => swatch.onPick?.(event.target.value)}
+                              />
+                            );
+                          }
+                          return (
+                            <button
+                              key={swatch.id}
+                              type="button"
+                              className={`cv-swatch${swatch.value ? '' : ' none'}${swatch.on ? ' on' : ''}`}
+                              style={style}
+                              data-tip={swatch.label}
+                              aria-label={swatch.label}
+                              aria-pressed={swatch.on}
+                              onClick={() => { swatch.run?.(); onClose(); }}
+                            />
+                          );
+                        })}
+                      </span>
+                      {item.note && <em>{item.note}</em>}
+                    </div>
+                  );
+                }
                 return (
                   <button
                     key={item.id}
