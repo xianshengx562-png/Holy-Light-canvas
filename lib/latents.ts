@@ -162,7 +162,7 @@ export async function readLatentFile(assetId: string, userId: string) {
   const asset = await db.asset.findFirst({ where: { id: assetId, userId, type: 'latent' } });
   if (!asset) throw new Error('latent 不存在或无权访问。');
   const meta = (asset.metadata || {}) as { path?: string; sequence?: string; kind?: string };
-  if (!meta.path) throw new Error('该 latent 未落盘，无法用于续接。');
+  if (!meta.path) throw new Error('该 latent 未落盘，无法用于接续。');
   const packed = await readFile(/*turbopackIgnore: true*/ await resolveStoredPath(meta.path));
   return {
     buffer: gunzipSync(packed),

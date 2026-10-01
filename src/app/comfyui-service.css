@@ -6,15 +6,17 @@
    「组件里不要写裸色值」的纪律）。`--surface` / `--well` / `--line` 在
    两套主题里都已经是对的值，用它就自动两边都对。 */
 
+/* 2026-10-01 整体收紧一档：卡片内距 14/16 → 11/14、卡间距 12 → 9。
+   动因是徐先说「界面显得很臃肿」—— 他指的是文字，但文字砍完之后行距也得跟着松一档才不空。 */
 .comfy-service {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-top: 14px;
+  gap: 9px;
+  margin-top: 12px;
 }
 
 .cfy-card {
-  padding: 14px 16px;
+  padding: 11px 14px;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
@@ -63,14 +65,18 @@
   color: var(--text);
 }
 
-.cfy-value.muted { color: var(--text-mute); font-weight: 400; }
+.cfy-value.muted { color: var(--text-dim); font-weight: 400; }
 
 .cfy-note {
   margin: 0;
   font-size: 12.5px;
-  line-height: 1.75;
+  line-height: 1.6;
   color: var(--text-dim);
 }
+
+/* 失败态。以前它是「最淡的那一层」（.cfy-hint），坏消息反而最不显眼 ——
+   现在同一档字号、换成危险色：既不是最淡，也一眼看得出是坏的。 */
+.cfy-note.off { color: var(--danger); }
 
 /* 「该怎么办」那几条：用列表而不是一段散文，用户是来对清单的。 */
 .cfy-list {
@@ -78,14 +84,13 @@
   padding-left: 18px;
   font-size: 12.5px;
   line-height: 1.85;
-  color: var(--text-mute);
+  color: var(--text-dim);
 }
 
 .cfy-list li::marker { color: var(--text-mute); }
 
 .cfy-list code,
-.cfy-card .field code,
-.cfy-hint code {
+.cfy-card .field code {
   padding: 1px 5px;
   font-family: var(--font-mono);
   font-size: 11.5px;
@@ -93,13 +98,6 @@
   background: var(--well);
   border: 1px solid var(--line);
   border-radius: var(--r-xs);
-}
-
-.cfy-hint {
-  margin: 6px 0 0;
-  font-size: 12px;
-  line-height: 1.75;
-  color: var(--text-mute);
 }
 
 /* 扫到的候选地址。整块用强调色描边：这是这一页上唯一一条「点一下就能修好」的路，
@@ -188,12 +186,12 @@
 .cfy-ext-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin: 10px 0 0;
+  gap: 7px;
+  margin: 8px 0 0;
 }
 
 .cfy-ext {
-  padding: 12px 13px;
+  padding: 10px 12px;
   background: var(--well);
   border: 1px solid var(--line);
   border-radius: var(--r-md);
@@ -227,7 +225,6 @@
 
 /* 卡片里几段文字挨紧一点：它们是同一张卡的四行，不是四段独立说明。 */
 .cfy-ext .cfy-note { margin: 0 0 2px; }
-.cfy-ext .cfy-hint { margin: 0 0 2px; }
 .cfy-ext .cfy-actions { margin-top: 9px; }
 
 /* 上一版 Holy Light画布装的 frame_* 还在 —— 它和新扩展的编号徽标画在同一坐标，
@@ -254,7 +251,7 @@
 }
 
 /* 路径可能很长，让它自己占一行也吃得下 —— 挤成两行比截断好，用户要靠它确认删的是哪儿。 */
-.cfy-legacy-row .cfy-hint {
+.cfy-legacy-row .cfy-note {
   flex: 1 1 220px;
   min-width: 0;
   margin: 0;

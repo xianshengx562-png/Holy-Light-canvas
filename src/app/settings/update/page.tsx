@@ -5,12 +5,13 @@
  *
  * 徐先的问题：「如果已经到 2.0 了，用户才 1.0，用户怎么在软件内实现更新的效果。」
  *
- * 这一页就是答案的**控制台**：显示自己这份的版本、填更新源、手动检查、下载、重启安装。
+ * 这一页就是答案的**控制台**：显示自己这份的版本、手动检查、下载、重启安装。
  * 桌面版专属 —— web 版刷新一下就是最新版，根本没有「用户手上的旧版」这回事。
  *
- * ⚠️ 「更新源」为什么要让人填：写死一个域名的话，将来换服务器时，
- *    **已经装在别人机器上的那些旧包**问的还是那个已经下线的地址 —— 而他们恰恰是
- *    最需要收到新版的一批人。地址存在数据目录里、可以随时改，旧包就还能救回来。
+ * 「更新源」2026-10-01 起**不再出现在界面上** —— 默认就是 GitHub releases 那个地址
+ * （`updater.ts` 的 `DEFAULT_UPDATE_SOURCE`），装完就能检查更新，不用填任何东西。
+ * ⚠️ 但换服务器仍然不用重新打包：数据目录里的 `update-source.json` 优先级更高，
+ * 改那一个文件就能把旧包救回来（界面入口收掉了，文件这条路留着）。
  */
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
@@ -22,23 +23,19 @@ import {
   downloadUpdate,
   fetchUpdateState,
   installUpdate,
-  setUpdateSource,
   subscribeUpdateState,
 } from '@/lib/update-status';
 import { canCheck, canDownload, canInstall, type UpdateState } from '@/lib/update-state';
 
 export default function UpdateSettings() {
   const [state, setState] = useState<UpdateState | null>(null);
-  const [source, setSource] = useState('');
   const [busy, setBusy] = useState<'check' | 'download' | 'install' | null>(null);
-  const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     let alive = true;
     void fetchUpdateState().then((current) => {
       if (!alive || !current) return;
       setState(current);
-      setSource(current.source);
     });
     const off = subscribeUpdateState((next) => {
       if (alive) setState(next);
@@ -64,19 +61,8 @@ export default function UpdateSettings() {
     setBusy(null);
   };
 
-  const saveSource = async () => {
-    const next = await setUpdateSource(source);
-    if (next) {
-      setState(next);
-      setSource(next.source);
-      setSaved(true);
-      window.setTimeout(() => setSaved(false), 2400);
-    }
-  };
-
   const phase = state?.phase ?? 'idle';
   const unsupported = phase === 'unsupported';
-  const unconfigured = phase === 'unconfigured';
 
   return <div className="shell">
     <aside className="sidebar">
@@ -87,7 +73,8 @@ export default function UpdateSettings() {
       <SettingsNav active="/settings/update" />
 
       <section className="provider">
-        <div className="provider-head"><div><h2>当前版本</h2><p className="muted">这一份 Holy Light画布的版本号</p></div>
+        {/* 2026-10-01 第六轮：标题下那行「这一份 Holy Light画布的版本号」是纯复述，删。 */}
+        <div className="provider-head"><div><h2>当前版本</h2></div>
           <span className="badge">{state?.currentVersion || '…'}</span></div>
         {state?.message && <div className={phase === 'error' ? 'notice error' : 'notice'}>{state.message}</div>}
         {phase === 'downloading' && (
@@ -107,35 +94,15 @@ export default function UpdateSettings() {
           </button>
         </div>
         {unsupported && (
-          <div className="notice">这一份是便携版或开发版，装不了自动更新 —— 要升级请重新下载安装包。</div>
+          <div className="notice">便携版 / 开发版装不了自动更新，要升级请重新下载安装包。</div>
         )}
       </section>
 
-      <section className="provider">
-        <div className="provider-head"><div><h2>更新源</h2><p className="muted">去哪个地址问「有没有新版」</p></div></div>
-        <div className="notice">
-          填一个静态站地址就行（<code>http://</code> 或 <code>https://</code>，末尾的斜杠可写可不写）。
-          那个目录里放一个 <code>latest.yml</code> 和对应的安装包，打包时 electron-builder 会一起生成。
-          地址存在软件的数据目录里，以后换服务器不用重新打包 —— 旧版本的用户改一下这里就能继续收到更新。
-        </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 12 }}>
-          <input
-            className="field"
-            style={{ flex: '1 1 320px', minWidth: 220 }}
-            value={source}
-            placeholder="https://example.com/frame-updates/"
-            onChange={(e) => setSource(e.target.value)}
-            spellCheck={false}
-          />
-          <button className="button secondary small" onClick={saveSource} disabled={busy !== null}>保存</button>
-          {saved && <span className="muted">已保存</span>}
-        </div>
-        {unconfigured && <div className="notice">还没填更新源，所以没法检查。填一个地址再点「检查更新」。</div>}
-      </section>
-
+      {/* 2026-10-01：「更新源」整张卡收掉 —— 默认就是 GitHub releases 那个地址，
+          普通用户不该操心这件事。要换源的话改数据目录里的 `update-source.json`。 */}
       {state?.notes && (
         <section className="provider">
-          <div className="provider-head"><div><h2>更新说明</h2><p className="muted">{state.version} 这一版改了什么</p></div></div>
+          <div className="provider-head"><div><h2>更新说明</h2></div></div>
           <pre className="notice" style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{state.notes}</pre>
         </section>
       )}

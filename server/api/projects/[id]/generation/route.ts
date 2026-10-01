@@ -49,7 +49,7 @@ const schema = z.object({
   /** 画布上「自定义参数块」节点里的行，叠加在配置生成的参数之上（同名节点字段覆盖）。 */
   paramRows: z.array(paramRowSchema).max(200).optional(),
   /*
-   * 「续接上一段 / Latent 中转」节点上填的粗 / 精采样节点号：决定这条 latent 写进工作流的
+   * 「接续上一段 / Latent 中转」节点上填的粗 / 精采样节点号：决定这条 latent 写进工作流的
    * 哪个节点，覆盖配置页里 `latent_1` / `latent_2` 所绑字段的节点号。
    * 留空 = 沿用配置页的绑定（老画布与没填的节点走这条路）。
    */
@@ -148,7 +148,7 @@ function assertInputsAreWired(
    */
   const latentPlaced = has('latent_')
     || Boolean(String(latentNodeIds?.coarse || '').trim() || String(latentNodeIds?.fine || '').trim());
-  if (latents && !latentPlaced) orphaned.push(`${latents} 个续接 latent`);
+  if (latents && !latentPlaced) orphaned.push(`${latents} 个接续 latent`);
   /*
    * 超清只有这一个输入，**它没地方去就等于整次操作白做**：任务会跑成功、产出一份
    * 和源视频毫无关系的素材，而界面上什么都不说。所以这里必须拦，而且要说清去哪儿补救。
@@ -309,13 +309,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       if (!apiKey) throw new ApiError(400, resolved.message || '尚未配置 RunningHub API Key。');
     }
     /*
-     * latent 续接是 RunningHub 那边的做法（把上一轮的 latent 传上去再接着跑），本机这份图
+     * latent 接续是 RunningHub 那边的做法（把上一轮的 latent 传上去再接着跑），本机这份图
      * 里没有对应节点。**明确报错而不是静默丢弃** —— 丢掉的后果是「出片和上一轮毫无关系」。
      */
     if (useLocal && (input.bindingValues?.latents?.filter(Boolean).length ?? 0) > 0) {
       throw new ApiError(400, isDesktop
-        ? '桌面版不支持 latent 续接 —— 那是 RunningHub 专属的做法。请把节点上的续接 latent 去掉。'
-        : '本地模式不支持 latent 续接 —— 那是 RunningHub 专属的做法。请把节点上的续接 latent 去掉，或到「设置 · 本地模式」关掉本地模式。');
+        ? '桌面版不支持 latent 接续 —— 那是 RunningHub 专属的做法。请把节点上的接续 latent 去掉。'
+        : '本地模式不支持 latent 接续 —— 那是 RunningHub 专属的做法。请把节点上的接续 latent 去掉，或到「设置 · 本地模式」关掉本地模式。');
     }
     /*
      * 超清的输入要把本地地址换成 RunningHub 的文件名。放在扣分**之前**：这份媒体超过 100 MB

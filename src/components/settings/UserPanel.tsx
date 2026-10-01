@@ -283,7 +283,7 @@ export default function UserPanel() {
         <section className="user-card" data-user-card="profile" data-dirty={dirty ? 'yes' : 'no'}>
           <header className="user-card-head">
             <h2>个人资料</h2>
-            <p className="user-hint">改完点「保存」才生效 —— 昵称和头像是一起提交的。</p>
+            <p className="user-hint">改完点「保存」才生效。</p>
           </header>
 
           <div className="user-head">
@@ -354,10 +354,7 @@ export default function UserPanel() {
           <header className="user-card-head">
             <h2>{isDesktop ? '网站账号' : '登录'}</h2>
             {isDesktop ? (
-              <p className="user-hint">
-                用你自己中转站（new-api 那种）的网站账号登录 —— 登录后这里显示的就是它，
-                模型服务页也能直接列出这个账号的密钥。
-              </p>
+              <p className="user-hint">用你自己中转站的网站账号登录。</p>
             ) : (
               <p className="user-hint">
                 换一个账号就登到那个账号的项目上；本机这些没丢，退出登录就回来。
@@ -451,8 +448,8 @@ export default function UserPanel() {
             ) : session?.hasSession ? (
               <>
                 <p className="user-hint">
-                  已登录 <strong>{session.email}</strong>。退出后回到「本机用户」（免登录），
-                  这个账号下的项目、画布、资产都还在 —— 重新登录就看得见。
+                  已登录 <strong>{session.email}</strong>。退出后回到「本机用户」，
+                  这个账号下的项目、画布、资产都还在。
                 </p>
                 <button className="subtle" type="button" data-user-logout disabled={accBusy} onClick={logout}>
                   {accBusy ? '正在退出…' : '退出登录'}
@@ -461,8 +458,8 @@ export default function UserPanel() {
             ) : (
               <>
                 <p className="user-hint">
-                  现在是「本机用户」，桌面版默认免登录 —— 不登录也能正常用。
-                  想换一个账号就在下面登录；<strong>换过去之后看到的是那个账号的项目</strong>，
+                  现在是「本机用户」，桌面版默认免登录。
+                  在下面登录就换过去；<strong>换过去看到的是那个账号的项目</strong>，
                   本机这些没丢，退出登录就回来。
                 </p>
                 <div className="user-form">

@@ -436,8 +436,15 @@ export default function VideoJoiner() {
       title="视频拼接"
       intro="把几段视频和图片按顺序拼成一条 —— 尺寸与帧率跟着第一段走"
     >
-      {/* FFmpeg 在哪：找得到就一句话带过，找不到才展开。 */}
-      <div className={`vj-engine${engineData?.ok ? '' : ' warn'}`} data-vj-engine={engineData?.ok ? 'ok' : 'bad'}>
+      {/*
+        2026-10-01 徐先「隐藏这一栏」：FFmpeg 随软件装好，**就绪是常态** ——
+        那就不要用一整行去说「一切正常」。正常时整条不渲染（连「FFmpeg 设置」按钮一起），
+        只有查不到 / 还没查回来（engineData 为 null）/ 明确失败时才出现；
+        那一刻正好需要那颗按钮，而且同一时刻「开始拼接」会因为 `!engineData?.ok` 变灰，
+        有这条横幅在才说得清为什么点不动。
+        ⚠️ 别改成「永远删掉」：真要换成自己那份 ffmpeg 时这是唯一的入口。
+      */}
+      {!engineData?.ok && <div className="vj-engine warn" data-vj-engine="bad">
         <span className="vj-engine-dot" aria-hidden />
         <span className="vj-engine-text">
           {engineData ? engineData.message : '正在检查 FFmpeg…'}
@@ -447,8 +454,8 @@ export default function VideoJoiner() {
           <Settings2 size={13} aria-hidden /> FFmpeg 设置
           {showEngine ? <ChevronUp size={13} aria-hidden /> : <ChevronDown size={13} aria-hidden />}
         </button>
-      </div>
-      {showEngine && (
+      </div>}
+      {!engineData?.ok && showEngine && (
         <div className="vj-engine-panel">
           <p className="tool-hint">
             FFmpeg 已经<strong>随软件装好了</strong>，不用自己下载、也不用填路径。

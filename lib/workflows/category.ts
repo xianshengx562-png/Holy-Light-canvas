@@ -24,7 +24,12 @@ export type WorkflowCategory = (typeof WORKFLOW_CATEGORIES)[number];
 export const DEFAULT_WORKFLOW_CATEGORY: WorkflowCategory = 'none';
 
 export type WorkflowCategoryOption = {
-  value: WorkflowCategory;
+  /**
+   * 内置分类的值，或**用户自建分类的名字**（2026-10-01）。
+   * 这里刻意不写死成枚举联合：下拉、筛选条、保存路径都要能装下自建分类，
+   * 而它的取值不是编译期能知道的集合。
+   */
+  value: string;
   label: string;
   hint: string;
   /** 这个分类对哪些用途成立。**分类不是全局的**：出图工作流不会拿视频当参考。 */
@@ -42,6 +47,9 @@ export const WORKFLOW_CATEGORY_OPTIONS: WorkflowCategoryOption[] = [
   { value: 'video-ref', label: '视频参考', hint: '拿一段视频当参考', kinds: ['video'] },
   { value: 'audio-multi', label: '音频 + 多图参考', hint: '一条音频配上多张参考图', kinds: ['video'] },
 ];
+
+/** 用户自建分类的一项。`count` = 有多少份工作流归在它下面。 */
+export type WorkflowCategoryItem = { id: string; name: string; count: number };
 
 /** 严格校验，给接口入参用 —— 客户端送来不认识的分类要**报错**，不能悄悄改成默认值。 */
 export function isWorkflowCategory(value: unknown): value is WorkflowCategory {
@@ -69,8 +77,45 @@ export function categoriesFor(kind: unknown): WorkflowCategoryOption[] {
  * 读取兜底，给「展示一个从库里读出来的值」用。**它同时管住「分类和用途对不上」这种情况**：
  * 一份标着「视频参考」的草稿被改成了图片用途，读出来的分类必须退回去，
  * 否则列表页会显示一个这个用途下根本选不到的分类。
+ *
+ * 🔴 2026-10-01 起**返回值不再限于内置那五个**：用户自建的分类（`WorkflowCategoryItem` 表）
+ * 存进 `WorkflowDraft.category` 的也是名字本身，所以**认不出来的值要原样保留**。
+ * 原来那句「不认识就退回 `none`」会把用户刚起的分类名悄悄吃掉 —— 他要的正是
+ * 「分类我自己能加」，加完一读就没了，比不给这个功能更糟。
+ * 内置值与用途的配对检查照旧（自定义分类不绑用途，它对哪个用途都成立）。
  */
-export function readWorkflowCategory(value: unknown, kind: unknown = DEFAULT_GENERATOR_KIND): WorkflowCategory {
-  if (!isWorkflowCategory(value)) return DEFAULT_WORKFLOW_CATEGORY;
-  return categoriesFor(kind).some(item => item.value === value) ? value : DEFAULT_WORKFLOW_CATEGORY;
+export function readWorkflowCategory(value: unknown, kind: unknown = DEFAULT_GENERATOR_KIND): string {
+  if (typeof value !== 'string') return DEFAULT_WORKFLOW_CATEGORY;
+  const name = value.trim();
+  if (!name) return DEFAULT_WORKFLOW_CATEGORY;
+  if (!isWorkflowCategory(name)) return name;
+  return categoriesFor(kind).some(item => item.value === name) ? name : DEFAULT_WORKFLOW_CATEGORY;
+}
+
+/** 用户自建分类的名字上限。与资产分类（`CATEGORY_NAME_MAX`）保持同一个量级。 */
+export const WORKFLOW_CATEGORY_NAME_MAX = 20;
+
+/**
+ * 清洗用户输入的分类名。**先清再判**：两端空白会让「我的分类」和「我的分类 」变成两个分类，
+ * 而界面上它们一模一样，删都删不干净。内部空白保留（「角色 参考」是合理的写法）。
+ */
+export function normalizeWorkflowCategoryName(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  return value.replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+}
+
+/**
+ * 这是个能用的自定义分类名吗。
+ *
+ * 🔴 **内置那五个也要拒绝**，而且要**两个字段都拒**：
+ *  - 值（`none` / `multi` / …）—— 撞了值，之后分不清这条工作流走的是哪一套规则；
+ *  - 显示名（无参考 / 单图参考 / …）—— 用户看到的就是这个名字，起一个同名分类，
+ *    筛选条上会出现两个一样的 chip，他永远分不清点的是哪个。
+ * （第一版只挡了值，`isWorkflowCategoryName('无参考')` 放过去了 —— 单测当场抓出来。）
+ */
+export function isWorkflowCategoryName(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  if (!value || value.length > WORKFLOW_CATEGORY_NAME_MAX) return false;
+  if (isWorkflowCategory(value)) return false;
+  return !WORKFLOW_CATEGORY_OPTIONS.some(item => item.label === value);
 }

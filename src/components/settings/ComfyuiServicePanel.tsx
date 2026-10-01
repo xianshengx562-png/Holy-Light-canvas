@@ -39,8 +39,6 @@ import {
 export default function ComfyuiServicePanel({ initial }: { initial: LocalConnectionView }) {
   const [view, setView] = useState(initial);
   const [baseUrl, setBaseUrl] = useState(initial.baseUrl);
-  /** 密钥不回填：库里存的是密文，界面上只显示掩码。留空 = 不改动已保存的那把。 */
-  const [apiKey, setApiKey] = useState('');
   const [comfyuiDir, setComfyuiDir] = useState(initial.comfyuiDir ?? '');
   const [launcher, setLauncher] = useState<ComfyuiStatus>({
     state: 'idle', message: '还没启动过。', pid: null, startedAt: null, command: null, cwd: null,
@@ -62,8 +60,6 @@ export default function ComfyuiServicePanel({ initial }: { initial: LocalConnect
    * 用户接下来只能靠猜。告诉他「8189 上有一个，点一下就换过去」，事情才真的往前走了一步。
    */
   const [found, setFound] = useState<{ baseUrl: string; message: string }[]>([]);
-  /** 扫了但一个都没找到时的一句话（找到了就不占版面）。 */
-  const [scanNote, setScanNote] = useState('');
   /**
    * 本机**正在跑着**的 ComfyUI 实例（从进程命令行里认出来的）。
    *
@@ -180,7 +176,6 @@ export default function ComfyuiServicePanel({ initial }: { initial: LocalConnect
     }
     if (ok) {
       setFound([]);
-      setScanNote('');
       setProcesses([]);
       await loadInventory();
       return;
@@ -196,9 +191,8 @@ export default function ComfyuiServicePanel({ initial }: { initial: LocalConnect
       const data = await response.json();
       const list: { baseUrl: string; message: string }[] = Array.isArray(data?.candidates) ? data.candidates : [];
       setFound(list);
-      setScanNote(list.length ? '' : '本机常见端口上都没有 ComfyUI —— 确认它是自己手动开的、地址填对了；或者用下面的「自动找 / 启动 ComfyUI」。');
     } catch {
-      setScanNote('扫描本机端口失败。');
+      /* 扫端口失败不单独报：上面 probe 那句已经说了连不上，这里再来一句只是噪音。 */
     } finally {
       setBusy(null);
     }
@@ -384,11 +378,8 @@ export default function ComfyuiServicePanel({ initial }: { initial: LocalConnect
 
   async function saveConnection() {
     const patch: Record<string, unknown> = { baseUrl: baseUrl.trim(), comfyuiDir: comfyuiDir.trim() };
-    /** 密钥留空 = 不改动（本机大多不鉴权，没必要逼人填一串假 key）。 */
-    if (apiKey.trim()) patch.apiKey = apiKey.trim();
     const saved = await putConnection(patch, '已保存。', 'save');
     if (!saved) return;
-    setApiKey('');
     await refresh();
   }
 
@@ -404,7 +395,7 @@ export default function ComfyuiServicePanel({ initial }: { initial: LocalConnect
   async function toggleEnabled(next: boolean) {
     await putConnection(
       { enabled: next },
-      next ? '本地模式已开启 —— 生成改投你自己的 ComfyUI，不经过 RunningHub、也不扣余额。' : '本地模式已关闭，生成走回云端。',
+      next ? '本地模式已开启，生成改投这台机器。' : '本地模式已关闭，生成走回云端。',
       'toggle',
     );
   }
@@ -420,7 +411,6 @@ export default function ComfyuiServicePanel({ initial }: { initial: LocalConnect
       setView(data);
       setBaseUrl(data.baseUrl ?? '');
       setComfyuiDir(data.comfyuiDir ?? '');
-      setApiKey('');
       setInventory(null);
       setProbe(null);
       setFound([]);
@@ -452,7 +442,7 @@ export default function ComfyuiServicePanel({ initial }: { initial: LocalConnect
    */
   async function useThisProcess(hit: ComfyuiProcessHit) {
     if (!hit.port) {
-      setNote({ ok: false, message: '这个进程没在命令行里写 --port，认不出它在哪个端口上 —— 在上面的「服务地址」里手动填。' });
+      setNote({ ok: false, message: '这个进程没在命令行里写 --port，去上面「服务地址」手动填。' });
       return;
     }
     await useThisBaseUrl(`http://127.0.0.1:${hit.port}`);
@@ -469,7 +459,7 @@ export default function ComfyuiServicePanel({ initial }: { initial: LocalConnect
     try {
       const list = await comfyuiFindInstalls();
       setInstalls(list);
-      setInstallNote(list.length ? '' : '这台机器上没扫到 ComfyUI。装在很深的目录里的话，点「浏览…」自己选一下。');
+      setInstallNote(list.length ? '' : '没扫到 ComfyUI，装在深目录的话点「浏览…」自己选。');
     } finally {
       setBusy(null);
     }
@@ -555,12 +545,8 @@ export default function ComfyuiServicePanel({ initial }: { initial: LocalConnect
           <p className="cfy-value">{device.name}</p>
           <p className="cfy-note">{formatBytes(device.vramFree)} 可用 / {formatBytes(device.vramTotal)}
             {system?.ramTotal ? <> · 内存 {formatBytes(system.ramFree)} / {formatBytes(system.ramTotal)}</> : null}</p>
-          <p className="cfy-hint">显存低于 8 GB 的大工作流可能跑不动，遇到会直接报显存不足。</p>
         </>
-        : <>
-          <p className="cfy-value muted">未连接，读不到显卡</p>
-          <p className="cfy-hint">ComfyUI 起来之后这里会显示显卡型号和显存占用。</p>
-        </>}
+        : <p className="cfy-value muted">未连接，读不到显卡</p>}
     </section>
 
     {/* ---------- 本地模型 ---------- */}
@@ -571,7 +557,7 @@ export default function ComfyuiServicePanel({ initial }: { initial: LocalConnect
       </div>
       {modelTotal
         ? <>
-          <p className="cfy-value">{modelTotal} 个模型{inventory ? '（ComfyUI 认得的）' : '文件（扫目录）'}</p>
+          <p className="cfy-value">{modelTotal} 个模型</p>
           {modelRows.length
             ? <ul className="cfy-list" data-cfy-model-kinds={modelRows.length}>
               {modelRows.map(item => <li key={item.key}>
@@ -580,7 +566,14 @@ export default function ComfyuiServicePanel({ initial }: { initial: LocalConnect
               </li>)}
             </ul>
             : null}
-          {!inventory && <p className="cfy-hint">连上 ComfyUI 之后这里会换成它自己报的清单（含挂在别的盘上的模型）。</p>}
+          {/*
+            原来下面单有一张「模型目录」卡片，就为说这一句。2026-10-01 把卡删了：
+            它和上面「未检测到」时那条重复，文案里「在这里填」的口吻也早就对不上
+            （那版有个输入框，后来搬走了）。并到这儿，检测到 / 没检测到两种状态都看得到。
+          */}
+          <p className="cfy-note">
+            模型放在别的盘时，用 ComfyUI 的 <code>extra_model_paths.yaml</code> 挂进来。
+          </p>
         </>
         : <>
           <p className="cfy-note">没有发现本机模型文件。</p>
@@ -607,7 +600,7 @@ export default function ComfyuiServicePanel({ initial }: { initial: LocalConnect
         已装 {inventory.nodeTypeCount} 种节点 · 队列 {inventory.queueRunning} 个在跑 / {inventory.queuePending} 个在排
       </p>}
       {found.length > 0 && <div className="cfy-found" data-cfy-found={found.length}>
-        <p className="cfy-note">本机这些地址上有 ComfyUI —— 点「改用这个」直接切过去：</p>
+        <p className="cfy-note">本机这些地址上有 ComfyUI：</p>
         {found.map(item => <div className="cfy-found-row" key={item.baseUrl}>
           <code>{item.baseUrl}</code>
           <span className="cfy-note">{item.message}</span>
@@ -620,9 +613,8 @@ export default function ComfyuiServicePanel({ initial }: { initial: LocalConnect
           >改用这个</button>
         </div>)}
       </div>}
-      {!probe?.ok && scanNote && <p className="cfy-hint" data-cfy-scan="none">{scanNote}</p>}
       {!probe?.ok && processes.length > 0 && <div className="cfy-found" data-cfy-processes={processes.length}>
-        <p className="cfy-note">这台机器上正跑着 ComfyUI —— 端口是从它的启动命令行里认出来的，点「连到这个」直接切过去：</p>
+        <p className="cfy-note">本机正在跑的 ComfyUI（端口来自它的启动命令行）：</p>
         {processes.map(item => <div className="cfy-found-row" key={item.pid}>
           <code>{item.port ? `127.0.0.1:${item.port}` : '端口认不出'}</code>
           <span className="cfy-note">{item.dir || '认不出安装目录'}</span>
@@ -635,11 +627,7 @@ export default function ComfyuiServicePanel({ initial }: { initial: LocalConnect
           >连到这个</button>
         </div>)}
       </div>}
-      <ul className="cfy-list">
-        <li>现在用的是 <code>{view.baseUrl}</code>（{sourceText}）。</li>
-        <li>没起来就点下面的「启动 ComfyUI」。</li>
-        <li>地址不对，在下面「连接设置」里改。</li>
-      </ul>
+      <p className="cfy-note">当前地址 <code>{view.baseUrl}</code>（{sourceText}）</p>
     </section>
 
     {/* ---------- 连接设置（原「本机 ComfyUI」那页剩下的东西） ---------- */}
@@ -658,19 +646,6 @@ export default function ComfyuiServicePanel({ initial }: { initial: LocalConnect
         />
       </label>
 
-      <label className="field">
-        <span>API Key（可留空）</span>
-        <input
-          type="password"
-          value={apiKey}
-          autoComplete="off"
-          spellCheck={false}
-          placeholder="本机一般没有鉴权，留空即可"
-          data-cfy-input="api-key"
-          onChange={event => setApiKey(event.target.value)}
-        />
-      </label>
-
       {/* 桌面版所有生成恒走本机（没有云端那条路），这个开关在桌面版没有任何意义，只在 web 版出现。 */}
       {!isDesktop && (
         <label className="cfy-switch">
@@ -683,7 +658,6 @@ export default function ComfyuiServicePanel({ initial }: { initial: LocalConnect
           <span>{view.enabled ? '本地模式 · 开' : '本地模式 · 关'}</span>
         </label>
       )}
-      {!isDesktop && <p className="cfy-hint">开了之后，画布上所有生成都投到你这台机器，不扣费、不经过 RunningHub。</p>}
 
       <div className="cfy-actions">
         <button className="button" type="button" data-cfy-action="save" disabled={busy !== null} onClick={() => void saveConnection()}>
@@ -697,17 +671,14 @@ export default function ComfyuiServicePanel({ initial }: { initial: LocalConnect
         </button>
       </div>
 
-      <p className="cfy-note" data-cfy-masked={view.masked ? 'set' : 'unset'}>
-        密钥：{view.masked || '未设置 · 本机一般不鉴权'}（AES-256-GCM 加密存库）
-      </p>
-      {note && <p className={note.ok ? 'cfy-note' : 'cfy-hint'} data-cfy-note={note.ok ? 'ok' : 'off'}>{note.message}</p>}
+      {note && <p className={note.ok ? 'cfy-note' : 'cfy-note off'} data-cfy-note={note.ok ? 'ok' : 'off'}>{note.message}</p>}
     </section>
 
     {/* ---------- 安装目录（启动要用，排在启动之前） ---------- */}
     <section className="cfy-card" data-cfy-block="dir">
       <div className="cfy-head"><h3>ComfyUI 安装目录</h3></div>
       <label className="field">
-        <span>选整合包里包含 ComfyUI 与 <code>python_embeded</code> 的那一层</span>
+        <span>包含 ComfyUI 与 <code>python_embeded</code> 的那一层</span>
         <input
           value={comfyuiDir}
           autoComplete="off"
@@ -725,16 +696,16 @@ export default function ComfyuiServicePanel({ initial }: { initial: LocalConnect
         {canDetect && <button className="button secondary" type="button" data-cfy-action="find-installs" disabled={busy !== null}
           onClick={() => void findInstalls()}>{busy === 'installs' ? '正在找…' : '自动找'}</button>}
       </div>
-      <p className={dirOk ? 'cfy-note' : 'cfy-hint'} data-cfy-dir={view.comfyuiDir ? (dirOk ? 'ok' : 'warn') : 'unset'}>
+      <p className={dirOk ? 'cfy-note' : 'cfy-note off'} data-cfy-dir={view.comfyuiDir ? (dirOk ? 'ok' : 'warn') : 'unset'}>
         {view.comfyuiDir
           ? (dirOk ? view.comfyuiDir : `${view.comfyuiDir}（这里没有 main.py，不是 ComfyUI 的根目录）`)
-          : '还没设置。不设的话只能连你自己先开好的 ComfyUI，应用没法帮你启动。'}
+          : '还没设置，应用没法帮你启动。'}
       </p>
       {view.dir?.looksLikeComfyui && <p className="cfy-note">
         目录扫描：{view.dir.nodeTypeCount} 个节点类型 · {view.dir.customNodePackages} 个节点包
       </p>}
       {installs.length > 0 && <div className="cfy-found" data-cfy-installs={installs.length}>
-        <p className="cfy-note">扫到这些地方像是 ComfyUI —— 点「用这个」填进去：</p>
+        <p className="cfy-note">扫到这些地方像是 ComfyUI：</p>
         {installs.map(item => <div className="cfy-found-row" key={item.dir}>
           <code>{item.dir}</code>
           <span className="cfy-note">
@@ -751,13 +722,7 @@ export default function ComfyuiServicePanel({ initial }: { initial: LocalConnect
           >用这个</button>
         </div>)}
       </div>}
-      {installNote && <p className="cfy-hint">{installNote}</p>}
-      <p className="cfy-hint">
-        这个目录用来<strong>查缺什么、启动它，以及往 <code>custom_nodes</code> 里放下面那两个扩展</strong>：
-        服务没开的时候，应用会只读扫一遍里面的 <code>custom_nodes</code>（哪些节点装了）和
-        <code>models</code>（哪些模型文件在）。服务开着时以它自己的 <code>/object_info</code> 为准 —— 那个更准。
-        <strong>不会下载任何东西</strong>，只把随包的两个扩展复制进去。
-      </p>
+      {installNote && <p className="cfy-note">{installNote}</p>}
     </section>
 
     {/* ---------- ComfyUI 扩展（排在安装目录之后：没有目录就没得装） ---------- */}
@@ -772,8 +737,7 @@ export default function ComfyuiServicePanel({ initial }: { initial: LocalConnect
             : `${extensions.filter(item => item.status === 'up-to-date').length} / ${extensions.length} 已就位`}</span>
       </div>
       <p className="cfy-note">
-        这两个扩展与 AIFISHER <strong>共用同一份</strong>：已经装过就不会再复制一遍，
-        AIFISHER 自己升级也不影响这里。都不是必需的，装不装由你决定；运行中的 ComfyUI 不会被自动重启。
+        与 AIFISHER <strong>共用同一份</strong>，都不是必需的。
       </p>
       <div className="cfy-ext-list" data-cfy-exts={extensions?.length ?? 0}>
         {(extensions ?? []).map(item => <div className="cfy-ext" key={item.id} data-cfy-ext={item.id} data-cfy-ext-status={item.status}>
@@ -784,10 +748,8 @@ export default function ComfyuiServicePanel({ initial }: { initial: LocalConnect
             </span>
           </div>
           <p className="cfy-note">{item.purpose}</p>
-          <p className="cfy-hint">装了以后：{item.benefit}</p>
-          <p className="cfy-hint">{item.optional}</p>
-          {item.status === 'update-available' && item.installedVersion && <p className="cfy-hint">现在装的是 v{item.installedVersion}。</p>}
-          {item.status === 'unavailable' && item.message && <p className="cfy-hint" data-cfy-ext-why={item.id}>{item.message}</p>}
+          {item.status === 'update-available' && item.installedVersion && <p className="cfy-note">现在装的是 v{item.installedVersion}。</p>}
+          {item.status === 'unavailable' && item.message && <p className="cfy-note" data-cfy-ext-why={item.id}>{item.message}</p>}
           <div className="cfy-actions">
             <button
               className="button secondary"
@@ -808,13 +770,12 @@ export default function ComfyuiServicePanel({ initial }: { initial: LocalConnect
         </div>)}
       </div>
       {legacy && legacy.some(item => item.exists) && <div className="cfy-legacy" data-cfy-legacy-block={legacy.filter(item => item.exists).length}>
-        <p className="cfy-hint" data-cfy-legacy-why>
-          检测到上一版 Holy Light画布装的扩展还在。它的编号徽标和上面那个画在<b>同一个位置</b>，
-          两个都在时编号会糊成一团 —— 建议移除（只删这两个目录，不动别的）。
+        <p className="cfy-note" data-cfy-legacy-why>
+          上一版装的扩展还在，编号徽标会叠在一起。建议移除。
         </p>
         {legacy.filter(item => item.exists).map(item => <div className="cfy-legacy-row" key={item.id} data-cfy-legacy={item.id} data-cfy-legacy-exists="1">
           <code>{item.id}</code>
-          <span className="cfy-hint">{item.targetDir}</span>
+          <span className="cfy-note">{item.targetDir}</span>
           <div className="cfy-actions">
             <button
               className="button secondary"
@@ -827,12 +788,7 @@ export default function ComfyuiServicePanel({ initial }: { initial: LocalConnect
           </div>
         </div>)}
       </div>}
-      {extNote && <p className={extNote.ok ? 'cfy-note' : 'cfy-hint'} data-cfy-ext-note={extNote.ok ? 'ok' : 'off'}>{extNote.message}</p>}
-      <p className="cfy-hint">
-        无法自动安装时，也可把 Holy Light画布随包 <code>integrations/comfyui</code> 下对应的文件夹
-        （<code>fisherai_node_ids</code>、<code>fisherai_canvas_inputs</code>）复制到
-        ComfyUI 的 <code>custom_nodes</code> 里，再重启 ComfyUI。
-      </p>
+      {extNote && <p className={extNote.ok ? 'cfy-note' : 'cfy-note off'} data-cfy-ext-note={extNote.ok ? 'ok' : 'off'}>{extNote.message}</p>}
     </section>}
 
     {/* ---------- 启动器 ---------- */}
@@ -867,32 +823,18 @@ export default function ComfyuiServicePanel({ initial }: { initial: LocalConnect
           {busy === 'probe' ? '探测中…' : busy === 'scan' ? '扫端口…' : busy === 'detect' ? '查进程…' : '重新探测'}
         </button>
       </div>
-      {!canLaunch && <p className="cfy-hint">只有桌面版能启动本机 ComfyUI。</p>}
     </section>
 
     {/* ---------- 工作流从哪来 ---------- */}
     <section className="cfy-card" data-cfy-block="workflow">
       <div className="cfy-head"><h3>工作流图</h3></div>
       <p className="cfy-note">
-        图不再存在设置里 —— 它跟着工作流走。要在本机跑工作流，请到{' '}
-        <Link className="cfy-link" href="/settings/providers/workflows">设置 · 工作流配置</Link>{' '}
-        里用「本机 ComfyUI 导入」一条条导入：每一份自己带一张图、自己挑要用哪些字段，
-        和云端那份的配置方式一模一样。
+        到{' '}<Link className="cfy-link" href="/settings/providers/workflows">工作流配置</Link>{' '}
+        用「本机 ComfyUI 导入」导入。
       </p>
-      <p className="cfy-hint">
-        图必须是 <strong>API 格式</strong>（节点里带的是 <code>inputs</code> 对象），不是 UI 格式 ——
-        导成 UI 格式的话保存能成功，但生成时一个字段都写不进去。
-      </p>
+      <p className="cfy-note">必须是 <strong>API 格式</strong>的 JSON。</p>
     </section>
 
-    {/* ---------- 模型目录（可选） ---------- */}
-    <section className="cfy-card" data-cfy-block="modeldir">
-      <div className="cfy-head"><h3>模型目录</h3></div>
-      <p className="cfy-hint">
-        整合包自带模型目录时不用填。模型放在别处才需要在这里追加路径，
-        改完重启 ComfyUI 生效 —— 这一项走的是 ComfyUI 自己的 <code>extra_model_paths.yaml</code>。
-      </p>
-    </section>
   </div>;
 }
 

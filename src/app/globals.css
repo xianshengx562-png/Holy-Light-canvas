@@ -1342,7 +1342,6 @@ h1 { margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.02em; }
   font-size: 12px;
   flex-wrap: wrap;
 }
-.assets-storage b { font-weight: 600; }
 .assets-storage .error,
 .assets-storage .notice { padding: 3px 8px; font-size: 11px; }
 /* 清理孤儿文件：塞在这条 12px 的横条里，所以按钮要比全局的 36px 小一号 */
@@ -1844,7 +1843,7 @@ button.plan-card.highlight:hover { background: var(--accent-soft); }
 .plan-price small { font-size: 12px; font-weight: 400; color: var(--text-mute); }
 .plan-card.highlight .plan-price { color: var(--accent); }
 .plan-credits { font-family: var(--font-mono); font-size: 13px; color: var(--text-dim); }
-.plan-note { font-size: 11px; color: var(--text-mute); }
+.plan-note { font-size: 11px; color: var(--text-dim); }
 .plan-cta {
   margin-top: 6px;
   padding-top: 10px;

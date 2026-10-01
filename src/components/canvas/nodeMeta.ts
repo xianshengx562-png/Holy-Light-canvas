@@ -106,7 +106,7 @@ export const NODE_META: Record<NodeKind, {
    * 分两个口存下来再读回来就分不清连的是哪一张了。
    */
   'frame-extract': { label: '首尾帧', tag: '帧', color: '#0ea5e9', input: 'video', output: '首帧 / 尾帧' },
-  latent: { label: '续接上一段', tag: 'LATENT', color: '#a78bfa', output: 'latent' },
+  latent: { label: '接续上一段', tag: 'LATENT', color: '#a78bfa', output: 'latent' },
   /** latent 中转：接住上游的 latent 再转给下一个生成节点，编号决定它写进哪个参数位。 */
   'latent-relay': { label: 'Latent 中转', tag: 'RELAY', color: '#c084fc', input: 'latent', output: 'latent' },
   // 工作流选择已并入视频生成节点的参数条；这个类型只为老画布保留（`LEGACY_KINDS`）。
@@ -114,7 +114,7 @@ export const NODE_META: Record<NodeKind, {
   /** 自定义参数块：直接写工作流节点 id + 字段名，像搭积木一样往生成里叠参数。 */
   params: { label: '自定义参数', tag: 'PARAMS', color: '#fb923c', input: '自定义参数', output: 'params' },
   'video-generate': { label: '视频生成', tag: 'GENERATE', color: '#4ade80', input: 'prompt / 图 / 视频 / 音频 / latent / 工作流 / 自定义参数', output: 'video / image' },
-  /** 图片生成：结构与视频生成一致，但不吃 latent、不提交时长与续接，参数换成出图那一套。 */
+  /** 图片生成：结构与视频生成一致，但不吃 latent、不提交时长与接续，参数换成出图那一套。 */
   'image-generate': { label: '图片生成', tag: 'IMG-GEN', color: '#a3e635', input: '提示词 / 参考图 / 工作流 / 自定义参数', output: 'image' },
   /**
    * RunningHub **应用**：跑的是一个打包好的 AI 应用（`ai-detail/<id>`），不是一份 ComfyUI 图。
@@ -126,7 +126,12 @@ export const NODE_META: Record<NodeKind, {
   'app-generate': { label: 'RunningHub 应用', tag: 'APP', color: '#38bdf8', input: '提示词 / 参考图 / 自定义参数', output: 'image / video' },
   // 老画布里可能还留着独立的视频输出节点；新建节点里已经不再提供，输出直接落在视频生成节点上。
   video: { label: '视频输出', tag: 'OUTPUT', color: '#fbbf24', input: 'video' },
-  'image-out': { label: '图片输出', tag: 'OUTPUT', color: '#2dd4bf', input: 'image' },
+  /*
+   * 2026-10-01：补上 `output` —— 把手是照 `input` / `output` 画的（`NodeCard`），
+   * 没有它就没有右侧那个输出点，从「图片输出」出发的线根本拉不出来。
+   * 有了它，这一张图才能再往下连一个图片生成 / 视频生成节点（徐先要的就是这条）。
+   */
+  'image-out': { label: '图片输出', tag: 'OUTPUT', color: '#2dd4bf', input: 'image', output: 'image' },
   /**
    * 3D 导演台：摆灰模的站位、调机位，存一张**构图参考图**给下游当参考图用。
    * 它自己不跑模型（`output` 是那张参考图，不是生成结果）。
@@ -150,8 +155,13 @@ export const NODE_META: Record<NodeKind, {
  * （拖进来、Ctrl+V 粘、右键「上传文件」），节点由内容决定该长出哪一种 ——
  * 让人先想清楚「我要建的是图片输入还是视频输入」再去找节点，是白绕一圈。
  * 它们仍然能被建出来（`newNodeData` / `ACCEPTS` / 图标都在），只是不在这一栏里列。
+ *
+ * 🔴 **这一行的顺序 = 「添加节点」菜单里从上到下的顺序**（`CanvasEditor` 直接 `.map` 它）。
+ * 2026-10-01 徐先要的顺序：**上传文件 → 文本 → 图片生成 → 视频生成**打头，
+ * 其余按「先素材、后生成」排下去。改这里之前先想清楚菜单长什么样：
+ * 这一列是让用户从上往下扫的，前三屏之外的东西等于不存在。
  */
-export const CREATE_KINDS: NodeKind[] = ['text', 'prompt-optimize', 'frame-extract', 'latent', 'latent-relay', 'params', 'video-generate', 'image-generate', 'app-generate', 'image-out', 'director'];
+export const CREATE_KINDS: NodeKind[] = ['text', 'image-generate', 'video-generate', 'prompt-optimize', 'frame-extract', 'latent', 'latent-relay', 'params', 'app-generate', 'image-out', 'director'];
 
 /** Kept only so that older canvases keep rendering: the video output and the workflow picker
  *  both live on the generator node now. */
@@ -255,11 +265,22 @@ export const ACCEPTS: Record<NodeKind, NodeKind[]> = {
   // 参数块可以再接参数块：串在后面的覆盖前面的，越靠近生成节点优先级越高。
   params: ['params'],
   /* 优化节点也能直接当提示词来源：不想再多一个文本节点的时候，优化完直接喂给生成节点。 */
-  'video-generate': ['text', 'prompt-optimize', 'image', 'video-input', 'audio-input', 'frame-extract', 'latent', 'latent-relay', 'workflow', 'params', 'image-generate', 'image-out', 'director'],
-  // 出图不吃 latent：续接是视频链路的概念，图片工作流里没有对应的参数位。
+  /*
+   * 2026-10-01 末尾那个 `video-generate`：视频生成节点可以直接串在另一个视频生成节点后面，
+   * 上游那**整段视频**进下游的「画布 · 视频输入」位（见 `CanvasEditor` 的 `videoInputs`）。
+   * ⚠️ 走的是**视频输入**这条路，不是参考图：生成节点身上只存了整段视频的地址，
+   * 没有封面帧，塞进参考图位等于把一段视频交到「图」的槽里 —— 那是静默的坏结果。
+   */
+  'video-generate': ['text', 'prompt-optimize', 'image', 'video-input', 'audio-input', 'frame-extract', 'latent', 'latent-relay', 'workflow', 'params', 'image-generate', 'image-out', 'director', 'video-generate'],
+  // 出图不吃 latent：接续是视频链路的概念，图片工作流里没有对应的参数位。
   // 视频输入节点的首帧图也能当图生图的参考图一并发走（需已上传完成）。
-  'image-generate': ['text', 'prompt-optimize', 'image', 'video-input', 'frame-extract', 'workflow', 'params', 'director'],
-  /* 应用节点：吃提示词与参考图（它的参数位由应用自己公开），但不吃 latent —— 续接是视频链路的概念。 */
+  /*
+   * 2026-10-01：`image-generate` / `image-out` 也能当上游 —— 图生图再图生图。
+   * 下游拿它当**参考图**：这两个 kind 本来就在 `isReferenceSource` 里，
+   * 提交时 `imageUrls` 自动收，连线一拉上就生效，不用额外配置。
+   */
+  'image-generate': ['text', 'prompt-optimize', 'image', 'video-input', 'frame-extract', 'workflow', 'params', 'director', 'image-generate', 'image-out'],
+  /* 应用节点：吃提示词与参考图（它的参数位由应用自己公开），但不吃 latent —— 接续是视频链路的概念。 */
   'app-generate': ['text', 'prompt-optimize', 'image', 'video-input', 'frame-extract', 'workflow', 'params', 'director'],
   /* 优化节点接的是**文本**：上游文本节点，或者串在前面的另一个优化节点。 */
   'prompt-optimize': ['text', 'prompt-optimize'],
@@ -304,13 +325,50 @@ export function isRunnableKind(kind: unknown) {
 export { isTextValueKind };
 
 /**
- * 老节点上存的是改版前的默认名（文本节点叫「文本提示词」）。显示时一律按现在这套名字走，
- * **不写库** —— 用户自己起过的名字一律不动，只把「系统当年自动填的那个旧默认名」翻过来。
+ * 节点名字的**兼容表**：老画布上存下来的旧默认名 → 现在这套默认名。
+ *
+ * 为什么需要它：节点的 `label` 是**建节点那一刻写进画布数据**的字符串，
+ * 后来改了 `NODE_META` 里的字，老画布上那个名字**不会跟着变**。
+ * （`文本提示词` 是 2026 早期的叫法；`续接上一段` 是 2026-10-01 统一改名前的叫法。）
+ *
+ * 🔴 **只在读的时候认，不往库里写回**（跟 `LEGACY_VIDEO_ENGINES` 一个道理）：
+ * 每开一次画布写一次盘没必要；更要紧的是**用户自己起过的名字一个字都不能动** ——
+ * 所以判据是「名字正好等于旧默认名」**且**「种类也对得上」，两个条件缺一不可。
+ */
+const LEGACY_NODE_LABELS: Record<string, { kind: NodeKind; label: string }> = {
+  文本提示词: { kind: 'text', label: NODE_META.text.label },
+  续接上一段: { kind: 'latent', label: NODE_META.latent.label },
+};
+
+/** 老名字 → 新名字；不是旧默认名（或种类对不上）就原样返回，空值也原样返回。 */
+export function readNodeLabel(label: unknown, kind: unknown): string {
+  const raw = String(label ?? '').trim();
+  const legacy = LEGACY_NODE_LABELS[raw];
+  return legacy && legacy.kind === kind ? legacy.label : raw;
+}
+
+/**
+ * 老节点上存的是改版前的默认名。显示时一律按现在这套名字走，**不写库** ——
+ * 用户自己起过的名字一律不动，只把「系统当年自动填的那个旧默认名」翻过来。
  */
 export function displayLabelOf(data: { label?: unknown; kind?: unknown }): string {
-  const raw = String(data.label || '').trim();
-  if (raw === '文本提示词' && data.kind === 'text') return NODE_META.text.label;
-  return raw;
+  return readNodeLabel(data.label, data.kind);
+}
+
+/**
+ * 把一整份画布的节点名过一遍兼容表 —— **载入时调一次就够**，别到处补。
+ *
+ * 这一口的价值：下游有十几处直接读 `node.data.label`（卡片标题、参数条标题、
+ * 「已选中「X」」、报错里的「上游「X」」），在载入处归一化就等于**一次性全修好**；
+ * 逐个改成 `displayLabelOf` 迟早会漏一处，而漏掉的那处**不报错、只是偶尔冒出旧词**。
+ * 顺带的：用户下次随便动一下画布，新名字就跟着自动保存落库了，不必专门做一次迁移。
+ * 名字没变的节点**原对象返回**，省得平白多一轮渲染。
+ */
+export function normalizeNodeLabels<T extends { data: { label?: unknown; kind?: unknown } }>(nodes: T[]): T[] {
+  return nodes.map(node => {
+    const next = readNodeLabel(node.data.label, node.data.kind);
+    return next === node.data.label ? node : { ...node, data: { ...node.data, label: next } };
+  });
 }
 
 /**
@@ -474,7 +532,7 @@ export function isLatentSourceKind(kind: unknown) {
 /**
  * 粗 / 精采样节点号的默认值 —— 来自 RunningHub 那份默认工作流（`210.手动上传` / `278.手动上传`）。
  *
- * 换一份工作流，编号多半就对不上了，所以「续接上一段 / Latent 中转」节点上可以改
+ * 换一份工作流，编号多半就对不上了，所以「接续上一段 / Latent 中转」节点上可以改
  * （`NodeData.latentCoarseNodeId` / `latentFineNodeId`）。留空即回落这两个值。
  */
 export const DEFAULT_LATENT_NODE_IDS = { coarse: '210', fine: '278' } as const;
@@ -508,7 +566,7 @@ export function latentNodeIdOf(data: { latentCoarseNodeId?: string; latentFineNo
  * 而在这之前所有情况都只说「未选择」，用户会一直重新上传到放弃。
  */
 export function latentBrokenLabel(broken?: 'cycle' | 'upstream' | 'empty' | 'unpicked' | null) {
-  if (broken === 'cycle') return '续接链成环';
+  if (broken === 'cycle') return '接续链成环';
   if (broken === 'upstream') return '中转未接上游';
   if (broken === 'empty') return '上游还没有 latent';
   if (broken === 'unpicked') return '还没选 latent';

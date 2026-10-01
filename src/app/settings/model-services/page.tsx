@@ -34,10 +34,10 @@ export default function ModelServicesPage() {
           <div><div className="eyebrow">MODEL SERVICES</div><h1>模型服务</h1></div>
         </div>
         <SettingsNav active="/settings/model-services" />
+        {/* 2026-10-01 第五轮：原来四行里有两行是「密钥怎么存」的科普，破了「结论 —— 解释」的形，
+            而且 `**用途**` 在 JSX 里是字面星号（界面上原样显示）。压成一句。 */}
         <div className="notice" data-ms-intro>
-          密钥一律加密后入库，界面上只看得到掩码尾缀。这一页按**用途**分成文本 / 图片 / 视频三段：
-          每段里既有内置服务，也有你自己加的 OpenAI 兼容接口 —— 在哪一段加的，拉到的模型就归到哪一段，
-          并且只出现在对应用途的节点上。
+          按用途分成文本 / 图片 / 视频三段，在哪一段加的只作用于哪一段的节点。
         </div>
         {error && <div className="notice error">读不到模型服务：{error}</div>}
         {loading && !data && <div className="notice">正在读取模型服务…</div>}

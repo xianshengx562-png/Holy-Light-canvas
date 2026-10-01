@@ -86,6 +86,10 @@ import * as m73 from '@/server/api/site-account/route';
 import * as m74 from '@/server/api/skills/route';
 import * as m75 from '@/server/api/workflows/route';
 import * as m76 from '@/server/api/tasks/scan/route';
+/* 2026-10-01 手工补的两条（自建工作流分类）。**生成脚本没跟着跑**，所以是手写的 ——
+   下次重跑生成器时要确认这两条没被冲掉（见本文件末尾那条注释）。 */
+import * as m77 from '@/server/api/workflows/categories/route';
+import * as m78 from '@/server/api/workflows/categories/[id]/route';
 
 export type RouteEntry = {
   /** `/api/projects/[id]/canvas` 这样的原始模式，报错信息里要用 */
@@ -519,6 +523,24 @@ export const ROUTES: RouteEntry[] = [
     regex: /^\/api\/tasks\/([^\/]+)$/,
     keys: ['id'],
     mod: m68 as unknown as ApiModule,
+  },
+  /*
+   * ⚠️ `/api/workflows/categories` 这两条**必须排在 `/api/workflows/[workflowId]` 之前**：
+   * 那条正则是 `/api/workflows/([^/]+)`，会把 `categories` 当成一个工作流 ID 吃掉，
+   * 于是接口回的是「这份工作流还没有保存过配置」—— 看着像业务问题，其实是路由配错了。
+   * 细分顺序：先精确段（categories），再它下面的动态段（categories/[id]），最后大动态段。
+   */
+  {
+    pattern: '/api/workflows/categories',
+    regex: /^\/api\/workflows\/categories$/,
+    keys: [],
+    mod: m77 as unknown as ApiModule,
+  },
+  {
+    pattern: '/api/workflows/categories/[id]',
+    regex: /^\/api\/workflows\/categories\/([^\/]+)$/,
+    keys: ['id'],
+    mod: m78 as unknown as ApiModule,
   },
   {
     pattern: '/api/workflows/[workflowId]',

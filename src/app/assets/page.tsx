@@ -131,7 +131,7 @@ export default function Assets() {
           <div>
             <strong>资产</strong>
             <br />
-            <small>生成过的图片、视频、音频与续接 latent</small>
+            <small>生成过的图片、视频、音频与接续 latent</small>
           </div>
         </header>
         <main className="content"
@@ -202,7 +202,7 @@ export default function Assets() {
               <p className="muted">
                 {filtered
                   ? '换个类型或项目试试。'
-                  : '每次生成成功，视频、图片和续接用的 latent 都会自动存到这里。'}
+                  : '每次生成成功，视频、图片和接续用的 latent 都会自动存到这里。'}
               </p>
               {!filtered && <Link className="button" href="/projects/new">新建项目</Link>}
             </div>

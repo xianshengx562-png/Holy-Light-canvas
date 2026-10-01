@@ -95,8 +95,8 @@ export async function probeLocalBaseUrl(baseUrl: string, credentials: LocalCrede
     };
   } catch (error) {
     const reason = classifyProbeError(error);
-    const detail = error instanceof Error ? error.message : '请求失败';
-    return { baseUrl: base, ok: false, reason, message: `${LOCAL_PROBE_REASON_TEXT[reason]}（${detail}）` };
+    /* 与 client.ts 同理：不把原始错误甩给用户，`detail` 变量一起删。 */
+    return { baseUrl: base, ok: false, reason, message: LOCAL_PROBE_REASON_TEXT[reason] };
   }
 }
 

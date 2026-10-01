@@ -2,8 +2,9 @@ import { z } from 'zod';
 import { api, apiUser, ApiError, checkOrigin, jsonBody } from '@/lib/api';
 import { db } from '@/lib/db';
 import { normalizeWorkflowName, readWorkflowName } from '@/lib/workflows/label';
-import { categoriesFor, isWorkflowCategory, readWorkflowCategory, workflowCategoryLabel } from '@/lib/workflows/category';
-import { generatorKindNoun, readGeneratorKind } from '@/lib/workflows/purpose';
+import { categoriesFor, readWorkflowCategory } from '@/lib/workflows/category';
+import { workflowCategoryAllowed } from '@/lib/workflows/customCategory';
+import { readGeneratorKind } from '@/lib/workflows/purpose';
 import { providerFromWorkflowId, workflowIdError } from '@/lib/workflows/local';
 
 type Context = { params: Promise<{ workflowId: string }> };
@@ -59,10 +60,6 @@ export async function PATCH(request: Request, context: Context) {
       throw new ApiError(400, '请求体里需要有 name 或 category 字段。');
     }
 
-    if (categoryInput !== undefined && !isWorkflowCategory(categoryInput)) {
-      throw new ApiError(400, `不支持的工作流分类「${categoryInput}」。`);
-    }
-
     /*
      * 先查草稿：一来分类的适用性要按它**现在的用途**判断，二来没保存过配置的工作流
      * 本来就没有这两个标签可改。
@@ -78,9 +75,14 @@ export async function PATCH(request: Request, context: Context) {
     if (!current) throw new ApiError(404, '这份工作流还没有保存过配置，先在配置页保存一次再改。');
 
     const kind = readGeneratorKind(current.kind);
-    if (categoryInput !== undefined && !categoriesFor(kind).some(item => item.value === categoryInput)) {
+    /*
+     * 分类的合法性：内置那五个要**与这个用途配对**（图片工作流不该标「视频参考」），
+     * 用户自建的分类则只看它在不在那张表里（2026-10-01 徐先：「分类我自己能加」）。
+     * 两种都走 `workflowCategoryAllowed` —— 列表筛选那边用的是同一个判断。
+     */
+    if (categoryInput !== undefined && !await workflowCategoryAllowed(user.id, kind, categoryInput)) {
       const allowed = categoriesFor(kind).map(item => item.label).join(' / ');
-      throw new ApiError(400, `分类「${workflowCategoryLabel(categoryInput)}」不适用于${generatorKindNoun(kind)}，这个用途只能选：${allowed}。`);
+      throw new ApiError(400, `分类「${categoryInput}」用不了：这个用途只能选 ${allowed}，或者你自己建过的工作流分类。`);
     }
 
     const data: { name?: string; category?: string } = {};

@@ -48,12 +48,14 @@ export type ComfyuiExtensionSpec = {
   id: string;
   /** 要复制进 `custom_nodes/<id>/` 的文件，缺一个都算没装好。 */
   files: readonly string[];
-  /** 这个扩展是干什么的（界面上直接显示，不写「提升体验」这类空话）。 */
+  /*
+   * 这个扩展是干什么的（界面上直接显示，不写「提升体验」这类空话）。
+   *
+   * 原来还有 `benefit`（装了好在哪）和 `optional`（不装会怎样）两段，**2026-10-01 删了**：
+   * 一条扩展在界面上占三行说明，整页显得很臃肿，徐先明确要求砍掉。
+   * 要点并进了 `purpose` 和卡片顶部那句「都不是必需的」—— 信息没丢，只是不再逐条重复。
+   */
   purpose: string;
-  /** 装了之后具体好在哪 —— 必须是一句用户能自己验证的话。 */
-  benefit: string;
-  /** 不装会怎样。留着这句，界面才不会让人误以为它们是必需的。 */
-  optional: string;
   /**
    * 怎么算「装好了」：
    * - `presence`：**只看在不在**（能读到 `__init__.py` 就算好）。用于和别的应用共用的扩展 ——
@@ -75,17 +77,13 @@ export const COMFYUI_EXTENSIONS: readonly ComfyuiExtensionSpec[] = Object.freeze
     id: 'fisherai_node_ids',
     files: Object.freeze(['__init__.py', 'manifest.json', 'README.md', 'web/fisherai-node-ids.js']),
     managed: 'presence' as const,
-    purpose: '在 ComfyUI 的每个节点标题后面显示它的编号。这个扩展与 AIFISHER 共用同一份。',
-    benefit: '配置参数时按编号对照，一眼看出改的是哪个节点，工作流节点多时不会选错。',
-    optional: '不装也能导入工作流，只是只能靠节点名称和顺序辨认。',
+    purpose: '在 ComfyUI 的每个节点标题后面显示它的编号，配参数时一眼看出改的是哪个节点。',
   }),
   Object.freeze({
     id: 'fisherai_canvas_inputs',
     files: Object.freeze(['__init__.py', 'manifest.json', 'README.md']),
     managed: 'presence' as const,
-    purpose: '给 ComfyUI 添加一组「画布输入」节点：文本、数值、整数、种子、开关、图片、蒙版。这个扩展与 AIFISHER 共用同一份。',
-    benefit: '在 ComfyUI 里把它们接到想让画布控制的输入上，填好名称和分组，导入时参数就照这个自动摆好。',
-    optional: '不装也能导入，只是每个参数都要在参数配置里自己勾选和命名。',
+    purpose: '给 ComfyUI 加一组「画布输入」节点（文本、数值、整数、种子、开关、图片、蒙版），导入时参数按你填的名称和分组自动生成。',
   }),
 ]);
 
@@ -127,8 +125,6 @@ export type ComfyuiExtensionView = {
   id: string;
   name: string;
   purpose: string;
-  benefit: string;
-  optional: string;
   /** 随包那份的版本；`manifest.json` 读不出来就是 null。 */
   bundledVersion: string | null;
   /** 目标目录里那份的版本；没装或读不出来是 null。 */
@@ -408,7 +404,7 @@ export function locateExtensionSource(appDir: string, spec: ComfyuiExtensionSpec
 
 /** 检测一份扩展。**不写任何东西** —— 界面挂载时、每次存完目录都会调它。 */
 export function inspectExtension(appDir: string, comfyuiDir: string, spec: ComfyuiExtensionSpec): ComfyuiExtensionView {
-  const base = { id: spec.id, purpose: spec.purpose, benefit: spec.benefit, optional: spec.optional };
+  const base = { id: spec.id, purpose: spec.purpose };
   let sourceDir: string | null;
   try {
     sourceDir = locateExtensionSource(appDir, spec);

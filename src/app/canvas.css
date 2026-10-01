@@ -1805,7 +1805,11 @@ html[data-theme='light'] .cv-skill-mask {
 /* ---------- 表单控件 ---------- */
 .cv-field { display: grid; gap: 5px; }
 .cv-field > span { font-size: 11px; color: var(--cv-mute); }
+/* 「一行两格」。2026-10-01 起真的有人在用了（`NodeParamBar` 的粗 / 精采节点 id）。
+   `min-width: 0` 不能少：栅格子项默认 `min-width: auto`，里面那个 `width: 100%` 的输入框
+   会把列撑破、两格挤成一大一小。 */
 .cv-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.cv-row2 > .cv-field { min-width: 0; }
 
 .cv-input,
 .cv-select,
@@ -1934,7 +1938,7 @@ html[data-theme='light'] .cv-skill-mask {
 .cv-slot.pending { border-color: var(--cv-warn-line); }
 .cv-slot.pending .cv-slot-code { color: var(--cv-warn); }
 .cv-slot.ready { border-color: var(--cv-accent-line); }
-/* 已连线但本轮不参与（例如续接关掉的 latent）：中性虚线，绝不能画成 pending 的黄色告警，
+/* 已连线但本轮不参与（例如接续关掉的 latent）：中性虚线，绝不能画成 pending 的黄色告警，
    否则用户会以为"还得给它传文件才能生成"。 */
 .cv-slot.skipped { border-style: dashed; border-color: var(--cv-line-strong); }
 .cv-slot.skipped .cv-slot-code { color: var(--cv-mute); }
@@ -4142,10 +4146,13 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 .cv-dock-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 8px; }
 .cv-dock-hint { font-size: 11px; line-height: 1.5; color: var(--cv-mute); }
 .cv-dock-hint.warn { color: var(--cv-warn); }
-/* 续接开关：flex:none + nowrap —— 放进行里就恒定一颗复选框 + 一截文字，
-   绝不被网格/换行拆成「孤复选框 + 竖排字」。 */
-.cv-dock-switch { display: inline-flex; align-items: center; gap: 6px; flex: none; white-space: nowrap; font-size: 11.5px; color: var(--cv-dim); cursor: pointer; }
-.cv-dock-switch input { margin: 0; accent-color: var(--cv-accent, var(--cv-line-strong)); }
+/*
+ * 接续胶囊（2026-10-01）：从复选框改成 `.cv-dock-chip`，靠右站在工作流那一行末尾。
+ * 用 `margin-left: auto` 而不是塞一个 `.cv-dock-spacer` —— 行里就它一个弹性项，
+ * 多一个 spacer 只会在换行时多出个空盒子。`nowrap` 是防「接续」两个字被拆成竖排
+ * （这是当年那颗复选框留下的教训，见 2026-09-21 那次截图）。
+ */
+.cv-dock-cont { margin-left: auto; flex: none; white-space: nowrap; }
 
 /*
   应用参数（`GenerateDock` 的 `[data-dock-appparams]`）：一列「名字 + 控件」+ 一句跟画布的说明。

@@ -21,6 +21,8 @@ import CanvasAssetPanel, { type CanvasAssetItem } from './CanvasAssetPanel';
 /* 左轨五项弹出的那五张浮层。共用一个壳（`CanvasOverlay`），只有内容不同。 */
 import CanvasSettingsPanel from './CanvasSettingsPanel';
 import CanvasWorkflowPanel from './CanvasWorkflowPanel';
+/* 「从工作流库选一份」时要按节点的引擎预置来源档（见 `pickSource`）。 */
+import type { WorkflowSource } from '@/components/workflows/WorkflowLibrary';
 import CanvasHistoryPanel from './CanvasHistoryPanel';
 import CanvasSkillPanel from './CanvasSkillPanel';
 import CanvasViewportBar from './CanvasViewportBar';
@@ -60,7 +62,7 @@ import {
   appPurposeOf, CREATE_KINDS, DEFAULT_RATIO, IMAGE_DEFAULTS, LATENT_SLOTS, NODE_META, resolveImageSize,
   usesGenerateDock, workflowsForApp,
   canConnect, connectionHint, isGeneratorKind, isLatentKind, isLatentSourceKind, isVideoUrl, latentAssetPrefix,
-  isRunnableKind, isTextValueKind, displayLabelOf,
+  isRunnableKind, isTextValueKind, displayLabelOf, normalizeNodeLabels,
   latentBrokenHint, latentBrokenLabel, latentLabel, purposeOfNode, workflowMismatchHint, upscaleWorkflowFor,
   workflowDisplayName, generatorKindLabel, newNodeData, isReferenceSource, referenceUrlsOf, latentNodeIdOf,
   mediaReadyForRun, isResolvableUrl, workflowsForProvider, engineSwitchPatch, readInstanceType,
@@ -433,7 +435,7 @@ function inputSlots(
         skipped: !used || relayed,
         thumb: indexes.length ? `${label} → #${indexes.join('/#')}` : label,
         note: !nodeOn ? '已停用'
-          : !continuationOn ? '续接已关 · 未参与'
+          : !continuationOn ? '接续已关 · 未参与'
             : relayed ? '已转交下游中转节点'
               : value ? '已就绪'
                 : latentBrokenLabel(chain.broken) || '未选择',
@@ -454,6 +456,23 @@ function inputSlots(
       return {
         id: node.id, kind, title, thumb: shot, previewable: !!shot, ready: !!shot,
         note: shot ? '构图参考图已就绪' : '还没存过参考图',
+      };
+    }
+    /*
+     * 上游是**另一个生成节点**（2026-10-01 起能直连）。
+     * 这一格必须说清它此刻**有没有东西可交** —— 不然「线连上了、上游还没跑」
+     * 和「连好了、会传下去」在界面上长得一模一样，而这两种状态差着一次生成。
+     * 出图的给缩略图；出片的没封面帧（节点上只存了整段视频），就只用文字说清。
+     */
+    if (isGeneratorKind(kind)) {
+      const url = String(node.data.resultUrl || '').trim();
+      const asImage = url && !isVideoUrl(url) ? url : '';
+      return {
+        id: node.id, kind, title, thumb: asImage, previewable: !!asImage,
+        ready: !!url,
+        note: url
+          ? (asImage ? '已出图 · 当参考图传下去' : '已出片 · 整段交下去')
+          : node.data.status === 'running' ? '生成中…' : '还没跑过',
       };
     }
     const id = String(node.data.workflowId || '');
@@ -508,9 +527,9 @@ async function json(response: Response) {
  * 首页带过来的那份「预设」要变成哪些节点。
  *
  * 两套形状（调用方在没有 seed 时另有一套「示例节点」，不归这里管）：
- *   - `image`：提示词 → 图片生成 → 图片输出。出图**不吃 latent**（续接是视频链路的概念），
+ *   - `image`：提示词 → 图片生成 → 图片输出。出图**不吃 latent**（接续是视频链路的概念），
  *     所以不给 latent 节点 —— 给了也连不上，只是多一个要用户去理解空框；
- *   - `video`：提示词 + 参考图 + 续接 → 视频生成 → 图片输出。
+ *   - `video`：提示词 + 参考图 + 接续 → 视频生成 → 图片输出。
  *
  * 参数写进生成节点的 `data`，字段名必须与参数条读的那套一致 —— **引擎决定写哪一组**
  * （`image2*` / `videoApi*` / 工作流那套裸字段），串着写会让参数条显示成「什么都没选」。
@@ -596,7 +615,7 @@ function seedCanvas(seed: CanvasSeed): { nodes: Node<NodeData>[]; edges: Edge[] 
       workflowId: seed.engine === 'local' ? '' : defaultWorkflowIdFor('video'),
     };
   /*
-   * 本机那一档**不摆 latent 节点**：latent 续接是 RunningHub 专属的做法，
+   * 本机那一档**不摆 latent 节点**：latent 接续是 RunningHub 专属的做法，
    * 服务端会直接 400 拒掉（见 `/api/projects/[id]/generation` 里那条检查）。
    * 摆上去等于一进画布就带着一个注定跑不通的节点，用户得自己发现并删掉它。
    */
@@ -651,7 +670,11 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
    * 每次打开这张画布都再写一遍。所以这里只用「节点是不是空」这把尺子。
    */
   const starter = initial.nodes.length === 0;
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node<NodeData>>(starter ? defaults : initial.nodes);
+  /* 名字归一化放在这一个口（见 `nodeMeta.normalizeNodeLabels` 的注释）：
+     下游十几处直接读 `node.data.label`，在这里过一遍就等于全修好。 */
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node<NodeData>>(
+    starter ? defaults : normalizeNodeLabels(initial.nodes),
+  );
   /*
    * 泛型要写 `Edge` 而不是靠推断：不写的话类型会缩成持久化用的那三个字段
    * （`{ id, source, target }`），而 React Flow 选中连线时写回来的 `selected`
@@ -681,6 +704,23 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
    * 而且「点谁谁亮」这件事本来就该只有一处说了算。
    */
   const [overlay, setOverlay] = useState<CanvasOverlayKey | null>(null);
+  /**
+   * 工作流浮层**直接进哪一份**（2026-10-01 徐先）。
+   *
+   * 「打开工作流配置」原来是 `<a href="#/settings/providers/workflows?id=…">`。
+   * 桌面版是单窗口 hash 路由，那一下点下去**画布就没了** —— 用户只是想改一下这份
+   * 工作流的字段绑定，改完还得自己找路回来。现在开的是画布上的工作流浮层，
+   * 并且**直接落在这一份的配置屏**（不是先给列表让他再点一次）。关掉即回画布。
+   * `null` = 只开列表（左轨那一项、以及「还没选工作流」时）。
+   */
+  const [overlayWorkflow, setOverlayWorkflow] = useState<string | null>(null);
+  /**
+   * 这次开工作流库，是**替哪个节点挑一份**（2026-10-01 徐先：「可以下拉，也可以从工作流库中选择」）。
+   *
+   * 有值 = 列表里每行多一颗「用这一份」，点完写回这个节点并关掉浮层。
+   * `null` = 纯浏览 / 配置，不出那颗按钮。
+   */
+  const [overlayPickNode, setOverlayPickNode] = useState<string | null>(null);
   /** 正在用 3D 导演台摆机位的那个节点。null = 面板关着。 */
   const [directorFor, setDirectorFor] = useState<string | null>(null);
   /** 「设置」浮层里现在看的是哪一页（值就是设置页的 href）。 */
@@ -998,13 +1038,70 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
   const refreshWorkflows = useCallback(async () => {
     try {
       const response = await fetch('/api/workflows');
-      if (response.ok) setWorkflows((await response.json()).workflows || []);
+      if (response.ok) {
+        const body = await response.json();
+        setWorkflows(body.workflows || []);
+      }
     } catch {
       setWorkflows([]);
     }
   }, []);
 
   useEffect(() => { void refreshWorkflows(); }, [refreshWorkflows]);
+
+  /**
+   * 画布里所有「打开工作流配置」的去处（2026-10-01 徐先）。
+   *
+   * 带 `workflowId` = 直接进那一份的配置屏；不带 = 开列表。
+   * 之所以要它：那些入口以前写的是 `#/settings/providers/workflows?id=…`，
+   * 在单窗口 hash 路由里点下去就是**离开画布**。用户要的是「配好直接回画布」，
+   * 所以这件事必须由画布接管，卡片 / 参数条只负责喊一声。
+   */
+  const openWorkflowConfig = useCallback((workflowId?: string) => {
+    setOverlayWorkflow(workflowId ? String(workflowId) : null);
+    setOverlayPickNode(null);
+    setOverlay('workflow');
+  }, []);
+
+  /**
+   * 「从工作流库选一份」——给画布上某个**生成节点**挑工作流（2026-10-01 徐先）。
+   *
+   * 和上面那条的区别：那个是「去改这一份的配置」，这个是「换一份来用」。
+   * 底栏那个下拉只列同用途、同来源的已保存配置，刚导入的 / 档位不一样的在里面看不见，
+   * 所以这里把整张库打开、选完直接写回节点。
+   */
+  const openWorkflowPicker = useCallback((nodeId: string) => {
+    setOverlayWorkflow(null);
+    setOverlayPickNode(nodeId);
+    setOverlay('workflow');
+  }, []);
+
+  /** 关工作流浮层：三条路（配置 / 挑一份 / 左轨浏览）都要顺手清干净。 */
+  const closeWorkflowOverlay = useCallback(() => {
+    setOverlay(null);
+    setOverlayWorkflow(null);
+    setOverlayPickNode(null);
+    /* 刚在里面改过名字 / 启用项 —— 重取一次，别让底栏下拉继续显示旧的。 */
+    void refreshWorkflows();
+  }, [refreshWorkflows]);
+
+  /** 「给某个节点挑一份」时，库里的用途筛选先落在那个节点的用途上（它要视频就先看视频那档）。 */
+  const pickNode = overlayPickNode ? nodes.find(item => item.id === overlayPickNode) : undefined;
+  const pickPurpose = pickNode ? purposeOfNode(String(pickNode.data.kind)) : null;
+  /**
+   * 「来源」那一档也要预置。默认档是「云端 RunningHub」，而这个节点很可能正用着本机 ComfyUI 的图
+   * —— 不预置的话，用户点开「从工作流库中选择…」看到的是**空列表**，会以为那份工作流没了
+   * （2026-10-01 真机第一遍就是这么空的）。判断与提交时那道「引擎 ↔ 来源」对账同一套。
+   */
+  const pickSource: WorkflowSource | undefined = !pickNode
+    ? undefined
+    : pickNode.data.kind === 'app-generate'
+      ? 'app'
+      : (pickNode.data.kind === 'image-generate'
+        ? imageEngineProvider(pickNode.data.engine)
+        : videoEngineProvider(pickNode.data.engine)) === 'local'
+        ? 'local'
+        : 'cloud';
 
   const sources = useCallback((target: string) => {
     const ids: string[] = [];
@@ -1145,7 +1242,16 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         });
         /** Push the media each downstream node can actually show: image output takes the image, video output takes the video. */
         edges.filter(edge => edge.source === id).forEach(edge => {
-          const wantsImage = nodes.find(node => node.id === edge.target)?.data.kind === 'image-out';
+          const target = nodes.find(node => node.id === edge.target);
+          /*
+           * 🔴 下游是**生成节点**时一个字都别推（2026-10-01：生成节点之间现在能直连了）：
+           * 推过去等于**把它自己的结果覆盖掉** —— 它可能还没跑、也可能已经跑过一次，
+           * 界面上会突然「变成上游那一份」，而用户什么都没点。
+           * 生成节点要上游的素材是**提交那一刻从上游现读**的（参考图 / 视频输入那两条路），
+           * 不需要往它身上写。这一下只服务于**输出节点** —— 它们自己不跑，靠它才有东西显示。
+           */
+          if (!target || isGeneratorKind(target.data.kind)) return;
+          const wantsImage = target.data.kind === 'image-out';
           const media = wantsImage ? (imageItem || ambiguous) : (videoItem || ambiguous);
           patch(edge.target, {
             resultUrl: media?.url,
@@ -1223,7 +1329,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
    * 算进去只会让下拉里多出一个取不到的选项。
    *
    * 取哪一份由 `pick`（中转节点上的 `latentPick`）决定，**不自动猜**：
-   * 一次生成会归档两份（粗 / 精），跑多轮又有好几组，猜错的症状是续接悄悄喂了
+   * 一次生成会归档两份（粗 / 精），跑多轮又有好几组，猜错的症状是接续悄悄喂了
    * 错的 latent —— 任务照样成功、产出和上一段毫无关系，界面上什么都不说。
    */
   const videoLatentsOf = useCallback((node: Node<NodeData>, pick: string): LatentChain => {
@@ -1439,7 +1545,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     const purpose = isApp
       ? appPurposeOf(workflows, String(node.data.workflowId || ''))
       : (purposeOfNode(node.data.kind) ?? 'video');
-    /** 图片生成节点走同一条提交链路，但不吃 latent、不提交时长与续接，参数换成出图那一套。 */
+    /** 图片生成节点走同一条提交链路，但不吃 latent、不提交时长与接续，参数换成出图那一套。 */
     const isImage = node.data.kind === 'image-generate' || (isApp && purpose === 'image');
     /**
      * 图片生成节点的引擎。`runninghub` / `local` 走下面那一整条工作流链路，`custom` 走
@@ -1484,10 +1590,17 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
      * 所以「地址是本地的」不构成少交一个值的理由。
      * `blob:` 那种取不到字节的地址不算（见 `isResolvableUrl`）。
      */
+    /*
+     * 2026-10-01：`video-generate` 也能当这一路的来源 —— 上一个视频节点跑出来的
+     * **整段视频**交下来。它身上只有 `resultUrl`（远端地址或本站资产地址都可能是），
+     * 两种都交给服务端 `resolveVideoInputs` 处理，这里只把取不到字节的那种（`blob:`）滤掉。
+     */
     const videoInputs = upstream
-      .filter(item => item.data.kind === 'video-input')
-      .map(item => String(item.data.videoRemoteFile || item.data.videoRemoteUrl
-        || (isResolvableUrl(item.data.videoUrl) ? item.data.videoUrl : '') || '').trim())
+      .filter(item => item.data.kind === 'video-input' || item.data.kind === 'video-generate')
+      .map(item => item.data.kind === 'video-generate'
+        ? String(isResolvableUrl(item.data.resultUrl) ? item.data.resultUrl : '').trim()
+        : String(item.data.videoRemoteFile || item.data.videoRemoteUrl
+          || (isResolvableUrl(item.data.videoUrl) ? item.data.videoUrl : '') || '').trim())
       .filter(Boolean)
       .slice(0, MAX_VIDEO_INPUTS);
     const audioInputs = upstream
@@ -1590,7 +1703,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       : String(workflowNode?.data.workflowId || node.data.workflowId || defaultWorkflowIdFor(purpose));
     /*
      * 视频网关是**另一条链路**，在这里就分出去，而且**要在 latent / 参考图那些检查之前** ——
-     * 这个引擎没有 latent 续接、也不需要工作流，放下去只会撞上「请先选择一个工作流」这种
+     * 这个引擎没有 latent 接续、也不需要工作流，放下去只会撞上「请先选择一个工作流」这种
      * 在它这里根本不成立的检查，报错会指向一个用户根本不需要做的事。
      */
     /*
@@ -1616,7 +1729,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     /*
      * 自定义接口出片（2026-09-21）。与视频网关同一条**异步**节奏（提交拿号 → 轮询），
      * 差别只是凭据来自用户自己加的那条接口。**同样要在这里就分出去**：
-     * 这一档没有工作流、没有 latent 续接，走下去只会撞上「请先选择一个工作流」。
+     * 这一档没有工作流、没有 latent 接续，走下去只会撞上「请先选择一个工作流」。
      */
     if (node.data.kind === 'video-generate' && videoEngine === 'custom') {
       const customModel = String(node.data.customModel || '').trim();
@@ -3182,7 +3295,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     const isGenerator = isGeneratorKind(node.data.kind);
     /** 文本节点与优化节点：这两个的值要沿链现算（2026-09-29）。 */
     const isTextValue = isTextValueKind(node.data.kind);
-    /** 只有视频生成节点有续接 / latent / 时长这一套，图片生成节点没有。 */
+    /** 只有视频生成节点有接续 / latent / 时长这一套，图片生成节点没有。 */
     const isVideoGenerator = node.data.kind === 'video-generate';
     const isImageOutput = node.data.kind === 'image-out';
     /** 首尾帧节点也要看上游：它取帧的那段视频多半是**别人**产出的。 */
@@ -3282,6 +3395,10 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         onField: (key: string, value: string) => patch(node.id, key === 'engine'
           ? engineSwitchPatch(node.data, value)
           : { [key]: value }),
+        /* 「打开工作流配置」：交给画布开浮层，不跳页（见 `openWorkflowConfig`）。 */
+        onOpenWorkflow: openWorkflowConfig,
+        /* 「从工作流库选一份」：同样交给画布，选完直接写回本节点。 */
+        onPickWorkflow: () => openWorkflowPicker(node.id),
         onParamRows: node.data.kind === 'params' ? (rows: ParamRow[]) => patch(node.id, { paramRows: rows }) : undefined,
         /* 应用节点上「就地改的应用参数」：只有它一种节点有这个面板（见 `GenerateDock` 的 appPanel）。 */
         onAppRows: node.data.kind === 'app-generate' ? (rows: ParamRow[]) => patch(node.id, { appRows: rows }) : undefined,
@@ -3351,7 +3468,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       },
     };
   }), [collectParamRows, edges, extractFrames, frameSourceOf, generate, latentChainOf, latentPickOptionsOf,
-    optimizePromptNode, runOne, textChainOf,
+    openWorkflowConfig, openWorkflowPicker, optimizePromptNode, runOne, textChainOf,
     archiveMedia, latents, nodes, paramWorkflowOf, patch, sources, uploadFrameVideo, uploadLatentFile, workflows]);
 
   /*
@@ -3562,7 +3679,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       }
       skipAutosave.current = true;
       if (nextVersion !== null) versionRef.current = nextVersion;
-      setNodes(payload.nodes as Node<NodeData>[]);
+      setNodes(normalizeNodeLabels(payload.nodes as Node<NodeData>[]));
       setEdges(Array.isArray(payload.edges) ? payload.edges as Edge[] : []);
       setNotice('Codex 改了画布，已换成最新的一版。');
     } catch {
@@ -4083,7 +4200,12 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
            * 不再是「只有资产能点、其余给一句还没做」—— 参考图那张卡片本来就是给
            * 「设置 / 工作流配置」这种一整页内容用的，五项共用一套形态才不会长出五种关法。
            */
-          onOpen={key => setOverlay(value => (value === key ? null : (key as CanvasOverlayKey)))}
+          onOpen={key => {
+            /* 左轨点开的「工作流」是**列表**那一屏、也不是替谁挑：上一次留下
+               的「配这一份 / 替某节点挑一份」都要清掉，不然这次一点就落在别人身上。 */
+            if (key === 'workflow') { setOverlayWorkflow(null); setOverlayPickNode(null); }
+            setOverlay(value => (value === key ? null : (key as CanvasOverlayKey)));
+          }}
           openKey={overlay}
           onFit={() => fitView({ duration: 300, padding: 0.2 })}
         />
@@ -4237,7 +4359,22 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     )}
     {overlay === 'workflow' && (
       <CanvasWorkflowPanel
-        onClose={() => setOverlay(null)}
+        /* `key` 让「换一份直接开」真的重挂：`initialWorkflowId` 是初值，
+           不换 key 的话浮层已经开着时再指过去，里面还是上一份。
+           「给某个节点挑一份」也算一种入口，一并进 key。 */
+        key={overlayWorkflow || overlayPickNode || 'library'}
+        /* 从卡片 / 参数条进来时带着「配这一份」，左轨进来时是 null（开列表）。 */
+        initialWorkflowId={overlayWorkflow || undefined}
+        /* 有 pickNode = 这次是给那个节点挑一份：列表里出「用这一份」。 */
+        pickKind={pickPurpose ?? undefined}
+        pickSource={pickSource}
+        onPickWorkflow={overlayPickNode
+          ? (workflowId: string) => {
+            patch(overlayPickNode, { workflowId });
+            closeWorkflowOverlay();
+          }
+          : undefined}
+        onClose={closeWorkflowOverlay}
         /* 库里那些「前往模型服务 / 设置 · 工作流配置」：不跳页，把设置那张浮层切到那一页（见 CanvasOverlay 的 onHref）。 */
         onGotoSetting={href => { setSettingsTab(href); setOverlay('settings'); }}
       />

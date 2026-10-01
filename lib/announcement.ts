@@ -52,12 +52,12 @@ export type AnnouncementFeature = {
 export const ANNOUNCEMENT_FEATURES: AnnouncementFeature[] = [
   {
     title: '无限画布编排',
-    desc: '提示词、参考图、视频、音频、续接 latent、自定义参数块都是节点，拖进来连成一条流水线，改一处就顺着往下传。',
+    desc: '提示词、参考图、视频、音频、接续 latent、自定义参数块都是节点，拖进来连成一条流水线，改一处就顺着往下传。',
     desktopDesc: '提示词、参考图、视频、音频、自定义参数块都是节点，拖进来连成一条流水线，改一处就顺着往下传。',
   },
   {
     title: '视频生成',
-    desc: '两种引擎：接自己的 RunningHub 工作流，或直连通用视频网关；支持首帧图起手、续接上一段，出完还能再跑一道超清。',
+    desc: '两种引擎：接自己的 RunningHub 工作流，或直连通用视频网关；支持首帧图起手、接续上一段，出完还能再跑一道超清。',
     desktopDesc: '视频跑在你自己机器的 ComfyUI 上：把工作流图贴进来，画布上的节点直接喂参数；出完还能再跑一道超清。',
   },
   {

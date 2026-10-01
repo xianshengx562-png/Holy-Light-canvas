@@ -97,8 +97,8 @@ const canvasBindingLabelsBase: Record<string, string> = {
   manual: '手动固定值', prompt: '画布 · 提示词', duration: '画布 · 视频时长',
   aspect_ratio: '画布 · 画面比例', megapixels: '画布 · 基础分辨率',
   reference_count: '画布 · 参考图数量',
-  latent_1: '画布 · 续接 latent 1（粗采样）', latent_2: '画布 · 续接 latent 2（精采样）',
-  continuation: '画布 · 开启续接（节点 196，反向：开=false）',
+  latent_1: '画布 · 接续 latent 1（粗采样）', latent_2: '画布 · 接续 latent 2（精采样）',
+  continuation: '画布 · 开启接续（节点 196，反向：开=false）',
   negative_prompt: '画布 · 负向提示词', steps: '画布 · 采样步数', cfg: '画布 · 引导系数 (CFG)',
   seed: '画布 · 随机种子', batch_size: '画布 · 出图张数', sampler: '画布 · 采样器',
   width: '画布 · 宽度', height: '画布 · 高度',
@@ -120,7 +120,7 @@ export const canvasBindingLabels: Record<CanvasBinding, string> = {
 /**
  * 配置页「画布参数绑定」下拉的可选项，**按工作流用途 / 工序过滤**，避免把不相关的绑定混进来：
  * - 图片生成：提示词、比例、分辨率、参考图，加上出图专属的步数 / CFG / 种子 / 负向提示词 / 采样器 / 张数。
- * - 视频生成：提示词、比例、分辨率、参考图，加上视频专属的时长 / 续接 latent / 开启续接。
+ * - 视频生成：提示词、比例、分辨率、参考图，加上视频专属的时长 / 接续 latent / 开启接续。
  * - 超清：只有「超清」这一个绑定（待加工的那一份媒体），与生成配置彻底独立。
  *
  * **不含序列项**（参考图 N / 视频 N / 音频 N）—— 那些由 `bindingsForFields` 按「已用到第几个」
@@ -475,7 +475,7 @@ export function consumedCanvasBindings(config: Configuration) {
 }
 
 /**
- * 画布「续接上一段 / Latent 中转」节点上填的粗 / 精采样**工作流节点号**。
+ * 画布「接续上一段 / Latent 中转」节点上填的粗 / 精采样**工作流节点号**。
  *
  * 留空 = 沿用配置页里 `latent_1` / `latent_2` 所绑字段的节点号
  * （不是「用 210 / 278」—— 那份默认工作流的编号对别的工作流不成立）。

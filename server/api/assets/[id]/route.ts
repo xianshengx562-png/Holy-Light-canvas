@@ -7,7 +7,7 @@ import {
  * 删除一条资产（记录 + 磁盘文件）。
  *
  * 默认**拒绝删除正在被画布引用的资产**，返回 409 并列出是哪几个项目在用——
- * latent 是续接链路的输入，删掉之后那条链下次生成会静默取不到值，用户完全看不出来。
+ * latent 是接续链路的输入，删掉之后那条链下次生成会静默取不到值，用户完全看不出来。
  * 确要删除时带 `?force=1`，前端负责把引用列表讲清楚再让用户确认。
  */
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {

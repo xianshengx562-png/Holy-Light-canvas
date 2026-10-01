@@ -199,7 +199,7 @@ export default function BillingPanel({
         clearInterval(timer);
         setFlash({
           ok: false,
-          message: '等了 90 秒还没确认到账。如果钱已经付了，刷新页面或点「立即查单」再试一次 —— 查单会向渠道核对并补入账。',
+          message: '等了 90 秒还没确认到账。付过款的话刷新页面，或点「立即查单」。',
         });
       }
     }, POLL_INTERVAL_MS);
@@ -297,15 +297,10 @@ export default function BillingPanel({
         <button className="button secondary" type="button" onClick={() => { stopPoll.current = true; setPending(null); }}>取消</button>
       </div>
 
-      <p className="key-hint">
-        {pending.provider === 'mock'
-          ? '这是本地假网关：它会真的向你自己的回调地址发一次带签名的 HTTP 请求，所以验签、金额核对、重复回调去重、查单补单这些路径都是真跑一遍的。「回调丢失」用来验证查单兜底。'
-          : '支付完成后本页会自动查单确认；渠道回调先到也会立即结算。'}
-      </p>
-      {pending.notifyUrl && <p className="key-hint">
+      {pending.notifyUrl && <p className="muted">
         回调地址（配置渠道后台用）：<code>{pending.notifyUrl}</code>
       </p>}
-      {polls > 0 && <p className="key-hint">已查单 {polls} 次…</p>}
+      {polls > 0 && <p className="muted">已查单 {polls} 次…</p>}
     </section>}
 
     <div className="section-head"><h2>余额充值</h2><span className="muted">一次性充值，永久有效</span></div>
@@ -327,7 +322,7 @@ export default function BillingPanel({
 
     <div className="section-head">
       <h2>订阅套餐</h2>
-      <span className="muted">按周期发放余额；到期需手动续费，提前续费顺延不亏天数</span>
+      <span className="muted">到期需手动续费，提前续费顺延。</span>
     </div>
     <div className="billing-grid">
       {plans.subscription.map(plan => <button
@@ -362,7 +357,7 @@ export default function BillingPanel({
       : <div className="empty">
         <div className="empty-icon">✦</div>
         <h3>还没有订阅</h3>
-        <p>订阅按周期发放余额，不是「订阅期间免扣费」—— 生成仍然走同一套余额账本。</p>
+        <p>订阅按周期发放余额，生成仍然扣余额。</p>
       </div>}
 
     <div className="section-head"><h2>订单记录</h2><span className="muted">最近 50 笔</span></div>
@@ -390,10 +385,5 @@ export default function BillingPanel({
         <p>上面选一个充值套餐或订阅套餐，订单会出现在这里。</p>
       </div>}
 
-    <p className="key-hint">
-      退款只能由站长在订单接口上发起（`POST /api/payments/orders/&lt;orderNo&gt;/refund`），且是**先向渠道申请、
-      成功后才改本地状态并回扣余额** —— 顺序反过来就会出现「余额扣了、钱没退」。
-      回扣允许把余额扣成负数：充值来的余额很可能已经花掉了，负余额才是真相。
-    </p>
   </>;
 }

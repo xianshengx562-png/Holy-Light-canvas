@@ -15,7 +15,7 @@ import { DUPLICATE_WINDOW_MS, isDuplicateSubmit } from '@/lib/submitGuard';
  * 视频网关通道 —— 视频生成节点选了「视频网关」引擎时走这里。
  *
  * 与 `/generation`（RunningHub 工作流）的差别是**整条链路都不一样**：
- * 没有工作流、没有 nodeInfoList、没有 latent 续接、没有参数绑定。
+ * 没有工作流、没有 nodeInfoList、没有 latent 接续、没有参数绑定。
  * 参数就是模型 / 时长 / 分辨率 / 比例，外加可选的首帧图（图生视频）。
  *
  * 与图片侧同步出图的差别是**它是异步的**：提交只拿到网关那边的任务号，视频要等轮询

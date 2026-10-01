@@ -10,8 +10,9 @@ import { resolveRunningHub } from '@/lib/providers/runninghub/connection';
 import { isRunningHubAppWorkflowId, webAppFieldsToWorkflowFields, webAppIdOf } from '@/lib/workflows/runninghubApp';
 import { parseLocalGraph } from '@/lib/providers/local/graph';
 import { normalizeWorkflowName, readWorkflowName } from '@/lib/workflows/label';
-import { DEFAULT_GENERATOR_KIND, GENERATOR_KINDS, generatorKindNoun, readGeneratorKind } from '@/lib/workflows/purpose';
-import { categoriesFor, DEFAULT_WORKFLOW_CATEGORY, readWorkflowCategory, WORKFLOW_CATEGORIES, workflowCategoryLabel } from '@/lib/workflows/category';
+import { DEFAULT_GENERATOR_KIND, GENERATOR_KINDS, readGeneratorKind } from '@/lib/workflows/purpose';
+import { categoriesFor, DEFAULT_WORKFLOW_CATEGORY, readWorkflowCategory } from '@/lib/workflows/category';
+import { workflowCategoryAllowed } from '@/lib/workflows/customCategory';
 import { DEFAULT_WORKFLOW_OPERATION, readWorkflowOperation, WORKFLOW_OPERATIONS } from '@/lib/workflows/operation';
 
 import {
@@ -158,8 +159,13 @@ const saveSchema = z.object({
   version: z.number().int().min(-1),
   /** 用途。不传就保持原值（老客户端的 PATCH 仍然按原用途存）。 */
   kind: z.enum(GENERATOR_KINDS as unknown as [string, ...string[]]).optional(),
-  /** 分类。与用途同样的「不传就保持原值」语义，但**必须适用于当前用途**（见下面那段校验）。 */
-  category: z.enum(WORKFLOW_CATEGORIES as unknown as [string, ...string[]]).optional(),
+  /**
+   * 分类。与用途同样的「不传就保持原值」语义，但**必须适用于当前用途**（见下面那段校验）。
+   * 🔴 这里**不能再是 `z.enum(WORKFLOW_CATEGORIES)`**：2026-10-01 起分类可以是用户自建的
+   * （那是个名字，不是枚举），zod 会在进业务代码之前就把自定义分类判成 400。
+   * 值域交给 `workflowCategoryAllowed`，那里内置的查用途配对、自建的查表。
+   */
+  category: z.string().optional(),
   /**
    * 工序：普通生成 / 超清。与用途、分类正交，所以没有配对的适用性检查 ——
    * 「视频用途的超清工作流」和「图片用途的超清工作流」都成立。
@@ -239,9 +245,13 @@ export async function PATCH(request: Request, context: Context) {
       select: { kind: true, category: true, operation: true },
     });
     const effectiveKind = readGeneratorKind(kind ?? current?.kind ?? DEFAULT_GENERATOR_KIND);
-    if (category && !categoriesFor(effectiveKind).some(item => item.value === category)) {
+    /*
+     * 内置分类要**与用途配对**（图片工作流不该标「视频参考」）；用户自建的分类只看它存不存在
+     * （2026-10-01 徐先：「分类我自己能加」）。两种都走 `workflowCategoryAllowed`。
+     */
+    if (category && !await workflowCategoryAllowed(user.id, effectiveKind, category)) {
       const allowed = categoriesFor(effectiveKind).map(item => item.label).join(' / ');
-      throw new ApiError(400, `分类「${workflowCategoryLabel(category)}」不适用于${generatorKindNoun(effectiveKind)}，这个用途只能选：${allowed}。`);
+      throw new ApiError(400, `分类「${category}」用不了：这个用途只能选 ${allowed}，或者你自己建过的工作流分类。`);
     }
     /*
      * 改了用途时，旧分类若对新用途不成立就顺手退回默认 —— 不这么做，库里会留一个

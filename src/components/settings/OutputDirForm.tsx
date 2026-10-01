@@ -37,7 +37,7 @@ export default function OutputDirForm({ initial }: { initial: OutputDirView }) {
       setValue(next.custom ?? '');
       setMessage({
         ok: true,
-        text: next.custom ? `已保存 —— 之后的产出都会落进「${next.dir}」。` : '已恢复默认目录。',
+        text: next.custom ? `已保存，之后的产出落进「${next.dir}」。` : '已恢复默认目录。',
       });
     } catch (error) {
       setMessage({ ok: false, text: error instanceof Error ? error.message : '保存失败。' });
@@ -96,13 +96,5 @@ export default function OutputDirForm({ initial }: { initial: OutputDirView }) {
 
     {message && <p className={message.ok ? 'key-result ok' : 'key-result off'} data-output-message={message.ok ? 'ok' : 'error'}>{message.text}</p>}
 
-    <p className="key-hint">
-      换了目录**不会动已有的资产**：每条资产记录的都是它自己那个文件的绝对路径，改这里只影响「之后生成的文件往哪写」。
-      目录内部仍是 <code>media</code> 与 <code>latents</code> 两个子目录按项目分文件夹，直接翻也翻得明白。
-    </p>
-    <p className="key-hint">
-      点保存时会真的往目标目录写一个临时文件再删掉 —— 写不进去（没权限、盘是只读的、盘符不存在）当场就报，
-      不会等到某次生成才「生成成功但图是空的」。
-    </p>
   </div>;
 }

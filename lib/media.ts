@@ -77,7 +77,7 @@ function fileNameOf(value: string) {
  * **这是唯一判据，latent 侧必须调它、不许自己写一份**：`archiveTaskLatents` 里曾经
  * 用一个正则直接扫 `outputType + url` 的拼串，而 `outputType: 'video'` 这个词本身不含
  * `mp4/mov/png`，于是「URL 没有扩展名的视频」两边都认领了一次，同一份文件落盘两次，
- * 还多出一条假 latent 混进续接候选。这里复用 `classify`，保证两边永远一致。
+ * 还多出一条假 latent 混进接续候选。这里复用 `classify`，保证两边永远一致。
  */
 export function isMediaResult(item: { url?: string; outputType?: string }) {
   return Boolean(classify(item));

@@ -1,8 +1,9 @@
 import { api, apiUser, ApiError } from '@/lib/api';
 import { listWorkflowDrafts } from '@/lib/workflows/drafts';
 import { defaultWorkflowId } from '@/lib/workflows/defaults';
-import { categoriesFor, isWorkflowCategory, workflowCategoryLabel } from '@/lib/workflows/category';
-import { generatorKindNoun, isGeneratorKind } from '@/lib/workflows/purpose';
+import { isWorkflowCategory } from '@/lib/workflows/category';
+import { listWorkflowCategories, workflowCategoryAllowed } from '@/lib/workflows/customCategory';
+import { isGeneratorKind } from '@/lib/workflows/purpose';
 import { isWorkflowOperation } from '@/lib/workflows/operation';
 import { isWorkflowProvider } from '@/lib/workflows/local';
 
@@ -27,16 +28,17 @@ export async function GET(request: Request) {
      * 看起来和「这个分类下没有工作流」一模一样，是最难查的一类问题。
      */
     const rawCategory = new URL(request.url).searchParams.get('category');
-    if (rawCategory !== null && !isWorkflowCategory(rawCategory)) {
-      throw new ApiError(400, `不支持的工作流分类「${rawCategory}」。`);
-    }
     /*
-     * 分类与用途对不上（比如「图片生成 + 视频参考」）也 400：这种组合查出来必然是空的，
-     * 和「这个分类下确实没有工作流」在界面上一模一样 —— 又是一个查不出来的静默失败。
-     * 没传 kind 时不判（那时拿全部用途，任何分类都合法）。
+     * 分类可能是内置那五个，也可能是**用户自建的**（2026-10-01 徐先：「分类我自己能加」）。
+     * 两种的合法性判断都收敛到 `workflowCategoryAllowed`：内置的查「这个用途下有没有它」，
+     * 自建的查那张表里在不在。传了 kind 就按那个用途判；没传（列全部用途）时只需要名字确实存在
+     * —— 自建分类不绑用途，所以随便挑一个用途进去问，命中不了内置分支、只会查表。
      */
-    if (rawKind !== null && rawCategory !== null && !categoriesFor(rawKind).some(item => item.value === rawCategory)) {
-      throw new ApiError(400, `分类「${workflowCategoryLabel(rawCategory)}」不适用于${generatorKindNoun(rawKind)}。`);
+    if (rawCategory !== null) {
+      const ok = rawKind !== null
+        ? await workflowCategoryAllowed(user.id, rawKind, rawCategory)
+        : (isWorkflowCategory(rawCategory) || await workflowCategoryAllowed(user.id, 'image', rawCategory));
+      if (!ok) throw new ApiError(400, `不支持的工作流分类「${rawCategory}」。`);
     }
     /*
      * 工序与用途正交（视频 / 图片各自都能有超清工作流），所以不需要配对的适用性检查，
@@ -59,6 +61,12 @@ export async function GET(request: Request) {
       workflows: await listWorkflowDrafts(user.id, {
         kind: rawKind, category: rawCategory, operation: rawOperation, provider: rawProvider,
       }),
+      /*
+       * 用户自建的分类跟着列表一起回（2026-10-01 徐先：「分类我自己能加」）。
+       * 一起回而不是另开一个接口：列表页与画布下拉本来就要等这一份数据，
+       * 分两次取会让「列表已经显示、分类下拉还空着」闪一下，也容易两处不一致。
+       */
+      categories: await listWorkflowCategories(user.id),
     });
   });
 }

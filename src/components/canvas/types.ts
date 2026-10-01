@@ -27,7 +27,7 @@ export type WorkflowOption = {
    * 这份配置的用途：`'video' | 'image'`。
    *
    * 画布上给生成节点选工作流时**只列同用途的** —— 视频工作流里没有 KSampler 的
-   * 步数 / CFG 字段，出图工作流里也没有续接 latent 的参数位，选错只会得到
+   * 步数 / CFG 字段，出图工作流里也没有接续 latent 的参数位，选错只会得到
    * 「任务成功但产出是另一种媒体」。服务端还会再校验一次，不只是下拉的事。
    */
   kind: GeneratorKind;
@@ -405,7 +405,7 @@ export type NodeData = {
    * 这份还在不在、要不要改选，界面得能分得清。
    *
    * 视频节点一次生成会归档两份（粗 / 精），跑多轮就有多组，
-   * **必须由用户指定**，不自动猜：猜错的症状是续接悄悄喂了错的 latent，
+   * **必须由用户指定**，不自动猜：猜错的症状是接续悄悄喂了错的 latent，
    * 任务照样成功、产出和上一段毫无关系。
    */
   latentPick?: string;
@@ -504,6 +504,22 @@ export type NodeData = {
   onText?: (value: string, options?: { detachUpstream?: boolean }) => void;
   onFile?: (file: File) => void;
   onField?: (key: string, value: string) => void;
+  /**
+   * 打开「工作流配置」——**在画布里**（2026-10-01 徐先）。
+   *
+   * 带 id = 直接进那一份的配置屏；不带 = 开列表。
+   * 以前这些入口写的是 `#/settings/providers/workflows?id=…`，桌面版单窗口 hash 路由下
+   * 点一下就是**离开画布**：用户只是想改一份工作流的字段绑定，回来还得自己找路。
+   * 现在统一由画布开 `CanvasWorkflowPanel`，关掉即回画布。
+   */
+  onOpenWorkflow?: (workflowId?: string) => void;
+  /**
+   * 「从工作流库选一份」（2026-10-01 徐先：「这里的工作流选择可以下拉，也可以从工作流库中选择」）。
+   *
+   * 下面那个下拉只列**同用途、同来源**的已保存配置，刚导入的 / 档位不一样的在里面看不见；
+   * 这条是第二条路：把整张库打开，选完直接写回本节点的 `workflowId`。
+   */
+  onPickWorkflow?: () => void;
   /**
    * 优化提示词节点：就地跑一次改写（2026-09-29）。
    *

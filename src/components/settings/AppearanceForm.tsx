@@ -180,14 +180,12 @@ export default function AppearanceForm() {
       <div className="appearance-head">
         <div>
           <h2>主界面</h2>
-          <p className="muted">首页、项目、设置这些页面。改的是整站的深浅、配色，以及底色与强调色。</p>
         </div>
       </div>
 
       <div className="appearance-sub">
         <div className="appearance-sub-head">
           <span className="appearance-sub-label">主题模式</span>
-          <span className="muted">决定界面本身的深浅色</span>
         </div>
         <div className="theme-grid" role="radiogroup" aria-label="主题模式">
           {THEME_OPTIONS.map(option => {
@@ -279,7 +277,7 @@ export default function AppearanceForm() {
             </span>
           </div>
           {!canSetWallpaper() ? (
-            <p className="note-line">只有桌面版能上传背景图 —— web 版本机没有落盘通道，把图存进浏览器那 5MB 的额度里装不下。</p>
+            <p className="muted">只有桌面版能上传背景图。</p>
           ) : (
             <>
               <div className="appearance-row">
@@ -339,7 +337,7 @@ export default function AppearanceForm() {
                   ))}
                 </div>
               )}
-              {wallNotice && <p className="note-line" role="status" data-site-wall-notice>{wallNotice}</p>}
+              {wallNotice && <p className="muted" role="status" data-site-wall-notice>{wallNotice}</p>}
             </>
           )}
         </div>
@@ -364,8 +362,7 @@ export default function AppearanceForm() {
         <div>
           <h2>画布</h2>
           <p className="muted">
-            无限画布那一片地面，以及铺在上面的节点卡片。跟着上面的日间 / 夜间一起换档 ——
-            下面这几支是<b>自定义</b>，挑过之后就不再跟着主题动。
+            跟随主题换档，挑过自定义就不再跟着动。要钉住底色用画布右下角的「画布外观」。
           </p>
         </div>
       </div>
@@ -376,24 +373,16 @@ export default function AppearanceForm() {
       <div className="appearance-sub">
         <div className="appearance-sub-head">
           <span className="appearance-sub-label">画布底色</span>
-          <span className="muted">{appearance.canvasBg ? '自定义' : '跟随主题'}</span>
+          <span className="muted" data-canvas-bg-hint>{appearance.canvasBg ? `自定义 ${appearance.canvasBg}` : '跟随主题'}</span>
         </div>
-        <p className="appearance-hint" data-canvas-bg-hint>
-          不自定义时跟着日间 / 夜间走（日间浅灰、夜间纯黑）。要钉住一个色，去画布页面
-          右下角那个「画布外观」里的「自定义」 —— 那里能和背景图、淡化、模糊一起看效果。
-          {appearance.canvasBg && <> 当前：<code>{appearance.canvasBg}</code>。</>}
-        </p>
       </div>
 
       <div className="appearance-sub">
         <div className="appearance-sub-head">
           <span className="appearance-sub-label">节点卡片</span>
-          <span className="muted">底色 / 描边 / 强调色</span>
         </div>
         {!custom ? (
-          <p className="appearance-hint" data-canvas-custom-hint>
-            日间＝白卡片 + 深字，夜间＝深卡片 + 浅字。要单独指定，先在上面打开「自定义」。
-          </p>
+          <p className="muted" data-canvas-custom-hint>要单独指定，先打开上面的「自定义」。</p>
         ) : (
           <div className="custom-panel" data-canvas-custom-panel>
             {canvasSlots.map(slot => <SlotRow key={slot.attr} slot={slot} />)}
@@ -421,7 +410,6 @@ export default function AppearanceForm() {
       <div className="appearance-head">
         <div>
           <h2>预览</h2>
-          <p className="muted">配色大致就是这个样子。</p>
         </div>
         <button type="button" className="button subtle" data-appearance-reset onClick={reset}>
           <RotateCcw size={14} aria-hidden /> 全部恢复默认
@@ -554,11 +542,11 @@ function ColorPick({ label, value, fallback, onChange, note }: {
           />
         </span>
       </label>
-      {!valid && <p className="note-line">请输入 3 位或 6 位十六进制色值，例如 <code>#101013</code>。</p>}
-      {valid && value && <p className="note-line">
+      {!valid && <p className="muted">请输入 3 位或 6 位十六进制色值，例如 <code>#101013</code>。</p>}
+      {valid && value && <p className="muted">
         当前：<code>{value}</code>{isLightColor(value) ? '（浅色，压在上面的字会转深）' : ''}
       </p>}
-      {!value && note && <p className="note-line">{note}</p>}
+      {!value && note && <p className="muted">{note}</p>}
     </div>}
   </div>;
 }

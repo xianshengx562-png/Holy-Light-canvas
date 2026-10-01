@@ -484,6 +484,33 @@ export const MODELS: Record<string, ModelMeta> = {
       { name: 'updatedAt', kind: 'datetime', optional: false, default: { type: 'none' }, updatedAt: true, unique: false },
     ],
   },
+  /**
+   * 工作流的**自定义分类**（2026-10-01 徐先：「分类我自己能加」）。
+   *
+   * 内置那五个（无参考 / 单图参考 / 多图参考 / 视频参考 / 音频 + 多图参考）是**代码里的枚举**，
+   * 在 `lib/workflows/category.ts`；这张表只装用户自己起的分类。
+   * 两边的值都存进 `WorkflowDraft.category` 那一列，**存的是名字本身**（与 `AssetCategory` 同一个取舍，
+   * 好处是列表直接拿来显示、不用再查一次表；代价是改名要连带更新草稿 —— 见
+   * `lib/workflows/customCategory.ts` 的 `renameWorkflowCategory`）。
+   *
+   * 🔴 因此读取那一步**不能只认枚举**：`readWorkflowCategory` 见到不认识的值要**原样保留**，
+   * 否则用户刚起的分类名会在下一次读取时被悄悄换成「无参考」。
+   */
+  WorkflowCategoryItem: {
+    name: 'WorkflowCategoryItem',
+    id: 'id',
+    uniques: [['id'], ['userId', 'name']],
+    fields: [
+      { name: 'id', kind: 'string', optional: false, default: { type: 'cuid' }, updatedAt: false, unique: false },
+      { name: 'userId', kind: 'string', optional: false, default: { type: 'none' }, updatedAt: false, unique: false },
+      { name: 'user', kind: 'string', optional: true, default: { type: 'none' }, updatedAt: false, unique: false, relation: { model: 'User', many: false, fk: 'userId', ref: 'id' } },
+      { name: 'name', kind: 'string', optional: false, default: { type: 'literal', value: '' }, updatedAt: false, unique: false },
+      /** 列表里的排位，小的在前；没特意排过的都是 0，那时按 `createdAt` 先后。 */
+      { name: 'sort', kind: 'int', optional: false, default: { type: 'literal', value: 0 }, updatedAt: false, unique: false },
+      { name: 'createdAt', kind: 'datetime', optional: false, default: { type: 'now' }, updatedAt: false, unique: false },
+      { name: 'updatedAt', kind: 'datetime', optional: false, default: { type: 'none' }, updatedAt: true, unique: false },
+    ],
+  },
 };
 
 export const MODEL_NAMES = Object.keys(MODELS);

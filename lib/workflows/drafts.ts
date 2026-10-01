@@ -4,7 +4,7 @@ import { defaultWorkflowId } from '@/lib/workflows/defaults';
 import { readWorkflowName } from '@/lib/workflows/label';
 import { graphNodeCount, readWorkflowProvider, type WorkflowProvider } from '@/lib/workflows/local';
 import { readGeneratorKind, type GeneratorKind } from '@/lib/workflows/purpose';
-import { readWorkflowCategory, type WorkflowCategory } from '@/lib/workflows/category';
+import { readWorkflowCategory } from '@/lib/workflows/category';
 import { readWorkflowOperation, type WorkflowOperation } from '@/lib/workflows/operation';
 
 /**
@@ -33,8 +33,12 @@ export type WorkflowSummary = {
   /**
    * 这份工作流吃什么样的参考输入。与 `kind` 一起决定它出现在哪些筛选条件下。
    * 读取时**按用途兜底**：老数据里可能有「图片工作流标着视频参考」这种组合。
+   *
+   * 🔴 类型是 `string` 而不是内置那五个的联合：2026-10-01 起分类可以是**用户自建的**
+   * （存在 `WorkflowCategoryItem` 表里，值就是分类名本身）。写死联合类型会让每处比较
+   * 都要先把自定义值窄化回去，而那是做不到的 —— 它本来就不是编译期能知道的集合。
    */
-  category: WorkflowCategory;
+  category: string;
   /**
    * 工序：普通生成 / 超清。**超清工作流不出现在生成节点的下拉里**（它是被「超清」按钮调用的），
    * 所以画布那一侧必须按它再过一道 —— 少了这一层，用户能在下拉里选到超清工作流，
@@ -63,7 +67,7 @@ type DraftField = { enabled?: boolean };
  */
 export type WorkflowFilter = {
   kind?: GeneratorKind | null;
-  category?: WorkflowCategory | null;
+  category?: string | null;
   operation?: WorkflowOperation | null;
   /**
    * 跑在哪条路上：`local` / `runninghub`。不传 = 两者都要。

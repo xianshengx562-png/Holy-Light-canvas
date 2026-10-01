@@ -3,7 +3,7 @@
 import { useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { AppWindow, Check, Cpu, Download, FileJson, Film, ImageIcon, Pencil, Plus, SlidersHorizontal, Stethoscope, Trash2, Upload, X } from 'lucide-react';
+import { AppWindow, Check, Cpu, Download, FileJson, Film, ImageIcon, Pencil, Plus, Search, SlidersHorizontal, Stethoscope, Tag, Trash2, Upload, X } from 'lucide-react';
 /* 只能 `import type`：`WorkflowSummary` 所在的模块引了数据库，值导入会把 Prisma 拖进浏览器包。 */
 import type { WorkflowSummary } from '@/lib/workflows/drafts';
 import { normalizeWorkflowName, WORKFLOW_NAME_MAX, workflowDisplayName } from '@/lib/workflows/label';
@@ -15,7 +15,7 @@ import {
   DEFAULT_WORKFLOW_CATEGORY,
   readWorkflowCategory,
   workflowCategoryLabel,
-  type WorkflowCategory,
+  type WorkflowCategoryItem,
 } from '@/lib/workflows/category';
 import {
   DEFAULT_WORKFLOW_OPERATION,
@@ -24,6 +24,7 @@ import {
   workflowOperationLabel,
   type WorkflowOperation,
 } from '@/lib/workflows/operation';
+import WorkflowCategoryDialog from './WorkflowCategoryDialog';
 
 const kindIcon = (kind: GeneratorKind) => kind === 'image' ? <ImageIcon size={17} /> : <Film size={17} />;
 
@@ -33,7 +34,8 @@ const kindIcon = (kind: GeneratorKind) => kind === 'image' ? <ImageIcon size={17
  * - `app`   —— RunningHub **应用**（`ai-detail/<id>` 上那个打包好的 AI 应用，参数由它自己公开）；
  * - `local` —— 本机 ComfyUI（图就在我们这边）。
  */
-type WorkflowSource = 'cloud' | 'app' | 'local';
+/** 三个来源档 —— 画布那边要按节点的引擎预置它，所以得 export。 */
+export type WorkflowSource = 'cloud' | 'app' | 'local';
 
 /** 一份从本机 .json 文件里读出来的工作流图。 */
 type PickedFile = { name: string; graph: unknown; nodeCount: number };
@@ -78,7 +80,7 @@ async function readResponse(response: Response) {
  * 列表从服务端传进来（`page.tsx` 直接查库），改名之后用 `router.refresh()` 让服务端重新给一份 ——
  * 不在客户端自己维护一份副本，否则「列表里已经改了、下拉里还是旧的」会同时对不上。
  */
-export default function WorkflowLibrary({ workflows, defaultWorkflowId, onOpen, onRefresh }: {
+export default function WorkflowLibrary({ workflows, defaultWorkflowId, onOpen, onRefresh, onPick, initialKind, initialSource, categories }: {
   workflows: WorkflowSummary[];
   defaultWorkflowId: string;
   /**
@@ -88,9 +90,35 @@ export default function WorkflowLibrary({ workflows, defaultWorkflowId, onOpen, 
    * 为什么不能沿用 `router.push`：在画布里跳 `/settings/...` 等于「点了一下左轨，画布没了」，
    * 而用户只是想改一个字段的绑定。
    */
-  onOpen?: (spec: { id: string; kind?: GeneratorKind; category?: WorkflowCategory; operation?: WorkflowOperation }) => void;
+  onOpen?: (spec: { id: string; kind?: GeneratorKind; category?: string; operation?: WorkflowOperation }) => void;
   /** 画布浮层里用：让列表重新取一次。不传就 `router.refresh()`（让服务端重新出一份）。 */
   onRefresh?: () => void;
+  /**
+   * 「用这一份」（2026-10-01 徐先：「这里的工作流选择可以下拉，也可以从工作流库中选择」）。
+   *
+   * 画布底栏那个下拉只列**同用途、同来源**的已保存配置 —— 刚导入的、或者档位不一样的，
+   * 在下拉里根本看不见。所以底栏那颗按钮把库整张打开，选中就直接把 `workflowId`
+   * 写回那个节点：不跳页，也不用先点「配置」进去再出来。
+   *
+   * 不传（设置页、左轨那张库）= 不出这颗按钮，行为一个字不变。
+   */
+  onPick?: (workflowId: string) => void;
+  /** 打开时把「用途」筛选预置成这一档 —— 从某个节点的下拉跳进来时，先看到的就是它要的那类。 */
+  initialKind?: GeneratorKind;
+  /**
+   * 打开时预置「来源」那一档（云端 / 应用 / 本机）。
+   *
+   * 🔴 不预置的话会**看着像库里什么都没有**：默认档是「云端 RunningHub」，
+   * 而画布上那个节点可能正用着本机 ComfyUI 的图 —— 用户点「从工作流库中选择…」
+   * 打开一看是空的，会以为这份工作流没了（2026-10-01 真机第一遍就是这样）。
+   */
+  initialSource?: WorkflowSource;
+  /**
+   * 用户**自建**的分类（2026-10-01 徐先：「分类我自己能加」）。
+   * 跟着 `/api/workflows` 的列表一起回来的，不用再单独取一次。
+   * 不传 = 只有内置那五个。
+   */
+  categories?: WorkflowCategoryItem[];
 }) {
   const router = useRouter();
   /* 改名 / 改分类 / 导入 / 删除之后都要「画布下拉与这里看同一份数据」：
@@ -103,11 +131,20 @@ export default function WorkflowLibrary({ workflows, defaultWorkflowId, onOpen, 
   const [notice, setNotice] = useState('');
   const [newId, setNewId] = useState('');
   const [newKind, setNewKind] = useState<GeneratorKind>('video');
-  const [newCategory, setNewCategory] = useState<WorkflowCategory>(DEFAULT_WORKFLOW_CATEGORY);
+  const [newCategory, setNewCategory] = useState<string>(DEFAULT_WORKFLOW_CATEGORY);
   /** 两级筛选。**没有「全部用途」这一档** —— 那正是这次要去掉的东西。 */
-  const [kindFilter, setKindFilter] = useState<GeneratorKind>('video');
-  const [categoryFilter, setCategoryFilter] = useState<WorkflowCategory | 'all'>('all');
-  const [source, setSource] = useState<WorkflowSource>('cloud');
+  const [kindFilter, setKindFilter] = useState<GeneratorKind>(initialKind ?? 'video');
+  const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [source, setSource] = useState<WorkflowSource>(initialSource ?? 'cloud');
+  /**
+   * 搜索（2026-10-01 徐先：「工作流库中添加搜索选项」）。
+   *
+   * 按**名字 / ID / 分类**三样匹配 —— 用户脑子里记的可能是任一：起过名字的记得名字，
+   * 从 ComfyUI 导进来的记得那串数字，按分类找的是「那几条角色参考的在哪」。
+   */
+  const [query, setQuery] = useState('');
+  /** 自建分类的管理弹层（新增 / 改名 / 删除）。 */
+  const [categoryDialog, setCategoryDialog] = useState(false);
   /** 本机 ComfyUI 那边的导入面板要不要展开 —— 贴一整张图占地方，默认收着。 */
   const [importOpen, setImportOpen] = useState(false);
   const [importName, setImportName] = useState('');
@@ -170,9 +207,14 @@ export default function WorkflowLibrary({ workflows, defaultWorkflowId, onOpen, 
   const appCount = workflows.filter(isAppItem).length;
   const cloudCount = workflows.length - localCount - appCount;
 
-  /** 当前用途下可选的分类。切用途之后旧分类可能不成立，所以每次都按用途现算。 */
-  const categoryOptions = categoriesFor(kindFilter);
-  const newCategoryOptions = categoriesFor(newKind);
+  /**
+   * 分类有两个来源：内置那五个（**按用途筛过**，`categoriesFor`）+ 用户自建的（不绑用途）。
+   * 拼在一起给筛选条与三个下拉用 —— 分开列会让用户以为自建分类「只在某一处能用」。
+   */
+  const customCategories = categories || [];
+  const customChoices = customCategories.map(item => ({ value: item.name, label: item.name, hint: '你自己建的分类' }));
+  const categoryOptions = [...categoriesFor(kindFilter), ...customChoices];
+  const newCategoryOptions = [...categoriesFor(newKind), ...customChoices];
   /*
    * _filters 的兜底：切到「图片生成」时若当前选的是「视频参考」（只有视频才有），
    * 就地退回「全部」而不是显示一个永远为空的列表 —— 也不写回 state，
@@ -185,10 +227,30 @@ export default function WorkflowLibrary({ workflows, defaultWorkflowId, onOpen, 
     ? newCategory
     : DEFAULT_WORKFLOW_CATEGORY;
 
-  const countOf = (kind: GeneratorKind, category: WorkflowCategory | 'all') => pool
+  const countOf = (kind: GeneratorKind, category: string) => pool
     .filter(item => item.kind === kind && item.operation === operationFilter && (category === 'all' || item.category === category)).length;
 
-  const visible = pool.filter(item => item.kind === kindFilter && item.operation === operationFilter && (activeCategory === 'all' || item.category === activeCategory));
+  /**
+   * 搜索匹配：**名字 / 工作流 ID / 分类名**三样任一命中即可（大小写不敏感）。
+   * 三样都要，是因为用户脑子里记的可能是任一：起过名字的记得名字，从 ComfyUI 导进来的记得那串数字，
+   * 「那几条角色参考的在哪儿」记的是分类。
+   */
+  const keyword = query.trim().toLowerCase();
+  const matches = (item: WorkflowSummary) => !keyword
+    || [item.name, item.workflowId, workflowDisplayName(item), item.category]
+      .some(value => String(value || '').toLowerCase().includes(keyword));
+
+  const visible = pool.filter(item => item.kind === kindFilter && item.operation === operationFilter
+    && (activeCategory === 'all' || item.category === activeCategory) && matches(item));
+
+  /**
+   * 搜索结果**跨来源档**的两个数（2026-10-01）。
+   *
+   * 用户在「云端」这一档搜一个本机工作流的名字，得到的是一片空白 —— 那不是「没有这份工作流」，
+   * 是「它在另一个档里」。这两句提示就是为了不让人以为东西没了。
+   */
+  const searchHits = keyword ? workflows.filter(matches).length : 0;
+  const searchHitsHere = keyword ? pool.filter(matches).length : 0;
   /** 未保存的默认工作流只在「云端 + 视频 + 全部 + 普通生成」里出现 —— 它是 RunningHub 上的一条 ID，本机来源下没有意义。 */
   const showMissingDefault = Boolean(missingDefault) && source === 'cloud' && kindFilter === 'video' && activeCategory === 'all' && operationFilter === 'generate';
 
@@ -220,7 +282,7 @@ export default function WorkflowLibrary({ workflows, defaultWorkflowId, onOpen, 
    * 走的是改名字那个独立接口，**不是**配置页那个 `PATCH .../config`：后者要整份配置加版本号，
    * 为一个标签把一百多个字段回写一遍、还递增一次版本，既慢又会给别的标签页制造假冲突。
    */
-  async function submitCategory(item: WorkflowSummary, category: WorkflowCategory) {
+  async function submitCategory(item: WorkflowSummary, category: string) {
     setBusy(item.workflowId); setError(''); setNotice('');
     try {
       const body = await readResponse(await fetch(`/api/workflows/${item.workflowId}`, {
@@ -453,13 +515,6 @@ export default function WorkflowLibrary({ workflows, defaultWorkflowId, onOpen, 
         onClick={() => { setSource('local'); setError(''); setNotice(''); }}
       ><Cpu size={14} />本机 ComfyUI {localCount}</button>
     </div>
-      <p className="workflow-muted workflow-seg-hint">
-        {source === 'cloud'
-          ? '图保存在 RunningHub 那边，这里存的是「哪些字段怎么接画布」那份配置。'
-          : source === 'app'
-            ? 'RunningHub 上的 AI 应用（/ai-detail/…），参数是它自己公开的那一份 —— 导入时拉下来，再挑要用的接到画布上。'
-            : '图存在本地，导入后自动扫出可配字段，和云端那边的配置方式完全一样。'}
-      </p>
     </div>
 
     {source === 'local'
@@ -479,7 +534,7 @@ export default function WorkflowLibrary({ workflows, defaultWorkflowId, onOpen, 
             void pickFiles(event.dataTransfer.files);
           }}
         >
-          <p className="workflow-new-head">导入本机工作流<span className="workflow-muted"> · 图在本机 ComfyUI 上，导入后自动扫出可配字段，也可以直接把 .json 拖到这里</span></p>
+          <p className="workflow-new-head">导入本机工作流</p>
           <input
             ref={fileInputRef}
             type="file"
@@ -499,7 +554,7 @@ export default function WorkflowLibrary({ workflows, defaultWorkflowId, onOpen, 
               <button type="button" className="secondary" onClick={() => void pullFromComfyui()} disabled={!!busy}>
                 <Download size={16} />{busy === 'pull' ? '正在抓…' : '从正在运行的 ComfyUI 抓取'}
               </button>
-              <span className="workflow-muted">手上已经有导出好的 .json 就直接选它（可以按住 Ctrl 一次选好几份，也可以直接把文件拖到这块地方）；ComfyUI 正开着的话，也能直接抓它最近一次跑过的那份图，不必先去导出。</span>
+              <span className="workflow-muted">可多选（Ctrl / Shift），也可以直接把文件拖进来。</span>
             </div>
             : <>
               <label htmlFor="import-name">名字<input id="import-name" value={importName} maxLength={WORKFLOW_NAME_MAX} placeholder="给它起个名字（留空 = 显示 ID）" onChange={event => setImportName(event.target.value)} /></label>
@@ -545,7 +600,7 @@ export default function WorkflowLibrary({ workflows, defaultWorkflowId, onOpen, 
                 >{busy === 'import' ? '正在导入…' : picked && picked.length > 1 ? `导入这 ${picked.length} 份` : '导入这份工作流'}</button>
                 <button type="button" className="secondary" onClick={() => { setImportOpen(false); setImportText(''); setImportName(''); setPulled(null); setPicked(null); setError(''); }} disabled={busy === 'import'}>取消</button>
               </div>
-              <span className="workflow-muted">导入后会自动扫出这份图里所有可填的节点字段（默认都不勾选），去配置页挑要用哪些、接到画布的提示词 / 参考图上。</span>
+              <span className="workflow-muted">导入后自动扫出可填字段（默认不勾选），去配置页挑要用的。</span>
             </>}
         </div>
       )
@@ -563,13 +618,12 @@ export default function WorkflowLibrary({ workflows, defaultWorkflowId, onOpen, 
             }
             router.push(`/settings/providers/workflows?id=${parsed.workflowId}&kind=${newKind}&category=${activeNewCategory}&operation=${operationFilter}`);
           }}>
-            <p className="workflow-new-head">导入一个 RunningHub 应用<span className="workflow-muted"> · 填应用 ID，或把它的详情页链接整条粘进来</span></p>
+            <p className="workflow-new-head">导入一个 RunningHub 应用</p>
             <label htmlFor="new-app-id">应用 ID / 链接<input id="new-app-id" value={newId} onChange={event => setNewId(event.target.value)} placeholder="例如 1939734…，或 https://www.runninghub.cn/ai-detail/1939734…" required /></label>
             <label htmlFor="new-app-kind">用途<select id="new-app-kind" value={newKind} onChange={event => setNewKind(readGeneratorKind(event.target.value))}>{GENERATOR_KIND_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
             <label htmlFor="new-app-category">分类<select id="new-app-category" value={activeNewCategory} onChange={event => setNewCategory(readWorkflowCategory(event.target.value, newKind))}>{newCategoryOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
             <label htmlFor="new-app-operation">工序<select id="new-app-operation" value={operationFilter} onChange={event => setOperationFilter(readWorkflowOperation(event.target.value))}>{WORKFLOW_OPERATION_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
             <button disabled={!!busy}><Plus size={16} />导入这个应用</button>
-            <span className="workflow-muted">导入时去 RunningHub 拉这个应用公开的参数（最多 256 项），再挑要启用的接到画布上。用途决定它出现在哪类节点的下拉里。</span>
           </form>
         )
         : (
@@ -586,13 +640,12 @@ export default function WorkflowLibrary({ workflows, defaultWorkflowId, onOpen, 
           }
           router.push(`/settings/providers/workflows?id=${id}&kind=${newKind}&category=${activeNewCategory}&operation=${operationFilter}`);
         }}>
-          <p className="workflow-new-head">新建一份<span className="workflow-muted"> · 填 RunningHub 上的工作流 ID，再把它的字段接到画布上</span></p>
+          <p className="workflow-new-head">新建一份</p>
           <label htmlFor="new-workflow-id">工作流 ID<input id="new-workflow-id" value={newId} onChange={event => setNewId(event.target.value)} inputMode="numeric" pattern="[0-9]{1,30}" placeholder="例如 2099453228814528513" required /></label>
           <label htmlFor="new-workflow-kind">用途<select id="new-workflow-kind" value={newKind} onChange={event => setNewKind(readGeneratorKind(event.target.value))}>{GENERATOR_KIND_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
           <label htmlFor="new-workflow-category">分类<select id="new-workflow-category" value={activeNewCategory} onChange={event => setNewCategory(readWorkflowCategory(event.target.value, newKind))}>{newCategoryOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
           <label htmlFor="new-workflow-operation">工序<select id="new-workflow-operation" value={operationFilter} onChange={event => setOperationFilter(readWorkflowOperation(event.target.value))}>{WORKFLOW_OPERATION_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
           <button disabled={!!busy}><Plus size={16} />配置这份工作流</button>
-          <span className="workflow-muted">用途决定它出现在哪类生成节点的下拉里，分类说明它要喂什么参考素材，工序决定它是生成用的还是超清用的。名字进配置页再起。</span>
         </form>
         )}
 
@@ -633,6 +686,36 @@ export default function WorkflowLibrary({ workflows, defaultWorkflowId, onOpen, 
           onClick={() => setCategoryFilter(option.value)}
         >{option.label} {countOf(kindFilter, option.value)}</button>)}
       </div>
+      {/*
+        分类管理（2026-10-01 徐先：「分类我自己能加」）。
+        放在 chips 末尾而不是筛选条顶部：它管的是「这一排里有没有我要的那一项」，
+        摆远了就变成「看到一排不够用 → 再去找哪里能加」。
+      */}
+      <button
+        type="button"
+        className="workflow-chip workflow-chip-add"
+        data-workflow-cat-manage=""
+        title="新建 / 改名 / 删除自建分类"
+        onClick={() => setCategoryDialog(true)}
+      ><Tag size={13} strokeWidth={2} aria-hidden /> 分类管理</button>
+      {/* 搜索靠右：它是「缩小这一屏的显示」，与上面那排筛选（换一档看）不是一类动作。 */}
+      <label className="workflow-search" title="按名字 / 工作流 ID / 分类搜">
+        <Search size={14} strokeWidth={2} aria-hidden />
+        <input
+          type="search"
+          data-workflow-search=""
+          value={query}
+          placeholder="搜名字 / ID / 分类"
+          aria-label="搜索工作流"
+          onChange={event => setQuery(event.target.value)}
+          onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); setQuery(''); } }}
+        />
+        {query && (
+          <button type="button" className="workflow-search-x" aria-label="清空搜索" onClick={() => setQuery('')}>
+            <X size={13} strokeWidth={2} aria-hidden />
+          </button>
+        )}
+      </label>
       </div>
     </div>
 
@@ -640,11 +723,17 @@ export default function WorkflowLibrary({ workflows, defaultWorkflowId, onOpen, 
     {notice && <div role="status" className="workflow-success"><Check size={16} />{notice}</div>}
 
     {visible.length === 0 && !showMissingDefault && <p className="workflow-empty">
-      {source === 'local'
-        ? '这个条件下还没有本地工作流 —— 在上面把 ComfyUI「导出（API）」的 JSON 贴进来，点「导入这份工作流」就有了。'
-        : source === 'app'
-          ? '这个条件下还没有导入过应用 —— 在上面填 RunningHub 应用的 ID（或粘它的详情页链接），点「导入这个应用」。'
-          : <>这个条件下还没有工作流{generatorKindLabel(kindFilter)}共 {countOf(kindFilter, 'all')} 份{countOf(kindFilter, 'all') ? '，换个分类看看' : '，可以到另一个用途下找，或者在上面填一个新 ID'}。</>}
+      {keyword
+        ? (searchHits === 0
+          ? `没有匹配「${query.trim()}」的工作流 —— 换个词，或者把搜索清掉看全部。`
+          : searchHitsHere === 0
+            ? `「${query.trim()}」命中了 ${searchHits} 份，但都不在「${source === 'local' ? '本机 ComfyUI' : source === 'app' ? 'RunningHub 应用' : '云端 RunningHub'}」这一档下 —— 切上面的来源看看。`
+            : '当前筛选条件下没有匹配的 —— 上面换个分类或用途试试。')
+        : source === 'local'
+          ? '这个条件下还没有本地工作流 —— 在上面把 ComfyUI「导出（API）」的 JSON 贴进来，点「导入这份工作流」就有了。'
+          : source === 'app'
+            ? '这个条件下还没有导入过应用 —— 在上面填 RunningHub 应用的 ID（或粘它的详情页链接），点「导入这个应用」。'
+            : <>这个条件下还没有工作流{generatorKindLabel(kindFilter)}共 {countOf(kindFilter, 'all')} 份{countOf(kindFilter, 'all') ? '，换个分类看看' : '，可以到另一个用途下找，或者在上面填一个新 ID'}。</>}
     </p>}
 
     {(visible.length > 0 || showMissingDefault) && <ul className="workflow-library">
@@ -656,6 +745,15 @@ export default function WorkflowLibrary({ workflows, defaultWorkflowId, onOpen, 
         </div>
         <div className="workflow-lib-actions">
           <span className="workflow-muted">未保存</span>
+          {onPick && (
+            <button
+              type="button"
+              className="secondary"
+              data-workflow-pick={missingDefault}
+              title="用这一份：直接填到画布上那个生成节点"
+              onClick={() => onPick(missingDefault)}
+            >用这一份</button>
+          )}
           {onOpen
             ? <button type="button" className="secondary" onClick={() => onOpen({ id: missingDefault, kind: 'video' })}>配置</button>
             : <Link className="button secondary" href={`/settings/providers/workflows?id=${missingDefault}&kind=video`}>配置</Link>}
@@ -732,6 +830,15 @@ export default function WorkflowLibrary({ workflows, defaultWorkflowId, onOpen, 
                 <Stethoscope size={16} />
               </button>
             )}
+            {onPick && (
+              <button
+                type="button"
+                className="secondary"
+                data-workflow-pick={item.workflowId}
+                title="用这一份：直接填到画布上那个生成节点"
+                onClick={() => onPick(item.workflowId)}
+              >用这一份</button>
+            )}
             {onOpen
               ? <button type="button" className="secondary" onClick={() => onOpen({ id: item.workflowId })}>配置</button>
               : <Link className="button secondary" href={`/settings/providers/workflows?id=${item.workflowId}`}>配置</Link>}
@@ -741,5 +848,18 @@ export default function WorkflowLibrary({ workflows, defaultWorkflowId, onOpen, 
         </li>;
       })}
     </ul>}
+
+    {/*
+      分类管理弹层：挂在最外层（跟列表同级），不塞进某一栏里 ——
+      它管的是整份分类表，不是当前这一档筛选。
+      改完 `onChanged` 走 `refresh()`：列表、筛选 chips、三个下拉都要跟着变。
+    */}
+    {categoryDialog && (
+      <WorkflowCategoryDialog
+        categories={customCategories}
+        onClose={() => setCategoryDialog(false)}
+        onChanged={refresh}
+      />
+    )}
   </>;
 }

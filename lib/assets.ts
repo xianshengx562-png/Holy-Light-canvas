@@ -10,7 +10,7 @@ import { latentRoot, mediaRoot, resolveStoredPath } from '@/lib/output-dir';
  *
  * 「资产」= `Asset` 表的一行，来源只有两个：
  *  - 生成成功的媒体（`lib/media.ts` 落盘，type = `video` / `image`）
- *  - 续接用的 latent（`lib/latents.ts` gzip 落盘，type = `latent`）
+ *  - 接续用的 latent（`lib/latents.ts` gzip 落盘，type = `latent`）
  *
  * 一行资产 = **一条数据库记录 + 一个磁盘文件**，两者必须一起消失，
  * 所以删除只能走这里（见 `deleteAsset`），不要在各处自己 `db.asset.delete`。
@@ -439,7 +439,7 @@ export type BulkDeleteOutcome = {
  * 批量删除：挨条走 `deleteAsset()`，**一条失败不影响其余的**。
  *
  * 为什么不 `db.asset.deleteMany` 一把梭：那会绕过「文件也要删」和「被画布引用要拦」两条 ——
- * 前者留一地孤儿文件，后者把续接链路悄悄剪断。
+ * 前者留一地孤儿文件，后者把接续链路悄悄剪断。
  *
  * `force` 的语义与单条一致：不传就**不删**正在被引用的那些，把它们连项目名一起交回去，
  * 由前端讲清楚再问一次；传了就一视同仁全删。
@@ -522,7 +522,7 @@ export type DeleteOutcome =
  * 用户会看到一个「记录还在但图画不出来」的坏卡片；而先删记录最坏只是留下一个孤儿文件，
  * 那是不可见、且可以由 `storageOverview()` 报出来的。两害相权取其轻。
  *
- * `in_use` 时默认拒绝：latent 是画布续接链路的输入，删掉之后那条链下次生成会静默取不到值。
+ * `in_use` 时默认拒绝：latent 是画布接续链路的输入，删掉之后那条链下次生成会静默取不到值。
  * 真要删得传 `force`，并且调用方有责任把「哪几个项目在用」讲给用户听。
  */
 export async function deleteAsset(input: { assetId: string; userId: string; force?: boolean }): Promise<DeleteOutcome> {
@@ -553,10 +553,11 @@ export async function deleteAsset(input: { assetId: string; userId: string; forc
  * ------------------------------------------------------------------ */
 
 export type StorageOverview = {
-  counts: Record<AssetKind, number>;
-  total: number;
-  /** 落盘文件的实际占用（gzip / 视频原样，和库里的 `size` 不完全是一回事）。 */
-  diskLabel: string;
+  /*
+   * 🔴 2026-10-01：这里原来还有 `counts` / `total` / `diskLabel` 三个（「落盘占用 X」
+   * 「全部 N 项：图片 …」）—— 界面按徐先的要求把那条常态统计整行去掉了，
+   * 三个字段跟着一起删。**别再加回来**：加回来就意味着又要在资产页上算一遍、显示一遍。
+   */
   /** 库里有记录但文件已经不在磁盘上（手动删过 storage/、或落盘中途失败）。 */
   missing: number;
   /** 磁盘上有文件、但库里已经没有对应记录。 */
@@ -688,22 +689,20 @@ export async function cleanupOrphans(): Promise<CleanupResult> {
 export async function storageOverview(userId: string): Promise<StorageOverview> {
   const rows = await db.asset.findMany({
     where: { userId },
-    select: { type: true, metadata: true },
+    select: { metadata: true },
   });
-  const counts: Record<AssetKind, number> = { video: 0, image: 0, audio: 0, latent: 0 };
-  let diskBytes = 0;
+  /**
+   * 这里仍然要一条条 `stat` —— 不是为了体积（体积已经不显示了），
+   * 而是要**发现「库里登记了、磁盘上却没了」那种记录**：它不主动扫永远不报。
+   */
   let missing = 0;
   for (const row of rows) {
-    if (isKind(row.type)) counts[row.type] += 1;
     const file = (row.metadata as { path?: string } | null)?.path;
     if (!file) { missing += 1; continue; }
-    try { diskBytes += (await stat(/*turbopackIgnore: true*/ await resolveStoredPath(file))).size; } catch { missing += 1; }
+    try { await stat(/*turbopackIgnore: true*/ await resolveStoredPath(file)); } catch { missing += 1; }
   }
   const orphans = await scanOrphans();
   return {
-    counts,
-    total: rows.length,
-    diskLabel: formatSize(diskBytes),
     missing,
     orphans: orphans.count,
     orphanLabel: formatSize(orphans.bytes),

@@ -22,10 +22,10 @@ import {
  *
  * 三条设计取舍：
  *
- * 1. **更新源由用户填，不写死在包里**。写死一个域名的话，换服务器就要重新打包，
- *    而旧版本的用户恰恰是**最需要**能换源的那一批（他们的包里写的是那个已经下线的地址）。
- *    所以地址存在数据目录的 `update-source.json` 里，设置页可以改 —— 旧的包也能救回来。
- *    代价是「开箱即用」要等填一次，换来的是「以后永远不用重新打包」。
+ * 1. **更新源有默认值、界面上不再出现**（2026-10-01 改）。原来要用户自己填一次才能检查更新，
+ *    「开箱即用」是做不到的。现在默认走 `DEFAULT_UPDATE_SOURCE`，
+ *    「设置 · 版本与更新」里那张「更新源」卡也收掉了 —— 普通用户根本不该操心这件事。
+ *    但仍然**不是写死**：`update-source.json` 优先级更高，换服务器改那一个文件就够了。
  *
  * 2. **后台自动下载，但绝不自动装**（2026-09-29 改：原先连下载都要手动点）。
  *    安装包 120MB，每次都要用户在「发现有新版」之后再点一次「下载」是没必要的操作；
@@ -38,6 +38,18 @@ import {
  */
 
 const SOURCE_FILE = 'update-source.json';
+
+/**
+ * 默认更新源（2026-10-01 徐先：「更新源默认，并且隐藏选项卡」）。
+ *
+ * 和 `package.json` 里 `build.publish` 那个地址保持一致 —— 那边是 electron-builder 出包时
+ * 写进 `app-update.yml` 的，这边是**运行时**问的地址，两个必须是同一个目录。
+ *
+ * ⚠️ **有默认值 ≠ 写死**：数据目录里的 `update-source.json` 优先级更高。
+ * 换服务器时只要把新地址写进那个文件，已经装在别人机器上的旧包就还能收到新版 ——
+ * 这正是「更新源可改」这件事真正的价值，界面入口收掉了，文件这条路必须留着。
+ */
+export const DEFAULT_UPDATE_SOURCE = 'https://github.com/xianshengx562-png/Holy-Light-canvas/releases/latest/download/';
 
 type Listener = (state: UpdateState) => void;
 
@@ -66,10 +78,12 @@ function isSupported(): boolean {
 function readSource(): string {
   try {
     const raw = fs.readFileSync(sourcePath, 'utf8');
-    return normalizeSource(String(JSON.parse(raw)?.url || ''));
+    const saved = normalizeSource(String(JSON.parse(raw)?.url || ''));
+    /* 存了空串或非法地址（以前界面允许清空）也回落到默认 —— 不然就永远 unconfigured。 */
+    return saved || DEFAULT_UPDATE_SOURCE;
   } catch {
-    /* 文件不存在 / 内容坏了 —— 都当成「没配」，界面会让人去填。 */
-    return '';
+    /* 文件不存在 / 内容坏了 —— 都用默认值，不再让界面催人去填。 */
+    return DEFAULT_UPDATE_SOURCE;
   }
 }
 
@@ -160,7 +174,8 @@ export function updaterState(): UpdateState {
 
 /** 改更新源。改完立刻回到「待检查」，并且**写盘** —— 下次启动还认它。 */
 export function setUpdaterSource(url: string): UpdateState {
-  const normalized = normalizeSource(url);
+  /* 传空 = 恢复默认。界面已经没有入口了，这条留给以后 / 手动改文件的场景。 */
+  const normalized = normalizeSource(url) || DEFAULT_UPDATE_SOURCE;
   writeSource(normalized);
   emit({
     kind: 'reset',

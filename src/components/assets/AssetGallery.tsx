@@ -489,7 +489,7 @@ export default function AssetGallery({ items, categories, onChanged }: {
               {open.type === 'latent' && (
                 <div className="asset-lightbox-note">
                   <Glyph kind="latent" />
-                  <p>latent 是给「续接上一段」用的中间态，不能预览。下载后到画布的续接节点里上传即可。</p>
+                  <p>latent 是给「接续上一段」用的中间态，不能预览。下载后到画布的接续节点里上传即可。</p>
                 </div>
               )}
             </div>
@@ -557,7 +557,7 @@ export default function AssetGallery({ items, categories, onChanged }: {
           body={<>
             <p className="muted">
               记录和磁盘上的文件都会删掉 —— <strong>删了拿不回来</strong>。
-              如果它正被某个画布用着（latent 续接、节点里的图），删掉之后那条链路下次生成会取不到值。
+              如果它正被某个画布用着（latent 接续、节点里的图），删掉之后那条链路下次生成会取不到值。
             </p>
             {confirming.ids.length > 1 && (
               <ul className="cx-confirm-list" data-assets-batch-list>

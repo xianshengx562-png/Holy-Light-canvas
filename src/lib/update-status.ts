@@ -90,7 +90,12 @@ export async function installUpdate(): Promise<void> {
   }
 }
 
-/** 改更新源（写进数据目录，下次启动还认）。 */
+/**
+ * 改更新源（写进数据目录，下次启动还认）。
+ *
+ * 2026-10-01：**界面上已经没有入口了**（更新源走默认值，那张卡收掉了）。
+ * 这一条保留着 —— IPC 通道还在，以后要加「高级设置」或者让站长自己换源时不用重新接线。
+ */
 export async function setUpdateSource(url: string): Promise<UpdateState | null> {
   const api = updateApi();
   if (!api?.updaterSetSource) return null;

@@ -380,8 +380,6 @@ export type ComfyuiExtensionView = {
   id: string;
   name: string;
   purpose: string;
-  benefit: string;
-  optional: string;
   /** 随包那份的版本；读不出来是 null。 */
   bundledVersion: string | null;
   /** 已经装在 custom_nodes 里那份的版本；没装或读不出来是 null。 */

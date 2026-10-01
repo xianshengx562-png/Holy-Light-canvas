@@ -240,13 +240,13 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
           ? <div className="cv-node-info">
             <b>{selectedLatent.sequence}</b>
             <span>{selectedLatent.kind === 'fine' ? '精采样' : '粗采样'}</span>
-            {latentIndexes.length ? <em>#{latentIndexes.join(' / #')}</em> : <em>{latentOn ? '已启用续接' : '已停用'}</em>}
+            {latentIndexes.length ? <em>#{latentIndexes.join(' / #')}</em> : <em>{latentOn ? '已启用接续' : '已停用'}</em>}
           </div>
           : relayValue
             ? <div className="cv-node-info">
               <b>透传</b>
               <span>{relayFrom || '上游 latent'}</span>
-              {latentIndexes.length ? <em>#{latentIndexes.join(' / #')}</em> : <em>{latentOn ? '已启用续接' : '已停用'}</em>}
+              {latentIndexes.length ? <em>#{latentIndexes.join(' / #')}</em> : <em>{latentOn ? '已启用接续' : '已停用'}</em>}
             </div>
             : latentOn
               /**

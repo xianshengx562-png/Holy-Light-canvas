@@ -27,7 +27,7 @@ import WorkflowLibrary from '@/components/workflows/WorkflowLibrary';
 import { defaultWorkflowId } from '@/lib/workflows/defaults';
 import { isWorkflowId } from '@/lib/workflows/local';
 import { readGeneratorKind } from '@/lib/workflows/purpose';
-import { readWorkflowCategory } from '@/lib/workflows/category';
+import { readWorkflowCategory, type WorkflowCategoryItem } from '@/lib/workflows/category';
 import { readWorkflowOperation } from '@/lib/workflows/operation';
 import type { WorkflowSummary } from '@/lib/workflows/drafts';
 import { useApi } from '@/lib/client';
@@ -51,14 +51,24 @@ export default function WorkflowsPage() {
    * 这里用 `isWorkflowId()` 而不是自己写正则：多一处形状判断，就多一处漏掉本地工作流的机会。
    */
   const detail = isWorkflowId(workflowId);
-  const { data, loading, error, reload } = useApi<{ workflows: WorkflowSummary[]; defaultWorkflowId: string }>(
+  const { data, loading, error, reload } = useApi<{
+    workflows: WorkflowSummary[]; defaultWorkflowId: string; categories?: WorkflowCategoryItem[];
+  }>(
     detail ? null : '/api/workflows',
+  );
+  /*
+   * 配置形态下只要那份**自建分类清单**（分类下拉要能列出用户自己起的名字）。
+   * 走单独那条接口而不是把整个列表再拉一遍：配置页用不上那一百多份工作流。
+   */
+  const cats = useApi<{ categories: WorkflowCategoryItem[] }>(
+    detail ? '/api/workflows/categories' : null,
   );
 
   if (detail) {
     return <main className="workflow-page">
       <header className="workflow-header"><Link href="/settings/providers/workflows" className="workflow-back"><ArrowLeft size={18} />工作流列表</Link><strong>Holy Light画布 / 工作流配置</strong><Link href="/">返回项目</Link></header>
       <WorkflowConfigurator
+        categories={cats.data?.categories || []}
         initialWorkflowId={workflowId}
         initialKind={initialKind}
         initialCategory={readWorkflowCategory(category ?? undefined, initialKind)}
@@ -81,6 +91,7 @@ export default function WorkflowsPage() {
       {data && <WorkflowLibrary
         workflows={data.workflows}
         defaultWorkflowId={data.defaultWorkflowId || defaultWorkflowId}
+        categories={data.categories || []}
         onRefresh={reload}
       />}
     </div>

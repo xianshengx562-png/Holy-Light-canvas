@@ -106,6 +106,12 @@ type AppField = {
   options?: string[];
 };
 
+/**
+ * 工作流下拉里那条「去库里挑」的哨兵值（2026-10-01）。
+ * 不会和任何真实 workflowId 撞：真实的要么是 `local-…`，要么是一串数字。
+ */
+const LIBRARY_OPTION = '__library__';
+
 export default function GenerateDock({ data, nodeId, anchor }: {
   data: NodeData;
   /** 挂在哪个节点上 —— 只给探针 / 排查看，业务逻辑一概不用它。 */
@@ -250,6 +256,8 @@ export default function GenerateDock({ data, nodeId, anchor }: {
    * 用的也是同一套 `image2Ratio` / `image2Resolution` 字段。
    */
   const isGateway = engine === 'videoapi' || engine === 'custom';
+  /** 接续上一段（视频节点专用；图片节点不吃 latent，网关那两档也没有）。 */
+  const continuationOn = data.continuationEnabled === 'on';
 
   /*
    * 应用节点固定走云端（应用只存在于 RunningHub 上），所以来源这一层对它就是个常量；
@@ -820,13 +828,15 @@ export default function GenerateDock({ data, nodeId, anchor }: {
       {appCanvasNote && <span className="cv-dock-hint" data-dock-appcanvas="">另外跟画布走：{appCanvasNote}</span>}
       {data.workflowId && (
         <div className="cv-dock-row">
-          <a
+          {/* 同「打开工作流配置」：开画布上的浮层，不跳设置页（2026-10-01）。 */}
+          <button
             className="cv-btn sm ghost"
+            type="button"
             data-dock-appcfg=""
-            href={`#/settings/providers/workflows?id=${encodeURIComponent(String(data.workflowId))}`}
+            onClick={() => data.onOpenWorkflow?.(String(data.workflowId))}
           >
             打开应用配置
-          </a>
+          </button>
         </div>
       )}
     </div>
@@ -890,11 +900,11 @@ export default function GenerateDock({ data, nodeId, anchor }: {
             ))}
           </select>
         </label>
-        <span className="cv-dock-hint">{missingPromptModel
-          ? '这个值指向的文本模型已经不在选项里了（那条自定义接口被删了？）—— 它会直接报错而不会悄悄换一家，回到「自动」或换一个即可'
-          : promptModelValue
-            ? '只影响这一个节点。换节点不跟着变，方便同一份画布里分工：批量跑的用便宜的，重点镜头用好的'
-            : `跟着「设置 · 模型服务」里指定的那家走 — 现在会落到 ${resolvedLabel || '（一家都没配，点那颗星标会提示去配置）'}`}</span>
+        {missingPromptModel || promptModelValue ? (
+          <span className="cv-dock-hint">{missingPromptModel
+            ? '这个值指向的文本模型已经不在选项里了，会直接报错 —— 回到「自动」或换一个即可'
+            : '只影响这一个节点'}</span>
+        ) : null}
       </div>
       {/*
         本地模型装卸方式（2026-09-26，徐先要的两档）。
@@ -984,9 +994,6 @@ export default function GenerateDock({ data, nodeId, anchor }: {
               ))}
             </select>
           </label>
-          <span className="cv-dock-hint">
-            在 SKILL 社区里把某个技能的「用于优化提示词」打开，它就会进这个下拉
-          </span>
         </div>
       ) : null}
       {/*
@@ -1002,8 +1009,21 @@ export default function GenerateDock({ data, nodeId, anchor }: {
               data-dock-workflow=""
               aria-label="工作流"
               value={String(data.workflowId || '')}
-              onChange={event => data.onField?.('workflowId', event.target.value)}
+              onChange={event => {
+                const next = event.target.value;
+                /*
+                 * 「从工作流库中选择…」不是一份工作流，是一个动作（2026-10-01 徐先）：
+                 * 开库、挑完由画布写回。**这一支绝不能落到 `onField`** ——
+                 * 把 `__library__` 当成 workflowId 存进去，节点就指向一份不存在的工作流，
+                 * 而且界面上看不出哪里错了（下拉显示空白，提交时才报「配置不存在」）。
+                 * 受控 select 的 value 来自 `data.workflowId`，这里不写值 → 它会自己弹回去。
+                 */
+                if (next === LIBRARY_OPTION) { data.onPickWorkflow?.(); return; }
+                data.onField?.('workflowId', next);
+              }}
             >
+              {/* 放第一位：工作流多的时候排到底部要先滚一遍才看得见。 */}
+              <option value={LIBRARY_OPTION}>＋ 从工作流库中选择…</option>
               {!chosenWorkflow && (
                 <option value={String(data.workflowId || '')}>
                   {data.workflowId ? `${String(data.workflowId)} · 未保存配置` : '— 选择工作流 —'}
@@ -1031,12 +1051,41 @@ export default function GenerateDock({ data, nodeId, anchor }: {
             <span className="cv-dock-hint warn">{workflowMismatchHint(purpose, chosenWorkflow)}</span>
           )}
           {chosenWorkflow && (
-            <a
+            /*
+             * 「打开工作流配置」原地开浮层，不跳页（2026-10-01 徐先）。
+             * 原来这里是 `<a href="#/settings/providers/workflows?id=…">` —— 桌面版是
+             * **单窗口 hash 路由**，点一下整张画布就没了；他改的只是这一份工作流的字段绑定，
+             * 却要重新找路回来。现在交给画布：开工作流浮层、直接落在这一份，关掉即回画布。
+             */
+            <button
               className="cv-btn sm ghost"
-              href={`#/settings/providers/workflows?id=${encodeURIComponent(chosenWorkflow.workflowId)}`}
+              type="button"
+              data-dock-wfcfg=""
+              onClick={() => data.onOpenWorkflow?.(String(chosenWorkflow.workflowId))}
             >
               打开工作流配置
-            </a>
+            </button>
+          )}
+          {/*
+            接续（2026-10-01 徐先）：原来是一颗「独立生成 / 接续上一段」的复选框，
+            沉在下面单独占一行。现在只叫「接续」、做成胶囊、靠右挤进这一行 ——
+            它和左边那句「这份工作流跑到哪、多少项启用」说的是同一件事（这一段接不接上一段），
+            拆成两行只会让人以为两个设置没关系。亮着 = 接续上一段，暗着 = 独立生成。
+            ⚠️ 两个前提：`!isImage`（图片节点不吃 latent）、以及它待的**这一整行本来就是 `!isGateway`**。
+            后者顺带收掉一个死控件 —— `custom`（自定义接口）以前也画这颗开关，
+            可 `CanvasEditor` 的 custom 分支压根不读 `continuationEnabled`，点了没用。
+          */}
+          {!isImage && (
+            <button
+              type="button"
+              className={`cv-dock-chip cv-dock-cont${continuationOn ? ' on' : ''}`}
+              data-dock-continuation=""
+              aria-pressed={continuationOn}
+              title={continuationOn
+                ? '接着上一段的 latent 继续跑，画面与上一段连贯；再点一下改回独立生成'
+                : '不接上一段，按提示词单独出这一段；再点一下改成接着上一段跑'}
+              onClick={() => data.onField?.('continuationEnabled', continuationOn ? 'off' : 'on')}
+            >接续</button>
           )}
         </div>
       )}
@@ -1096,11 +1145,9 @@ export default function GenerateDock({ data, nodeId, anchor }: {
         </div>
       )}
 
-      {/* 视频：续接 / 网关模型。时长已经升进摘要弹层（每次都要动的东西不上这层）。
-        ⚠️ 续接开关**不能塞进 cv-dock-grid**：auto-fit 网格会把这唯一一格挤到只剩几十像素，
-        「独立生成」四个字被折成竖排、复选框孤零零吊在半空（2026-09-21 徐先截图报的）。
-        它是全宽的一行，说明文字跟在后面说清「勾与不勾各是什么意思」。 */}
-      {!isImage && (engine === 'videoapi' ? (
+      {/* 视频：网关的模型名。时长已经升进摘要弹层（每次都要动的东西不上这层）。
+        接续开关**不在这一块**了 —— 2026-10-01 挪进上面那行工作流里（理由见那边的注释）。 */}
+      {!isImage && engine === 'videoapi' && (
         <div className="cv-dock-grid">
           <label className="cv-dock-field">
             <span>模型</span>
@@ -1110,25 +1157,13 @@ export default function GenerateDock({ data, nodeId, anchor }: {
               onChange={event => data.onField?.('videoApiModel', event.target.value)} />
           </label>
         </div>
-      ) : (
-        <div className="cv-dock-row">
-          <label className="cv-dock-switch">
-            <input type="checkbox" aria-label="续接"
-              checked={data.continuationEnabled === 'on'}
-              onChange={event => data.onField?.('continuationEnabled', event.target.checked ? 'on' : 'off')} />
-            <span>{data.continuationEnabled === 'on' ? '续接上一段' : '独立生成'}</span>
-          </label>
-          <span className="cv-dock-hint">{data.continuationEnabled === 'on'
-            ? '接着上一段的 latent 继续跑，画面与上一段连贯'
-            : '不接上一段，按提示词单独出这一段'}</span>
-        </div>
-      ))}
+      )}
 
       {/* 参考图：这是「接了什么进来」的唯一答案，不能省。 */}
       <div className="cv-dock-row">
         <span className="cv-dock-hint">{isImage
           ? `${data.referenceCount || 0}/9 图 · 已连 ${slots.length} 个输入${data.paramCount ? ` · 自定义 ${data.paramCount} 行` : ''}`
-          : `${data.referenceCount || 0}/9 图 · 续接 ${data.latentCount || 0}/2${data.paramCount ? ` · 自定义 ${data.paramCount} 行` : ''}${slots.length ? ` · 已连 ${slots.length} 个输入` : ''}`}</span>
+          : `${data.referenceCount || 0}/9 图 · 接续 ${data.latentCount || 0}/2${data.paramCount ? ` · 自定义 ${data.paramCount} 行` : ''}${slots.length ? ` · 已连 ${slots.length} 个输入` : ''}`}</span>
         <button className="cv-btn sm ghost" type="button" onClick={pasteFromClipboard}>粘贴图片</button>
         {resultUrl && <Link className="cv-btn sm" href={resultUrl} download>{isImage ? '下载图片' : '下载视频'}</Link>}
         {resultImage && <button className="cv-btn sm ghost" type="button" onClick={() => data.onPreview?.(resultImage)}>预览</button>}

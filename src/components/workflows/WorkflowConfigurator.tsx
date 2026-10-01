@@ -9,7 +9,7 @@ import {
   categoriesFor,
   DEFAULT_WORKFLOW_CATEGORY,
   readWorkflowCategory,
-  type WorkflowCategory,
+  type WorkflowCategoryItem,
   type WorkflowCategoryOption,
 } from '@/lib/workflows/category';
 import {
@@ -38,10 +38,11 @@ async function readResponse(response: Response) {
  * **这份工作流还没有草稿**时起作用（决定新建草稿的用途）；已经有草稿就以草稿上存的为准，
  * 否则会出现「页面显示图片、保存后变成图片」，把用户已经配好的视频工作流悄悄改掉。
  */
-export default function WorkflowConfigurator({ initialWorkflowId, initialKind = DEFAULT_GENERATOR_KIND, initialCategory = DEFAULT_WORKFLOW_CATEGORY, initialOperation = DEFAULT_WORKFLOW_OPERATION, onBack, onDirtyChange }: {
+export default function WorkflowConfigurator({ initialWorkflowId, initialKind = DEFAULT_GENERATOR_KIND, initialCategory = DEFAULT_WORKFLOW_CATEGORY, initialOperation = DEFAULT_WORKFLOW_OPERATION, categories, onBack, onDirtyChange }: {
   initialWorkflowId: string;
   initialKind?: GeneratorKind;
-  initialCategory?: WorkflowCategory;
+  /** 分类的值**不再限于内置枚举**：2026-10-01 起可以是用户自建的分类名（见下面的 `categories`）。 */
+  initialCategory?: string;
   initialOperation?: WorkflowOperation;
   /**
    * 画布浮层里用：顶上那个「工作流列表」不跳页，回壳里的列表那一屏。
@@ -54,11 +55,16 @@ export default function WorkflowConfigurator({ initialWorkflowId, initialKind = 
    * 不说一声的话改了一屏字段然后点 ✕ 就全没了，而且没有任何提示。
    */
   onDirtyChange?: (dirty: boolean) => void;
+  /**
+   * 用户**自建**的分类（2026-10-01 徐先：「分类我自己能加」）。与内置那五个拼在一起给下拉用。
+   * 不传 = 只有内置的那几个（设置页之外的老调用点不受影响）。
+   */
+  categories?: WorkflowCategoryItem[];
 }) {
   const [workflowId, setWorkflowId] = useState(initialWorkflowId);
   const [idInput, setIdInput] = useState(initialWorkflowId);
   const [kind, setKind] = useState<GeneratorKind>(initialKind);
-  const [category, setCategory] = useState<WorkflowCategory>(initialCategory);
+  const [category, setCategory] = useState<string>(initialCategory);
   const [operation, setOperation] = useState<WorkflowOperation>(initialOperation);
   const [nameInput, setNameInput] = useState('');
   const [fields, setFields] = useState<WorkflowField[]>([]);
@@ -137,10 +143,16 @@ export default function WorkflowConfigurator({ initialWorkflowId, initialKind = 
    * `displayName` 进依赖是因为提醒里要说清是**哪一份**（起过名就是名字，没起过就是 ID）。
    */
   useEffect(() => registerUnsaved(`工作流「${displayName}」`, () => dirty), [displayName, dirty]);
-  /** 当前用途那一档的说明（「含续接 latent…」/「含步数 / CFG…」），只有一处文案来源。 */
+  /** 当前用途那一档的说明（「含接续 latent…」/「含步数 / CFG…」），只有一处文案来源。 */
   const kindHint = GENERATOR_KIND_OPTIONS.find(option => option.value === kind)?.hint ?? '';
-  /** 当前用途下能选的分类。切换用途后旧分类可能不成立，所以每次现算、并就地退回一个成立的。 */
-  const categoryOptions: WorkflowCategoryOption[] = categoriesFor(kind);
+  /**
+   * 当前用途下能选的分类：内置那五个（按用途筛）+ 用户自建的（不绑用途，见 `category.ts`）。
+   * 自建的那几个包成同一形状，好让下拉只认一种东西。
+   */
+  const categoryOptions: WorkflowCategoryOption[] = [
+    ...categoriesFor(kind),
+    ...(categories || []).map(item => ({ value: item.name, label: item.name, hint: '你自己建的分类', kinds: [kind] })),
+  ];
   const activeCategory = categoryOptions.some(option => option.value === category) ? category : DEFAULT_WORKFLOW_CATEGORY;
   const categoryHint = categoryOptions.find(option => option.value === activeCategory)?.hint ?? '';
   const operationHint = WORKFLOW_OPERATION_OPTIONS.find(option => option.value === operation)?.hint ?? '';

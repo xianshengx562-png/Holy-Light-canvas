@@ -5,7 +5,7 @@ import type { LatentPickOption, NodeData, ParamRow } from './types';
 import {
   LATENT_ACCEPT, LATENT_SLOTS, NODE_META,
   groupWorkflowsByProvider, isLatentKind, isVideoUrl, latentAssetPrefix,
-  latentBrokenHint, latentLabel, latentSlotHint, purposeOfNode, workflowLabel, displayLabelOf,
+  latentBrokenHint, latentLabel, latentSlotHint, workflowLabel, displayLabelOf,
 } from './nodeMeta';
 import type { NodeKind } from './nodeMeta';
 import { NodeGlyph } from './nodeIcons';
@@ -30,6 +30,9 @@ const SLOT_ORDER: Record<string, number> = { text: 0, 'prompt-optimize': 0, imag
  *
  * The bar carries `nodrag` on its controls so interacting with them never drags the node.
  */
+/** 工作流下拉里那条「去库里挑」的哨兵值 —— 与 `GenerateDock` 同一个约定（不会撞真实 workflowId）。 */
+const LIBRARY_OPTION = '__library__';
+
 export default function NodeParamBar({ data }: { data: NodeData }) {
   const kind = (data.kind || 'text') as NodeKind;
   const meta = NODE_META[kind];
@@ -42,11 +45,6 @@ export default function NodeParamBar({ data }: { data: NodeData }) {
   const outputImage = resultImage || String(data.passthroughImage || '');
   const latentOn = data.latentEnabled !== 'off';
   const running = data.status === 'running';
-  /**
-   * 本节点要的工作流用途。视频与图片是两套工作流（视频有续接 latent 与时长，出图有 steps/cfg/seed），
-   * 所以生成节点各只列同用途的；老 workflow 节点没有用途（null），仍然列全部。
-   */
-  const purpose = purposeOfNode(kind);
   const chosenWorkflow = workflows.find(item => item.workflowId === String(data.workflowId || ''));
   /**
    * The bar is wider than most cards, so a node near the right edge would push it off screen.
@@ -125,23 +123,29 @@ export default function NodeParamBar({ data }: { data: NodeData }) {
   /** The workflow picker lives here now — the standalone workflow node is legacy-only. */
   const workflowTools = (
     /*
-     * 带 `?id=`：节点上已经选定了某一份就直开那一份（改的正是它）；
-     * 只带 `?kind=`：还没选，进列表页按用途起一份新的。
+     * 带 `workflowId`：节点上已经选定了某一份就直开那一份（改的正是它）；
+     * 没选：开工作流浮层的**列表**那一屏（列表里就有「新建一份」）。
      *
-     * ⚠️ 这里**从 `<Link>` 换回了 `<a href="#/...">` 的写法**，两次踩坑的原因不一样：
+     * ⚠️ 这一格换过三次写法，现在是第三种：
      *
-     * 1. 最早是裸 `<a target="_blank">`。桌面版是**单窗口 hash 路由**，
-     *    那个新窗口拿到的是 `app://app/settings/providers/workflows`（没有 `#/`），
-     *    协议处理器只能回兜底的 index.html —— 用户看到一个全白窗口。
-     * 2. 于是改用了 `Link`。但 `Link` 是受路由状态驱动的组件，而它现在挂在
-     *    **节点正面**上：点一下就会触发导航、节点重新渲染，用户回来时选中的已经不是
-     *    刚才那个节点了（工作流下拉直接被收起）。一个「打开另一个页面去看看」的动作，
-     *    不该牵动画布的路由状态。
+     * 1. 最早 `<a target="_blank">`：桌面版是单窗口 hash 路由，新窗口拿到的是
+     *    `app://app/settings/...`（没有 `#/`），只能回兜底 index.html —— 一个全白窗口。
+     * 2. 改成 `<Link>`：它是受路由状态驱动的，而它挂在**节点正面**上 —— 点一下触发导航、
+     *    节点重渲染，回来时选中的已经不是刚才那个节点，下拉直接被收起。
+     * 3. 于是换成 `<a href="#/settings/providers/workflows...">`：不碰 React 路由了，
+     *    但**单窗口 hash 路由下这一下仍然是「画布没了」**（2026-10-01 徐先报的）。
      *
-     * 现在写成带 `#/` 的普通 `<a>`：**单窗口应用内导航，但不碰路由状态**
-     * （hash 变化由页面的 hashchange 监听接管）。桌面版与 web 版行为一致。
+     * 现在不再自己导航：喊一声 `onOpenWorkflow`，由画布开工作流浮层（`CanvasWorkflowPanel`），
+     * 关掉即回画布 —— 用户要的是「在这里配完接着干」，不是「去看另一个页面」。
      */
-    <a className="cv-btn sm ghost" href={data.workflowId ? `#/settings/providers/workflows?id=${String(data.workflowId)}` : `#/settings/providers/workflows${purpose ? `?kind=${purpose}` : ''}`}>打开工作流配置</a>
+    <button
+      className="cv-btn sm ghost"
+      type="button"
+      data-param-wfcfg=""
+      onClick={() => data.onOpenWorkflow?.(data.workflowId ? String(data.workflowId) : undefined)}
+    >
+      打开工作流配置
+    </button>
   );
 
   const upstream = String(data.upstreamStatus || 'idle');
@@ -398,7 +402,7 @@ export default function NodeParamBar({ data }: { data: NodeData }) {
       <div className="cv-param-desc">
         <label className="cv-switch">
           <input type="checkbox" checked={latentOn} onChange={event => data.onField?.('latentEnabled', event.target.checked ? 'on' : 'off')} />
-          <span>{latentOn ? '启用续接' : '已停用 · 不参与生成'}</span>
+          <span>{latentOn ? '启用接续' : '已停用 · 不参与生成'}</span>
         </label>
         <LatentSlotPicker
           indexes={(data.latentIndexes || []).filter(index => index >= 1 && index <= LATENT_SLOTS)}
@@ -411,25 +415,29 @@ export default function NodeParamBar({ data }: { data: NodeData }) {
           换一份工作流就得改 —— 编号不对的症状最难看出来：latent 传上去了、任务也成功，
           出来的片段和上一轮毫无关系。
         */}
-        <div className="cv-field">
-          <span>粗采节点 id</span>
-          <input
-            className="cv-input sm"
-            value={coarseNodeId}
-            placeholder="210"
-            disabled={!latentOn}
-            onChange={event => data.onField?.('latentCoarseNodeId', event.target.value)}
-          />
-        </div>
-        <div className="cv-field">
-          <span>精采节点 id</span>
-          <input
-            className="cv-input sm"
-            value={fineNodeId}
-            placeholder="278"
-            disabled={!latentOn}
-            onChange={event => data.onField?.('latentFineNodeId', event.target.value)}
-          />
+        {/* 粗 / 精并排一行（2026-10-01 徐先）：这两格**永远成对出现**、宽度也只要一个编号，
+            各占一行只会把面板拉长。用现成的 `.cv-row2`（本身就是「一行两格」）。 */}
+        <div className="cv-row2">
+          <div className="cv-field">
+            <span>粗采节点 id</span>
+            <input
+              className="cv-input sm"
+              value={coarseNodeId}
+              placeholder="210"
+              disabled={!latentOn}
+              onChange={event => data.onField?.('latentCoarseNodeId', event.target.value)}
+            />
+          </div>
+          <div className="cv-field">
+            <span>精采节点 id</span>
+            <input
+              className="cv-input sm"
+              value={fineNodeId}
+              placeholder="278"
+              disabled={!latentOn}
+              onChange={event => data.onField?.('latentFineNodeId', event.target.value)}
+            />
+          </div>
         </div>
         <div className="cv-field">
           <span>{relay ? '覆盖值（可留空）' : '已归档的 latent'}</span>
@@ -494,7 +502,17 @@ export default function NodeParamBar({ data }: { data: NodeData }) {
       <div className="cv-param-desc">
         <div className="cv-field">
           <span>已保存的工作流</span>
-          <select className="cv-select" value={String(data.workflowId || '')} onChange={event => data.onField?.('workflowId', event.target.value)}>
+          <select className="cv-select" value={String(data.workflowId || '')} onChange={event => {
+            /*
+             * 「从工作流库中选择…」是个动作，不是一份工作流（2026-10-01 徐先）。
+             * 绝不能让它落到 `onField`：把 `__library__` 当 workflowId 存进去，
+             * 节点就指向一份不存在的配置，而界面上看不出哪里错（下拉空白，提交时才报）。
+             */
+            const next = event.target.value;
+            if (next === LIBRARY_OPTION) { data.onPickWorkflow?.(); return; }
+            data.onField?.('workflowId', next);
+          }}>
+            <option value={LIBRARY_OPTION}>＋ 从工作流库中选择…</option>
             <option value="">— 选择工作流 —</option>
             {/*
               老节点没有用途、也没有引擎（它是遗留节点），所以**两份都列**；

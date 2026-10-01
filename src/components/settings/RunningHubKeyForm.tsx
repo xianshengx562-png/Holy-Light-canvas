@@ -114,11 +114,5 @@ export default function RunningHubKeyForm({ initial, credits: initialCredits, co
     </div>
 
     {check && <p className={check.ok ? 'key-result ok' : 'key-result off'}>{check.message}</p>}
-    <p className="key-hint">
-      {credits
-        ? '密钥以 AES-256-GCM 加密后存入数据库，仅你的账号可见。未在此处填写时会回退到服务端环境变量密钥 —— 那条路径按次扣费，填上自己的密钥后生成不再扣费。'
-        /* 桌面版没有「站点公共密钥」这回事：不填就是没有，不存在回退到别人的 key 上。 */
-        : '密钥以 AES-256-GCM 加密后存进本机数据库。桌面版没有站点公共密钥：填了就走你自己的额度，不填这条链路就用不了（生成时会明确报「还没配密钥」），不会悄悄换一把别人的 key 去跑。'}
-    </p>
   </div>;
 }

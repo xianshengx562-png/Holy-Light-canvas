@@ -3,10 +3,10 @@
  * 还是**走用户自己添加的自定义接口**。
  *
  * 三者不是同一件事的实现细节，而是两套完全不同的东西：
- * - `runninghub` / `local`：参数是时长 / latent 续接 / 比例 / MP，值要绑到工作流节点字段上
- *   （`configuration.ts` 的绑定），支持 latent 续接；
+ * - `runninghub` / `local`：参数是时长 / latent 接续 / 比例 / MP，值要绑到工作流节点字段上
+ *   （`configuration.ts` 的绑定），支持 latent 接续；
  * - `videoapi`：参数是模型 / 时长 / 分辨率 / 比例，直接拼成 HTTP 请求体打网关（`videoApiParams.ts`），
- *   没有工作流、没有 latent、没有续接；
+ *   没有工作流、没有 latent、没有接续；
  * - `custom`（2026-09-21）：走用户在「设置 · 模型服务 · 自定义接口」里加的那条 OpenAI 兼容网关，
  *   异步提交 + 轮询（与 `videoapi` 同一套节奏），也没有工作流、没有 latent。
  *
@@ -77,7 +77,7 @@ export function readVideoEngine(value: unknown): VideoEngine {
   return DEFAULT_VIDEO_ENGINE;
 }
 
-/** 这一档走不走工作流（也就是要不要选一份工作流、支不支持 latent 续接）。 */
+/** 这一档走不走工作流（也就是要不要选一份工作流、支不支持 latent 接续）。 */
 export function usesWorkflowEngine(value: unknown) {
   return WORKFLOW_VIDEO_ENGINES.includes(readVideoEngine(value));
 }
@@ -97,9 +97,9 @@ export function videoEngineProvider(value: unknown): 'local' | 'runninghub' | nu
  * 而来源就是下面这三档里的前两档。
  */
 export const VIDEO_ENGINE_OPTIONS: { value: VideoEngine; label: string; hint: string }[] = [
-  { value: 'runninghub', label: 'RunningHub', hint: '用 RunningHub 上保存的工作流出片，支持 latent 续接；算力在云端，按点扣费' },
-  { value: 'local', label: '本地 ComfyUI', hint: '用本机 ComfyUI 的工作流出片，支持 latent 续接；图与算力都在自己这边，不扣费' },
-  { value: 'videoapi', label: '视频网关', hint: '直连一个通用视频生成 API，参数是模型 / 时长 / 分辨率 / 比例；不经过工作流、没有续接' },
+  { value: 'runninghub', label: 'RunningHub', hint: '用 RunningHub 上保存的工作流出片，支持 latent 接续；算力在云端，按点扣费' },
+  { value: 'local', label: '本地 ComfyUI', hint: '用本机 ComfyUI 的工作流出片，支持 latent 接续；图与算力都在自己这边，不扣费' },
+  { value: 'videoapi', label: '视频网关', hint: '直连一个通用视频生成 API，参数是模型 / 时长 / 分辨率 / 比例；不经过工作流、没有接续' },
   { value: 'custom', label: '自定义接口', hint: '走你在「设置 · 模型服务」里添加的自定义接口，提交后轮询拿结果；模型与计费都由那家决定' },
 ];
 

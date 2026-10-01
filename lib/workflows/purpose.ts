@@ -2,7 +2,7 @@
  * 生成器的「用途」—— 工作流是给视频生成用的，还是给图片生成用的。
  *
  * 这个区分必须存在，因为出图和出视频用的是**两套完全不同的工作流**：
- * 视频工作流里有 `Yuan_H3MotionContextLoadLatent`（节点 210 / 278）这类续接节点、
+ * 视频工作流里有 `Yuan_H3MotionContextLoadLatent`（节点 210 / 278）这类接续节点、
  * 有帧数与时长；出图工作流里有 `KSampler` 的 steps / cfg / seed。
  * 两者混在一个列表里让人挑，选错的后果是**任务成功、但产出的是另一种媒体** ——
  * 没有任何报错，只有人眼看结果才发现。
@@ -42,7 +42,7 @@ export function generatorKindLabel(value: unknown) {
 
 /** 给下拉/分段控件用。放在这里是为了「有哪些用途」只有一处定义。 */
 export const GENERATOR_KIND_OPTIONS: { value: GeneratorKind; label: string; hint: string }[] = [
-  { value: 'video', label: '视频生成', hint: '含续接 latent、时长与帧率参数' },
+  { value: 'video', label: '视频生成', hint: '含接续 latent、时长与帧率参数' },
   { value: 'image', label: '图片生成', hint: '含步数 / CFG / 种子 / 采样器参数' },
 ];
 

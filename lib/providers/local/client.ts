@@ -163,15 +163,19 @@ export type LocalProbeReason =
   /** 说不清。宁可说不知道，也不要编一个方向。 */
   | 'unknown';
 
-/** 每个原因对应的**一句可执行的动作**。界面上原样显示，别在那一层再改写一遍。 */
+/** 每个原因对应的一句话，界面上原样显示，别在那一层再改写一遍。只说结论，不替用户猜原因。 */
 export const LOCAL_PROBE_REASON_TEXT: Record<LocalProbeReason, string> = {
-  refused: '这个端口上没有任何程序在听 —— ComfyUI 没启动，或者它跑在别的端口上。',
-  timeout: '连这个地址一直没回应 —— 地址或端口写错了，也可能是被防火墙拦下了。',
-  dns: '这个主机名解析不出来 —— 地址写错了。',
-  unauthorized: '对面要求鉴权（401 / 403）—— 到「设置 · ComfyUI 服务」把它的 API Key 填上。',
-  http: 'ComfyUI 在，但它回了一个错误状态码。',
-  'not-comfyui': '这个端口上有程序在答话，可它不是 ComfyUI —— 端口被别的软件占了，或者请求被代理截走了。',
-  unknown: '连不上，原因暂时判断不出来。',
+  refused: '端口上没有程序在听。',
+  timeout: '这个地址一直没回应。',
+  dns: '主机名解析不出来。',
+  /*
+   * 2026-10-01：原来这条写的是「到设置里把 API Key 填上」—— 而那个输入框这一轮刚删掉
+   * （本机 ComfyUI 不鉴权，字段是纯噪音）。**报错不能指向一个不存在的控件**，改成只说事实。
+   */
+  unauthorized: '对面要求鉴权（401 / 403）。',
+  http: 'ComfyUI 在，但回了一个错误状态码。',
+  'not-comfyui': '这个端口上有程序在答话，但不是 ComfyUI。',
+  unknown: '连不上，原因判断不出来。',
 };
 
 /**
@@ -215,7 +219,7 @@ export async function testLocalConnection(credentials: LocalCredentials): Promis
       signal: AbortSignal.timeout(LOCAL_PROBE_TIMEOUT_MS),
     });
     if (!response.ok) {
-      return { ok: false, message: `连不上本机 ComfyUI（${base}）：HTTP ${response.status}。确认它已经启动、并且地址和端口没错。` };
+      return { ok: false, message: `连不上本机 ComfyUI（${base}）：HTTP ${response.status}。` };
     }
     const body = await response.json().catch(() => null);
     const stats = parseLocalStats(body);
@@ -234,11 +238,12 @@ export async function testLocalConnection(credentials: LocalCredentials): Promis
      * 分出原因后各说各的：能让用户**下一步做对**的报错才算报错。
      */
     const reason = classifyProbeError(error);
-    const detail = error instanceof Error ? error.message : '请求失败';
     return {
       ok: false,
       reason,
-      message: `连不上本机 ComfyUI（${base}）：${LOCAL_PROBE_REASON_TEXT[reason]}（${detail}）`,
+      /* 2026-10-01：这里原来把原始错误挂在句尾（界面上就是「（fetch failed）」）——
+         那是给开发者看的，用户读不懂，删掉；连 `detail` 变量一起删，别留死代码。 */
+      message: `连不上本机 ComfyUI（${base}）：${LOCAL_PROBE_REASON_TEXT[reason]}`,
     };
   }
 }

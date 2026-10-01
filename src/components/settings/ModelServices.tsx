@@ -252,7 +252,7 @@ const SECTIONS: { id: Kind; title: string; hint: string }[] = [
   {
     id: 'text',
     title: '文本',
-    hint: '只给节点上的「优化提示词」供血 —— 这一段的官方模型与兼容接口文本模型，会出现在节点「优化提示词用」的下拉里。',
+    hint: '这一段的官方模型与兼容接口文本模型，会出现在节点「优化提示词用」的下拉里。',
   },
   {
     id: 'image',
@@ -662,7 +662,7 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
         <div className="ms-vendor-main">
           <strong>本地模型（llama.cpp）</strong>
           <p>
-            用本机显卡跑一个小模型来优化提示词 —— 不联网、不花额度。
+            用本机显卡跑小模型优化提示词，不联网、不花额度。
             用的时候装载，跑完按下面的「保活秒数」卸载（<strong>0 = 立刻卸</strong>，显存一秒都不多占）。
           </p>
         </div>
@@ -809,7 +809,7 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
       */}
       {state !== 'stopped' && state !== 'error' ? (
         <p className="muted" data-ms-local-ctx-reload="">
-          上下文 / 模型这类参数只在**装载时**读进去 —— 改完要点「卸载」再「装载」才生效。
+          上下文 / 模型参数只在<b>装载时</b>读进去，改完要「卸载」再「装载」。
         </p>
       ) : null}
 
@@ -918,7 +918,7 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
         ok: true,
         text: probed[kind].length
           ? `已添加，带上刚探到的 ${probed[kind].length} 个模型（用途归到${KIND_LABEL[kind]}）。`
-          : `已添加。点「拉取模型」从接口拉一次清单 —— 拉不到模型的接口在节点上选不到模型。`,
+          : `已添加。点「拉取模型」拉一次清单。`,
       };
     });
   }
@@ -969,8 +969,8 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
         setSiteForm({ ...siteForm, password: '' });
         const who = result.site.username || result.site.loginName;
         const text = result.site.tokens.length
-          ? `已登录${who ? `（${who}）` : ''} —— 下面列出 ${result.site.tokens.length} 把密钥，挑一把添加。`
-          : `已登录${who ? `（${who}）` : ''}，但这个账号在站点上一把密钥都没有 —— 去站点「令牌」页建一把再点「刷新」。`;
+          ? `已登录${who ? `（${who}）` : ''}，下面列出 ${result.site.tokens.length} 把密钥。`
+          : `已登录${who ? `（${who}）` : ''}，但这个账号在站点上一把密钥都没有。去站点「令牌」页建一把再点「刷新」。`;
         setSiteNote({ tone: 'ok', text });
         return { ok: true, text };
       } catch (error) {
@@ -989,7 +989,7 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
       setSiteForm({ baseUrl: site?.baseUrl || DEFAULT_SITE, username: site?.loginName || '', password: '' });
       applySiteAccount(null);
       setSiteNote(null);
-      return { ok: true, text: '已退出站点账号 —— 换一个账号登录。' };
+      return { ok: true, text: '已退出站点账号。' };
     });
   }
 
@@ -1066,7 +1066,7 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
         ok: true,
         text: on
           ? `已去掉「${modelId}」的${KIND_LABEL[kind]}用途。`
-          : `已给「${modelId}」加上${KIND_LABEL[kind]}用途 —— 它现在也能${kind === 'text' ? '用来优化提示词' : `用来${KIND_LABEL[kind]}`}了。`,
+          : `已给「${modelId}」加上${KIND_LABEL[kind]}用途。`,
       };
     });
   }
@@ -1121,15 +1121,13 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
       <div className="ms-sub" data-ms-sub={kind}>
         <strong>兼容接口（OpenAI 兼容）</strong>
         <span className="muted">
-          在「{SECTIONS.find(item => item.id === kind)?.title}」这一段添加或拉取的模型，按名字认用途，
-          认不出来的归到{KIND_LABEL[kind]}；想让一个模型同时干几件事，展开后在清单里勾（用途是多选的）；
-          随后出现在{kind === 'text' ? '节点上「优化提示词用」的下拉' : `${KIND_LABEL[kind]}节点的「自定义接口」引擎里`}。
+          按名字认用途，认不出来的归{KIND_LABEL[kind]}；展开后可在清单里改（用途多选）。
+          配好出现在{kind === 'text' ? '节点上「优化提示词用」的下拉' : `${KIND_LABEL[kind]}节点的「自定义接口」引擎里`}。
         </span>
       </div>
       {rows.length === 0 && (
         <p className="muted" data-ms-custom-empty={kind}>
-          这一段还没有兼容接口 —— 在下面填一条；已经加过的接口会**在每一段都出现**，
-          把模型勾上「{KIND_LABEL[kind]}」，这一段就能用它。
+          还没有兼容接口，在下面填一条。
         </p>
       )}
       <div className="ms-custom">
@@ -1187,8 +1185,7 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
             {open && <div className="ms-custom-body" data-ms-custom-models={row.id}>
               {row.models.length === 0
                 ? <p className="muted">
-                  还没有模型清单 —— 点上面「拉取模型」，从 <code>{row.baseUrl}</code> 的
-                  {' '}<code>/v1/models</code>（拿不到再试 <code>/models</code>）拉一次。
+                  还没有模型清单，点上面「拉取模型」从 <code>/v1/models</code> 拉一次。
                 </p>
                 : <>
                   {/*
@@ -1218,8 +1215,8 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
                   */}
                   {row.models.length > inKind && (
                     <p className="muted" data-ms-custom-other={row.id}>
-                      另有 {row.models.length - inKind} 个模型没勾「{KIND_LABEL[kind]}」—— 这一段用不上它们。
-                      用途是**多选**的：一个模型可以同时是出图 + 出视频 + 文本，在下面清单里勾就行。
+                      另有 {row.models.length - inKind} 个模型没勾「{KIND_LABEL[kind]}」，这一段用不上它们。
+                      用途可以多选，在下面清单里勾。
                     </p>
                   )}
                   <div className="ms-models">
@@ -1295,7 +1292,7 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
     return <div key={'local-' + kind} className="ms-vendor" data-ms-local={kind}>
       <div className="ms-vendor-main">
         <strong>本地 ComfyUI</strong>
-        <p>用你自己的 ComfyUI 跑本机工作流 —— 图与算力都在本机，不扣点。服务启停与状态在「ComfyUI 服务」页。</p>
+        <p>用你自己的 ComfyUI 跑本机工作流，图与算力都在本机。服务启停与状态在「ComfyUI 服务」页。</p>
       </div>
       <div className="ms-vendor-side">
         <span className="badge">用本机</span>
@@ -1379,11 +1376,8 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
       <div className="provider-head">
         <div>
           <h2>站点账号</h2>
-          <p className="muted">
-            用中转站的**网站账号**登录 —— 登录后列出这个账号在站点上**已有**的密钥（带分组），
-            挑一把加成兼容接口。密码加密存在本机，下次打开自动续期；
-            Holy Light画布不会在你的站上建任何令牌 —— 要新的令牌请去站点自己的「令牌」页。
-          </p>
+          {/* 2026-10-01 第五轮：这一段说明整段删（徐先圈的就是它）——
+              标题「站点账号」+ 下面那颗「登录并拉取密钥」按钮已经说清这里是干嘛的。 */}
         </div>
         {site?.loggedIn && <span className="badge" data-ms-site-state="on">已登录</span>}
       </div>
@@ -1413,7 +1407,7 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
           >
             {busy === 'site:login' ? '登录中…' : '登录并拉取密钥'}
           </button>
-          <span className="muted">账号密码只用来换令牌，加密存在本机 —— 不存的话第二天 JWT 过期就得重登。</span>
+          <span className="muted">账号密码只用来换令牌，加密存在本机。</span>
         </div>
       )}
 
@@ -1438,7 +1432,7 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
         {site.error && <p className="ms-site-note off" data-ms-site-error>{site.error}</p>}
         {site.tokens.length === 0
           ? <p className="muted" data-ms-site-empty>
-            这个账号在站点上一把密钥都没有 —— 去站点「令牌」页建一把，再回来点「刷新密钥」。
+            这个账号在站点上一把密钥都没有。去站点「令牌」页建一把，再回来点「刷新密钥」。
           </p>
           : <div className="ms-tokens" data-ms-site-tokens={site.tokens.length}>
             {site.tokens.map(token => <div key={token.id} className="ms-token" data-ms-token={token.id}>
@@ -1488,8 +1482,8 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
       {sectionHead('text')}
       {openSections.text && <div className="ms-fold-body" data-ms-section-body="text">
       <p className="muted" data-ms-prompt-current>
-        当前：{initial.promptSource ? initial.promptSource.label : '一家都没配（自动挑选也没得挑）'}。
-        这一栏不是用来聊天的 —— 它只给节点上的「优化提示词」供血。
+        当前：{initial.promptSource ? initial.promptSource.label : '一家都没配'}。
+        只给节点上的「优化提示词」用，不是聊天。
       </p>
 
       <div className="key-actions" style={{ marginTop: 12 }}>
@@ -1556,7 +1550,7 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
 
       <div className="ms-sub" data-ms-sub="builtin">
         <strong>内置出图服务</strong>
-        <span className="muted">RunningHub 工作流的密钥在下面这一段里管 —— 视频节点用的是同一把 Key。</span>
+        <span className="muted">RunningHub 工作流的密钥在下面这一段里管。</span>
       </div>
 
       {/* RunningHub 两个站 —— 完整区块放在图片段（视频段给一张指路卡）。 */}
@@ -1646,7 +1640,7 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
 
       <div className="ms-sub" data-ms-sub="builtin">
         <strong>内置出片服务</strong>
-        <span className="muted">RunningHub 与本地 ComfyUI 在两段里是同一套 —— 这里只放指路与切换。</span>
+        <span className="muted">RunningHub 与本地 ComfyUI 在别的段里是同一套。</span>
       </div>
 
       {/*

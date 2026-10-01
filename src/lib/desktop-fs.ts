@@ -197,8 +197,6 @@ export type ComfyuiExtensionView = {
   id: string;
   name: string;
   purpose: string;
-  benefit: string;
-  optional: string;
   bundledVersion: string | null;
   installedVersion: string | null;
   status: 'unavailable' | 'missing' | 'up-to-date' | 'needs-repair' | 'update-available';

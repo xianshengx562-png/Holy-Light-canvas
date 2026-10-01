@@ -8,13 +8,18 @@ import { Loader, Trash2 } from 'lucide-react';
  * 体积已经是服务端格式化好的字符串，客户端不要再算一次。
  */
 export type StorageSummary = {
-  diskLabel: string;
-  total: number;
-  counts: { video: number; image: number; audio: number; latent: number };
+  /** 库里有记录、磁盘上文件已经没了（手动删过 storage/、或落盘中途失败）。 */
   missing: number;
+  /** 磁盘上有文件、库里已经没有对应记录。 */
   orphans: number;
   orphanLabel: string;
   orphanRecent: number;
+  /*
+   * 🔴 2026-10-01：「落盘占用 X」与「全部 N 项：图片 … / 视频 …」那两行常态统计
+   * **不再显示**（徐先：「这个选项卡隐藏」），所以 `diskLabel` / `total` / `counts`
+   * 三个字段连同服务端那头的计算一起删了（见 `lib/assets.ts` 的 `StorageOverview`）。
+   * 别因为「看着有用」再加回来：常态统计不该常驻，而总项数页头已经写着「N 项」了。
+   */
 };
 
 /**
@@ -57,12 +62,20 @@ export default function StorageBar({ storage }: { storage: StorageSummary }) {
     }
   };
 
+  /*
+   * 🔴 2026-10-01 徐先：「这个选项卡隐藏」—— 原来常驻的那两行（落盘占用 / 全部 N 项）删掉。
+   * 判据沿用第七轮（工具 · 视频拼接那条 FFmpeg 状态栏）：
+   * **状态栏的意义是告诉人「哪里不对」；一切正常是常态，常态不该占一整行版面。**
+   *
+   * ⚠️ 这一条**不是永远不显示**：下面这两种「账对不上」不主动扫就永远发现不了，
+   * 所以 missing / orphans 有值时整条照旧出现 —— 那一刻它正好是唯一能修的地方
+   * （「清理」按钮就在里面）。`note` / `error` 也一起兜着：清理完那条反馈
+   * 要是跟着整条消失，用户会以为「点了没生效」。
+   */
+  if (!storage.missing && !storage.orphans && !note && !error) return null;
+
   return (
     <div className="assets-storage">
-      <span><b>落盘占用 {storage.diskLabel}</b></span>
-      <span className="muted">
-        全部 {storage.total} 项：图片 {storage.counts.image} · 视频 {storage.counts.video} · 音频 {storage.counts.audio} · Latent {storage.counts.latent}
-      </span>
       {/* 这两种「账对不上」的情况不主动扫就永远发现不了，所以放在明面上 */}
       {storage.missing > 0 && (
         <span className="error">{storage.missing} 条记录的文件已不在磁盘上</span>
