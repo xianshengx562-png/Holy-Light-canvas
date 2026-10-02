@@ -177,11 +177,15 @@ export default function CanvasResultsPanel({
               : run.results.length === 0
                 ? <p className="cv-results-empty">这次没有返回可播放的结果。</p>
                 : run.results.map(item => (
+                  /* 这里原来挂着一颗「下载」。**去掉了**：`item.url` 有两种 ——
+                     本机的 `/api/assets/<id>/media.mp4`，和 RunningHub 的远程链接。
+                     HTML 的 `download` 属性只在**同源**时生效，跨域那一类点下去根本不下载
+                     （要么没反应、要么直接跳去那个地址）—— 一半结果上是坏的，
+                     留着比没有更糟。结果文件本来就落在产出目录、资产库里也查得到。 */
                   <div key={item.url} className="cv-results-media">
                     {item.kind === 'image'
                       ? <img className="cv-video" src={item.url} alt={`第 ${run.index} 次生成的图片`} />
                       : <video className="cv-video" src={item.url} controls preload="metadata" />}
-                    <Link className="cv-link" href={item.url} download>下载</Link>
                   </div>
                 ))}
           </div>
