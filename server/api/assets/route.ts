@@ -1,7 +1,7 @@
 import { api, apiUser } from '@/lib/api';
 import {
-  ASSET_KINDS, listAssetCategories, listAssetProjects, listAssets, storageOverview,
-  type AssetKind, type CategoryFilter,
+  ASSET_KINDS, countAssetsOfKind, listAssetCategories, listAssetProjects, listAssets,
+  storageOverview, type AssetKind, type CategoryFilter,
 } from '@/lib/assets';
 
 /**
@@ -32,11 +32,13 @@ export async function GET(request: Request) {
     const known = rawSub === 'none' || categories.some((item) => item.name === rawSub);
     const category = (known ? rawSub : 'all') as CategoryFilter;
 
-    const [assets, projects, storage] = await Promise.all([
+    const [assets, projects, storage, latentCount] = await Promise.all([
       listAssets({ userId: user.id, type, category, projectId, take: PAGE_SIZE }),
       listAssetProjects(user.id),
       storageOverview(user.id),
+      /* 给「一键删除 Latent」那颗按钮用：没有 latent 时按钮不出现。 */
+      countAssetsOfKind(user.id, 'latent'),
     ]);
-    return Response.json({ ...assets, projects, storage, categories });
+    return Response.json({ ...assets, projects, storage, categories, latentCount });
   });
 }

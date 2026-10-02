@@ -444,6 +444,38 @@ export type BulkDeleteOutcome = {
  * `force` 的语义与单条一致：不传就**不删**正在被引用的那些，把它们连项目名一起交回去，
  * 由前端讲清楚再问一次；传了就一视同仁全删。
  */
+/**
+ * 某个类型一共有多少条。
+ *
+ * 「一键删除」这类操作要在按钮上写清会删掉几个 —— 不给数字等于让人盲点
+ * （资产页那个常态统计「全部 N 项」2026-10-01 已经按徐先的要求整行删掉了，
+ * 这一个数不是把它加回来：它只服务于这个按钮，没有 latent 时按钮整个不出现）。
+ */
+export async function countAssetsOfKind(userId: string, kind: AssetKind): Promise<number> {
+  return Number(await db.asset.count({ where: { userId, type: kind } }));
+}
+
+/**
+ * 按类型**整批**删除（「一键删掉全部 Latent」）。
+ *
+ * 为什么不复用「勾全选再删」：列表一次只给 60 条，勾全选删的只是当前这一页，
+ * 剩下的还躺在库里 —— 名字叫「一键」却删不干净。所以这里按类型把全部 id 取出来再删。
+ * `take` 是安全带：一个账号不该有十万条 latent，真有也不该一次全删。
+ */
+export async function purgeAssetsOfKind(input: {
+  userId: string;
+  kind: AssetKind;
+  force?: boolean;
+}): Promise<BulkDeleteOutcome> {
+  const rows = await db.asset.findMany({
+    where: { userId: input.userId, type: input.kind },
+    select: { id: true },
+    orderBy: { createdAt: 'asc' },
+    take: 2000,
+  });
+  return deleteAssetsBulk({ userId: input.userId, ids: rows.map(row => row.id), force: input.force });
+}
+
 export async function deleteAssetsBulk(input: {
   userId: string;
   ids: string[];

@@ -9,7 +9,7 @@
  */
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
-import { Images, Upload } from 'lucide-react';
+import { Images, Trash2, Upload } from 'lucide-react';
 import SideNav from '@/components/start/SideNav';
 /* 常量从 `asset-kinds` 拿：同名的 `lib/assets.ts` 带 node:fs 和数据库，浏览器包里不能出现。 */
 import {
@@ -19,8 +19,9 @@ import type { AssetItem, StorageOverview } from '@/lib/assets';
 import AssetFilters from '@/components/assets/AssetFilters';
 import AssetGallery from '@/components/assets/AssetGallery';
 import StorageBar from '@/components/assets/StorageBar';
+import { ConfirmDialog } from '@/components/ui/ContextMenu';
 import { isDesktop } from '@/lib/edition';
-import { useApi, useSession } from '@/lib/client';
+import { apiPost, useApi, useSession } from '@/lib/client';
 import { useSearchParams } from 'next/navigation';
 
 type AssetProject = { id: string; name: string; count: number };
@@ -32,6 +33,8 @@ type AssetsPayload = {
   storage: StorageOverview;
   /** 用户自己维护的分类表（含每项目前有多少条在用）。见 `/api/assets/categories`。 */
   categories: AssetCategoryItem[];
+  /** 一共多少个 latent —— 只给「一键删除 Latent」那颗按钮用（0 时按钮不出现）。 */
+  latentCount: number;
 };
 
 export default function Assets() {
@@ -61,6 +64,8 @@ export default function Assets() {
   const projects = data?.projects ?? [];
   const storage = data?.storage;
   const categories = data?.categories ?? [];
+  /* 「一键删除 Latent」那颗按钮要用：0 个的时候按钮不出现。 */
+  const latentCount = data?.latentCount ?? 0;
   const filtered = type !== 'all' || category !== 'all' || Boolean(projectId);
 
   /*
@@ -70,6 +75,58 @@ export default function Assets() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState('');
+
+  /* ── 一键删除 Latent（2026-10-02）────────────────────────── */
+  const [purgeOpen, setPurgeOpen] = useState(false);
+  const [purgeBusy, setPurgeBusy] = useState(false);
+  const [purgeForce, setPurgeForce] = useState(false);
+  const [purgeError, setPurgeError] = useState<string | null>(null);
+  const [purgeMsg, setPurgeMsg] = useState('');
+
+  /**
+   * latent 是「接续上一段」的输入，很容易正被画布用着。
+   * 那些**不删**（服务端 `in_use` 拦下），回过来告诉用户是哪几条在哪个项目里，
+   * 确认之后才放出「仍然删除」—— 一上来就给「仍然删除」等于默认让人点它。
+   */
+  async function purgeLatents(force: boolean) {
+    if (purgeBusy) return;
+    setPurgeBusy(true);
+    setPurgeError(null);
+    try {
+      const result = await apiPost<{
+        deleted: number; notFound: number; filesLeft: number;
+        inUse: { id: string; name: string; projects: string[] }[];
+      }>('/api/assets/batch', { action: 'purge', kind: 'latent', force });
+
+      if (result.inUse.length) {
+        setPurgeForce(true);
+        setPurgeError(
+          `有 ${result.inUse.length} 个正被画布引用（`
+          + result.inUse.slice(0, 3).map(row => `「${row.name}」在 ${row.projects.join('、')}`).join('；')
+          + (result.inUse.length > 3 ? ' …' : '')
+          + '），删掉之后那几条接续链路下次生成会取不到值。'
+          + (result.deleted ? `其余 ${result.deleted} 个已经删掉了。` : '')
+          + ' 确认要连它们一起删掉吗？',
+        );
+        if (result.deleted) reload();
+        return;
+      }
+
+      setPurgeOpen(false);
+      setPurgeForce(false);
+      setPurgeMsg(
+        `已删除 ${result.deleted} 个 Latent`
+        + (result.notFound ? `；另有 ${result.notFound} 个已经不在了` : '')
+        + (result.filesLeft ? `；${result.filesLeft} 个文件没能从磁盘上删掉（会体现在「孤儿文件」那一栏）` : '')
+        + '。',
+      );
+      reload();
+    } catch (e) {
+      setPurgeError(e instanceof Error ? e.message : '删除失败，稍后再试。');
+    } finally {
+      setPurgeBusy(false);
+    }
+  }
   const dragDepth = useRef(0);
   const [dragActive, setDragActive] = useState(false);
 
@@ -167,6 +224,18 @@ export default function Assets() {
                   onClick={() => fileInputRef.current?.click()}>
                   <Upload size={15} aria-hidden /> {uploading ? '上传中…' : '上传图片'}
                 </button>
+                {/* 没有 latent 就不出现 —— 常态不该占版面。 */}
+                {latentCount > 0 && (
+                  <button
+                    className="button danger"
+                    type="button"
+                    data-assets-purge-latent
+                    disabled={purgeBusy}
+                    onClick={() => { setPurgeMsg(''); setPurgeError(null); setPurgeForce(false); setPurgeOpen(true); }}
+                  >
+                    <Trash2 size={15} aria-hidden /> 删除全部 Latent（{latentCount}）
+                  </button>
+                )}
                 <Link className="button" href="/projects/new">新建项目</Link>
               </div>
               <input ref={fileInputRef} type="file" accept="image/*" multiple hidden data-assets-file
@@ -214,6 +283,25 @@ export default function Assets() {
             空列表时画廊自己只留回执那一条，不画网格也不画「选择」入口。
           */}
           <AssetGallery items={items} categories={categories} onChanged={reload} />
+
+          {purgeMsg && <p className="muted assets-upload-msg" data-assets-purge-msg>{purgeMsg}</p>}
+
+          {purgeOpen && (
+            <ConfirmDialog
+              testId="assets-purge-latent"
+              title={`删除全部 ${latentCount} 个 Latent？`}
+              body={<p className="muted">
+                记录和磁盘上的文件都会删掉 —— <strong>删了拿不回来</strong>。
+                正被画布用着（接续上一段）的那些不会被删，会告诉你是哪几条。
+              </p>}
+              error={purgeError}
+              busy={purgeBusy}
+              busyLabel="正在删除…"
+              confirmLabel={purgeForce ? '仍然删除' : '删除'}
+              onCancel={() => { if (!purgeBusy) { setPurgeOpen(false); setPurgeForce(false); } }}
+              onConfirm={() => void purgeLatents(purgeForce)}
+            />
+          )}
         </main>
       </section>
     </div>

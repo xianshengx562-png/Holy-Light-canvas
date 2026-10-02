@@ -1,5 +1,8 @@
 import { ApiError, api, apiUser, checkOrigin } from '@/lib/api';
-import { deleteAssetsBulk, isCategoryName, setAssetCategoryBulk } from '@/lib/assets';
+import {
+  ASSET_KINDS, deleteAssetsBulk, isCategoryName, purgeAssetsOfKind, setAssetCategoryBulk,
+  type AssetKind,
+} from '@/lib/assets';
 
 /**
  * 资产的批量操作（2026-09-26）—— 资产页「选中一堆再一起处理」。
@@ -18,13 +21,17 @@ export async function POST(request: Request) {
     checkOrigin(request);
     const user = await apiUser();
     const body = (await request.json().catch(() => ({}))) as {
-      ids?: unknown; action?: unknown; category?: unknown; force?: unknown;
+      ids?: unknown; action?: unknown; category?: unknown; kind?: unknown; force?: unknown;
     } | null;
 
     const ids = Array.isArray(body?.ids)
       ? body.ids.filter((id): id is string => typeof id === 'string' && id !== '')
       : [];
-    if (!ids.length) throw new ApiError(400, '没有选中任何资产。');
+    /*
+     * 这道闸只管「要按 id 操作」的那两类。`purge` 是按类型整批删，**不传 ids** ——
+     * 一起卡在这里的话，一键删除永远回「没有选中任何资产」。
+     */
+    if (!ids.length && body?.action !== 'purge') throw new ApiError(400, '没有选中任何资产。');
 
     if (body?.action === 'category') {
       const raw = body.category;
@@ -43,6 +50,18 @@ export async function POST(request: Request) {
       return Response.json({ action: 'delete', ...outcome });
     }
 
-    throw new ApiError(400, 'action 只能是 category 或 delete。');
+    /*
+     * `purge` = **按类型整批删除**（资产页那颗「一键删除 Latent」）。
+     * 与 `delete` 的区别：`delete` 删的是前端勾中的那几个 id，而列表一次只给 60 条，
+     * 勾全选删不干净；`purge` 由服务端按类型把全部 id 取出来删，不需要前端传 ids。
+     */
+    if (body?.action === 'purge') {
+      const kind = ASSET_KINDS.find(item => item.value === body.kind)?.value as AssetKind | undefined;
+      if (!kind) throw new ApiError(400, '要清掉哪一种？目前只支持 latent。');
+      const outcome = await purgeAssetsOfKind({ userId: user.id, kind, force: body.force === true });
+      return Response.json({ action: 'purge', kind, ...outcome });
+    }
+
+    throw new ApiError(400, 'action 只能是 category、delete 或 purge。');
   });
 }
