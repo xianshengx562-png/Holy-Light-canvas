@@ -28,3 +28,6 @@ Thumbs.db
 .env
 .env.*
 *.local
+
+# 单测用的临时 tsconfig（跑手每次自己生成，别进仓库）
+_tsconfig.*.json
