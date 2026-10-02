@@ -4041,6 +4041,28 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 .cv-dock-field.wide .cv-select,
 .cv-dock-field.wide textarea,
 .cv-dock-field.wide .cv-input { width: 100%; }
+/*
+  「工作流 / 超清工作流」并排时各占一半（2026-10-02 徐先：「工作流和超清工作流两个并排」）。
+  只在**两个都在**的时候才加 `.half`（见 `GenerateDock` 的 `pairWorkflows`）——
+  只在一个的时候仍然 `.wide` 占满整行，不然会凭空空出半行。
+
+  `min-width: 0` 不能少：flex 子项默认 `min-width: auto`，里面那个 `width: 100%` 的下拉
+  会按**最长的那条选项**算最小宽度（「★ 2099453228814528513 · 17 项启用」这种），
+  两格会被挤成一大一小。
+  `> span` 那一行是让两个下拉**左边对齐** —— 「工作流」3 个字、「超清工作流」5 个字，
+  不钉一个共同宽度的话，两个下拉会差两个字（看着像没对齐的表格）。
+*/
+/*
+  🔴 `flex-basis` 必须是「半行」而不是 0 —— 这条是被实测打回来的。
+  写成 `flex: 1 1 0`（basis 0）时，`.cv-dock-row` 的**换行判定**会把 basis=0 的两个 label
+  当成「几乎不占地方」，于是后面那句长说明（「还没有保存过本机 ComfyUI 的图片工作流 —— …」
+  有四五百像素）也一起挤上**同一行**；等真分剩余空间时 `flex-grow` 只剩零头 ——
+  实测两个 label 各 **75px**、里面的下拉被压到 **19px**，比并排前还难看。
+  给一个真正的半行（`calc(50% - 8px)`，8 = 半个 gap 再留 3px 余量）之后：
+  两个 label 先占满整行 → 说明与按钮自然折到第二行 → 它俩各分到一半。
+*/
+.cv-dock-field.half { flex: 1 1 calc(50% - 8px); min-width: 0; }
+.cv-dock-field.half > span { min-width: 5em; }
 .cv-dock-size-inputs { display: flex; align-items: center; gap: 4px; }
 .cv-dock-size-inputs > span { color: var(--cv-mute); font-size: 12px; }
 .cv-dock-size-inputs .cv-input { width: 78px; }

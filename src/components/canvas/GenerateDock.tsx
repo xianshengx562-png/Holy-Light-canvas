@@ -314,6 +314,16 @@ export default function GenerateDock({ data, nodeId, anchor }: {
   const upscaleTarget = upscalePurpose
     ? upscaleWorkflowFor(workflowOptions, upscalePurpose, upscaleSource, upscaleProvider, upscaleChosen)
     : undefined;
+  /*
+   * 「工作流」和「超清工作流」两个下拉**并排**（2026-10-02 徐先：「工作流和超清工作流两个并排」）。
+   *
+   * 它俩本来各占一整行（`.cv-dock-field.wide` 是 `flex: 1 1 100%`），两份工作流一上一下叠着，
+   * 会被读成两段无关的设置 —— 可它们说的是同一个节点上的两份工作流（这份跑生成、那份跑超清）。
+   *
+   * ⚠️ 只有**两个都在**的时候才各占一半：缺一个（网关那两档没有「工作流」、
+   * 应用节点没有「超清工作流」）时剩下的那个仍然占满整行，不然会凭空空出半行。
+   */
+  const pairWorkflows = !isGateway && !!upscalePurpose && !isApp;
 
   const slots = [...(data.inputs || [])].sort((a, b) => (SLOT_ORDER[a.kind] ?? 9) - (SLOT_ORDER[b.kind] ?? 9));
   const resultUrl = String(data.resultUrl || '');
@@ -1047,73 +1057,132 @@ export default function GenerateDock({ data, nodeId, anchor }: {
       {/*
         工作流选择：只在「还要走工作流」的那一档出现。网关那两档不经过工作流，
         把下拉留着会指向一个它根本不读的值（用户会以为自己换了工作流）。
+
+        「超清工作流」在 2026-10-02 先是单开了一行（徐先：「新加一条，选择超清工作流的一列，
+        与选择工作流并列」），同一天又一句「工作流和超清工作流两个并排」把「并列」落成了
+        字面意思：**两个下拉各占一半、同处一行**。理由跟当初一样 —— 它俩说的是同一个节点上的
+        两份工作流（这份跑生成、那份跑超清），一上一下叠着会被读成两段无关的设置。
+
+        ⚠️ 三条顺序上的约束，动这一块之前先看一眼：
+          - 两个 `<label>` 必须**挨在一起**排在最前 —— `.cv-dock-row` 是 `flex-wrap`，
+            先排的先把第一行占满，两个 `.half` 正好一行；
+          - 说明文字（`.cv-dock-hint`）与「打开工作流配置」排在两个下拉**之后**，
+            它们自然折到第二行，跟改版前一模一样；
+          - 「接续」带 `margin-left: auto`（靠右站），所以它必须是**最后一个** ——
+            排在它后面的东西会被一起推到右边去。
+        ⚠️ `.half` 只在两个都在时加（见 `pairWorkflows`）。
       */}
-      {!isGateway && (
+      {(!isGateway || (upscalePurpose && !isApp)) && (
         <div className="cv-dock-row">
-          <label className="cv-dock-field wide">
-            <span>{isApp ? '应用' : '工作流'}</span>
-            <select
-              className="cv-select"
-              data-dock-workflow=""
-              aria-label="工作流"
-              value={String(data.workflowId || '')}
-              onChange={event => {
-                const next = event.target.value;
-                /*
-                 * 「从工作流库中选择…」不是一份工作流，是一个动作（2026-10-01 徐先）：
-                 * 开库、挑完由画布写回。**这一支绝不能落到 `onField`** ——
-                 * 把 `__library__` 当成 workflowId 存进去，节点就指向一份不存在的工作流，
-                 * 而且界面上看不出哪里错了（下拉显示空白，提交时才报「配置不存在」）。
-                 * 受控 select 的 value 来自 `data.workflowId`，这里不写值 → 它会自己弹回去。
-                 */
-                if (next === LIBRARY_OPTION) { data.onPickWorkflow?.(); return; }
-                data.onField?.('workflowId', next);
-              }}
-            >
-              {/* 放第一位：工作流多的时候排到底部要先滚一遍才看得见。 */}
-              <option value={LIBRARY_OPTION}>＋ 从工作流库中选择…</option>
-              {!chosenWorkflow && (
-                <option value={String(data.workflowId || '')}>
-                  {data.workflowId ? `${String(data.workflowId)} · 未保存配置` : '— 选择工作流 —'}
-                </option>
+          {!isGateway && (
+            <label className={`cv-dock-field ${pairWorkflows ? 'half' : 'wide'}`}>
+              <span>{isApp ? '应用' : '工作流'}</span>
+              <select
+                className="cv-select"
+                data-dock-workflow=""
+                aria-label="工作流"
+                value={String(data.workflowId || '')}
+                onChange={event => {
+                  const next = event.target.value;
+                  /*
+                   * 「从工作流库中选择…」不是一份工作流，是一个动作（2026-10-01 徐先）：
+                   * 开库、挑完由画布写回。**这一支绝不能落到 `onField`** ——
+                   * 把 `__library__` 当成 workflowId 存进去，节点就指向一份不存在的工作流，
+                   * 而且界面上看不出哪里错了（下拉显示空白，提交时才报「配置不存在」）。
+                   * 受控 select 的 value 来自 `data.workflowId`，这里不写值 → 它会自己弹回去。
+                   */
+                  if (next === LIBRARY_OPTION) { data.onPickWorkflow?.(); return; }
+                  data.onField?.('workflowId', next);
+                }}
+              >
+                {/* 放第一位：工作流多的时候排到底部要先滚一遍才看得见。 */}
+                <option value={LIBRARY_OPTION}>＋ 从工作流库中选择…</option>
+                {!chosenWorkflow && (
+                  <option value={String(data.workflowId || '')}>
+                    {data.workflowId ? `${String(data.workflowId)} · 未保存配置` : '— 选择工作流 —'}
+                  </option>
+                )}
+                {listedGroups.map(group => (
+                  <optgroup key={group.provider} label={`${group.label} · ${group.items.length}`}>
+                    {group.items.map(item => <option key={item.workflowId} value={item.workflowId}>{workflowLabel(item)}</option>)}
+                  </optgroup>
+                ))}
+              </select>
+            </label>
+          )}
+
+          {upscalePurpose && !isApp && (
+            <label className={`cv-dock-field ${pairWorkflows ? 'half' : 'wide'}`}>
+              <span>超清工作流</span>
+              <select
+                className="cv-select"
+                data-dock-upscale-workflow=""
+                aria-label="超清工作流"
+                value={upscaleChosen}
+                onChange={event => data.onField?.('upscaleWorkflowId', event.target.value)}
+              >
+                <option value="">自动（最近改过的那份）</option>
+                {upscaleOptions.map(item => (
+                  <option key={item.workflowId} value={item.workflowId}>{workflowLabel(item)}</option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          {!isGateway && (
+            <>
+              <span className="cv-dock-hint">{isApp
+                ? (chosenWorkflow
+                  ? `RunningHub 应用 · ${chosenWorkflow.enabledCount} / ${chosenWorkflow.totalCount} 项启用`
+                  : '还没有导入过 RunningHub 应用 —— 到「设置 · 工作流库」的「RunningHub 应用」那一档，填应用 ID（或粘详情页链接）导入一个')
+                : chosenWorkflow
+                ? `${chosenWorkflow.provider === 'local' ? '本地 ComfyUI' : 'RunningHub（云端）'} · ${chosenWorkflow.enabledCount} / ${chosenWorkflow.totalCount} 项启用`
+                : listedWorkflows.length
+                  ? `先选一个工作流（这里只列${generatorKindLabel(purpose)}生成用、且属于「${engineProvider === 'local' ? '本地 ComfyUI' : 'RunningHub'}」的已保存配置）`
+                  : engineProvider === 'local'
+                    ? `还没有保存过本机 ComfyUI 的${generatorKindLabel(purpose)}工作流 —— 到「设置 · 工作流」的「本机 ComfyUI」那一档，把 ComfyUI「导出（API）」的 JSON 贴进去就有了`
+                    : `还没有保存过${generatorKindLabel(purpose)}工作流配置，先到设置页保存一份`}</span>
+              {chosenWorkflow && chosenWorkflow.kind !== purpose && (
+                <span className="cv-dock-hint warn">{workflowMismatchHint(purpose, chosenWorkflow)}</span>
               )}
-              {listedGroups.map(group => (
-                <optgroup key={group.provider} label={`${group.label} · ${group.items.length}`}>
-                  {group.items.map(item => <option key={item.workflowId} value={item.workflowId}>{workflowLabel(item)}</option>)}
-                </optgroup>
-              ))}
-            </select>
-          </label>
-          <span className="cv-dock-hint">{isApp
-            ? (chosenWorkflow
-              ? `RunningHub 应用 · ${chosenWorkflow.enabledCount} / ${chosenWorkflow.totalCount} 项启用`
-              : '还没有导入过 RunningHub 应用 —— 到「设置 · 工作流库」的「RunningHub 应用」那一档，填应用 ID（或粘详情页链接）导入一个')
-            : chosenWorkflow
-            ? `${chosenWorkflow.provider === 'local' ? '本地 ComfyUI' : 'RunningHub（云端）'} · ${chosenWorkflow.enabledCount} / ${chosenWorkflow.totalCount} 项启用`
-            : listedWorkflows.length
-              ? `先选一个工作流（这里只列${generatorKindLabel(purpose)}生成用、且属于「${engineProvider === 'local' ? '本地 ComfyUI' : 'RunningHub'}」的已保存配置）`
-              : engineProvider === 'local'
-                ? `还没有保存过本机 ComfyUI 的${generatorKindLabel(purpose)}工作流 —— 到「设置 · 工作流」的「本机 ComfyUI」那一档，把 ComfyUI「导出（API）」的 JSON 贴进去就有了`
-                : `还没有保存过${generatorKindLabel(purpose)}工作流配置，先到设置页保存一份`}</span>
-          {chosenWorkflow && chosenWorkflow.kind !== purpose && (
-            <span className="cv-dock-hint warn">{workflowMismatchHint(purpose, chosenWorkflow)}</span>
+              {chosenWorkflow && (
+                /*
+                 * 「打开工作流配置」原地开浮层，不跳页（2026-10-01 徐先）。
+                 * 原来这里是 `<a href="#/settings/providers/workflows?id=…">` —— 桌面版是
+                 * **单窗口 hash 路由**，点一下整张画布就没了；他改的只是这一份工作流的字段绑定，
+                 * 却要重新找路回来。现在交给画布：开工作流浮层、直接落在这一份，关掉即回画布。
+                 */
+                <button
+                  className="cv-btn sm ghost"
+                  type="button"
+                  data-dock-wfcfg=""
+                  onClick={() => data.onOpenWorkflow?.(String(chosenWorkflow.workflowId))}
+                >
+                  打开工作流配置
+                </button>
+              )}
+            </>
           )}
-          {chosenWorkflow && (
-            /*
-             * 「打开工作流配置」原地开浮层，不跳页（2026-10-01 徐先）。
-             * 原来这里是 `<a href="#/settings/providers/workflows?id=…">` —— 桌面版是
-             * **单窗口 hash 路由**，点一下整张画布就没了；他改的只是这一份工作流的字段绑定，
-             * 却要重新找路回来。现在交给画布：开工作流浮层、直接落在这一份，关掉即回画布。
-             */
-            <button
-              className="cv-btn sm ghost"
-              type="button"
-              data-dock-wfcfg=""
-              onClick={() => data.onOpenWorkflow?.(String(chosenWorkflow.workflowId))}
-            >
-              打开工作流配置
-            </button>
-          )}
+
+          {/*
+            超清那一份的说明。三种状态分开写，**不要把一个空 span 也渲染出来** ——
+            `.cv-dock-row` 有 `gap: 10px`，一个空 span 照样占掉一格 10px 的空隙。
+            （原来是「有候选但算不出目标时渲染一个空 span」，顺手收掉。）
+          */}
+          {upscalePurpose && !isApp && (upscaleChoiceStale ? (
+            <span className="cv-dock-hint warn" data-dock-upscale-workflow-stale="">
+              点名的那份超清工作流不在了（删了？还是改了工序 / 来源？）—— 现在按「自动」走
+            </span>
+          ) : upscaleTarget ? (
+            <span className="cv-dock-hint">
+              {`${generatorKindLabel(upscalePurpose)}超清 · 这次会用「${workflowDisplayName(upscaleTarget)}」`}
+            </span>
+          ) : !upscaleOptions.length ? (
+            <span className="cv-dock-hint">
+              还没有可用的{generatorKindLabel(upscalePurpose)}超清工作流 —— 到「设置 · 工作流」新建一份，把「工序」改成「超清」
+            </span>
+          ) : null)}
+
           {/*
             接续（2026-10-01 徐先）：原来是一颗「独立生成 / 接续上一段」的复选框，
             沉在下面单独占一行。现在只叫「接续」、做成胶囊、靠右挤进这一行 ——
@@ -1122,8 +1191,9 @@ export default function GenerateDock({ data, nodeId, anchor }: {
             ⚠️ 两个前提：`!isImage`（图片节点不吃 latent）、以及它待的**这一整行本来就是 `!isGateway`**。
             后者顺带收掉一个死控件 —— `custom`（自定义接口）以前也画这颗开关，
             可 `CanvasEditor` 的 custom 分支压根不读 `continuationEnabled`，点了没用。
+            ⚠️ 它带 `margin-left: auto`，**必须排在这一行最后一个**（排在它后面的会被推到右边去）。
           */}
-          {!isImage && !audioOnly && (
+          {!isGateway && !isImage && !audioOnly && (
             <button
               type="button"
               className={`cv-dock-chip cv-dock-cont${continuationOn ? ' on' : ''}`}
@@ -1134,48 +1204,6 @@ export default function GenerateDock({ data, nodeId, anchor }: {
                 : '不接上一段，按提示词单独出这一段；再点一下改成接着上一段跑'}
               onClick={() => data.onField?.('continuationEnabled', continuationOn ? 'off' : 'on')}
             >接续</button>
-          )}
-        </div>
-      )}
-
-      {/*
-        「超清工作流」这一行（2026-10-02 徐先：「新加一条，选择超清工作流的一列，与选择工作流并列」）。
-        跟上面那一行形状一样、紧跟着它：**这一行说的是「超清那一道用哪一份」**，
-        而上面那行说的是「这次生成用哪一份」—— 两份工作流，两个位置。
-        留空 = 按来源自动挑最近改过的那份（`data.upscaleWorkflowId` 不填就是它）。
-        ⚠️ 应用节点不画（`upscalePurpose` 为空）：应用没有「引擎」，也走不了超清那一道。
-      */}
-      {upscalePurpose && !isApp && (
-        <div className="cv-dock-row">
-          <label className="cv-dock-field wide">
-            <span>超清工作流</span>
-            <select
-              className="cv-select"
-              data-dock-upscale-workflow=""
-              aria-label="超清工作流"
-              value={upscaleChosen}
-              onChange={event => data.onField?.('upscaleWorkflowId', event.target.value)}
-            >
-              <option value="">自动（最近改过的那份）</option>
-              {upscaleOptions.map(item => (
-                <option key={item.workflowId} value={item.workflowId}>{workflowLabel(item)}</option>
-              ))}
-            </select>
-          </label>
-          {upscaleChoiceStale ? (
-            <span className="cv-dock-hint warn" data-dock-upscale-workflow-stale="">
-              点名的那份超清工作流不在了（删了？还是改了工序 / 来源？）—— 现在按「自动」走
-            </span>
-          ) : upscaleOptions.length ? (
-            <span className="cv-dock-hint">
-              {upscaleTarget
-                ? `${generatorKindLabel(upscalePurpose)}超清 · 这次会用「${workflowDisplayName(upscaleTarget)}」`
-                : ''}
-            </span>
-          ) : (
-            <span className="cv-dock-hint">
-              还没有可用的{generatorKindLabel(upscalePurpose)}超清工作流 —— 到「设置 · 工作流」新建一份，把「工序」改成「超清」
-            </span>
           )}
         </div>
       )}
