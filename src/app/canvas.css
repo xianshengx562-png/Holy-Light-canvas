@@ -3908,8 +3908,8 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 26px;
+  height: 26px;
   flex: none;
   padding: 0;
   background: transparent;
@@ -3955,22 +3955,29 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 .flow-shell .cv-dock-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
   flex: none;
   padding-top: 6px;
 }
 
-/* 引擎 chip：原生 select 调成胶囊形（参考图左下第一颗就是它）。 */
+/*
+  引擎 chip：原生 select 调成胶囊形（参考图左下第一颗就是它）。
+
+  ⚠️ `height` 必须写死、竖 padding 必须是 0：全局 `button { height: 36px }` 管不到 select，
+  它是靠 padding 撑高的 —— 两个控件各撑各的，右边那排胶囊（被全局钉在 36）就比它高 5px，
+  一整排看着是错层的。两边都写死 26 才齐（2026-10-02 徐先：「这一行太密了」）。
+*/
 .cv-dock-eng {
   width: auto;
+  height: 26px;
   max-width: 200px;
-  padding: 6px 26px 6px 12px;
+  padding: 0 24px 0 10px;
   background: var(--cv-elev);
   border-color: transparent;
   border-radius: 999px;
   color: var(--cv-text);
-  font-size: 12px;
+  font-size: 11.5px;
   cursor: pointer;
 }
 .cv-dock-eng:hover { border-color: var(--cv-accent-line); }
@@ -3996,16 +4003,18 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   border-color: var(--cv-warn-line);
 }
 
-/* 参数摘要 chip：点开分组弹层的那颗。文字超长省略，档位一看即知。 */
-.cv-dock-summary { max-width: 240px; padding: 6px 12px; }
+/* 参数摘要 chip：点开分组弹层的那颗。文字超长省略，档位一看即知。
+   ⚠️ padding 只写横的 —— 高度由 `.cv-dock-chip` 统一给，这里再写竖 padding 就把它顶回去了。 */
+.cv-dock-summary { max-width: 220px; padding: 0 10px; }
 .cv-dock-summary-text {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-/* 「自定义参数」图标钮：只留图标，说明搬进 title。 */
-.cv-dock-morebtn { padding: 7px 9px; }
+/* 「自定义参数」图标钮：只留图标，说明搬进 title。
+   ⚠️ 同上，只写横 padding（它是 `.cv-dock-chip`，高度归 chip 管）。 */
+.cv-dock-morebtn { padding: 0 8px; }
 
 .cv-dock-field { display: flex; align-items: center; gap: 6px; }
 .cv-dock-field > span { font-size: 11px; color: var(--cv-dim); white-space: nowrap; }
@@ -4025,11 +4034,20 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   font-variant-numeric: tabular-nums;
 }
 
+/*
+  底栏 / 面板里那一批胶囊（2026-10-02 徐先：「下面参数这一行太密了，胶囊改小一点」）。
+
+  ⚠️ `height` 必须写死：全局 `button { height: 36px; padding: 0 14px }`（globals.css）对所有
+  button 生效，只改 padding / font-size 盖不掉那 36px —— 胶囊一直是 36 高，跟旁边 31 高的
+  select 差 5px，一整排是错层的，十个控件挤成三行。写死 26 之后一排才齐得起来。
+  ⚠️ 竖 padding 一律写 0：高度由 height 定，再给竖 padding 只会把字挤到一边。
+*/
 .cv-dock-chip {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 5px 10px;
+  gap: 4px;
+  height: 26px;
+  padding: 0 10px;
   background: var(--cv-elev);
   border: 1px solid var(--cv-line-strong);
   border-radius: 999px;
@@ -4071,8 +4089,8 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   flex: none;
   background: var(--cv-run-bg);
   color: var(--cv-run-ink);
