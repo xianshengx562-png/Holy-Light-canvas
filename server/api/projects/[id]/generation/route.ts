@@ -16,7 +16,7 @@ import { watchLocalProgress } from '@/lib/providers/local/progress';
 import { latentAssetPrefix, readLatentFile } from '@/lib/latents';
 import {
   applyDefaultBindings, appendLatentEntries, applyLatentNodeIds, configurationSchema, consumedCanvasBindings,
-  MAX_AUDIO_INPUTS, MAX_REFERENCE_IMAGES, MAX_VIDEO_INPUTS,
+  isUpscaleInputBinding, MAX_AUDIO_INPUTS, MAX_REFERENCE_IMAGES, MAX_VIDEO_INPUTS,
   mergeParamRows, paramRowSchema, toNodeInfoList,
   type CanvasBindingValues, type Configuration, type LatentNodeIds,
 } from '@/lib/workflows/configuration';
@@ -154,8 +154,14 @@ function assertInputsAreWired(
   /*
    * 超清只有这一个输入，**它没地方去就等于整次操作白做**：任务会跑成功、产出一份
    * 和源视频毫无关系的素材，而界面上什么都不说。所以这里必须拦，而且要说清去哪儿补救。
+   *
+   * 落点有**三类**，任一接住就算接上了 —— 判定走 `isUpscaleInputBinding()`：
+   *   1. 老配置绑的 `upscale_input`（2026-10-02 之前只有这一个，老数据不能因为加了新槽位就报错）；
+   *   2. `reference_image_*` —— 待加工的是一张图（图片超清）；
+   *   3. `video_input*` —— 待加工的是一段视频（视频超清）。
+   * 后两类是「超清不再单造一个绑定」之后的新落点（详见 `UPSCALE_BINDINGS` 那条注释）。
    */
-  if (values.upscaleInput?.trim() && !consumed.has('upscale_input')) orphaned.push('待超清的媒体');
+  if (values.upscaleInput?.trim() && ![...consumed].some(isUpscaleInputBinding)) orphaned.push('待超清的媒体');
   if (!orphaned.length) return;
   throw new ApiError(400, `${orphaned.join('、')}没有接进工作流，生成出来不会带上它们。请到「设置 · 工作流配置」把对应字段的「画布绑定」选成画布值，并确认该字段已启用。`);
 }
@@ -347,19 +353,32 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const uploader: (file: File) => Promise<string> = useLocal
       ? (file: File) => uploadLocalMedia(file, local)
       : (file: File) => uploadMedia(file, apiKey, runningHubBase).then(item => item.fileName);
+    /*
+     * 超清：待加工的那份媒体是**已经落盘的本地资产**，得重传成对端认得的文件名 ——
+     * 直接把 `/api/assets/...` 塞进去，工作流收到的是一个它取不到的路径，
+     * 症状正是这套 UI 一直在防的那种静默失败（任务成功、产出与输入无关）。
+     *
+     * 换出来的名字**同时写进两个槽位**：2026-10-02 起超清不再单造一个「超清」绑定，
+     * 用户可能把那个加载字段绑在「参考图 1」（图超清）也可能绑在「视频输入 1」（视频超清）。
+     * 没被绑的那一支不会进 `nodeInfoList` —— 绑定的机制本来就是「没人接就跳过」，
+     * 所以多给一个槽位没有副作用。
+     * 超清这次操作**只有这一份输入**，客户端也只发这一个值，所以这里是替换而不是追加。
+     */
+    const upscaleName = operation === 'upscale' ? await resolveUpscaleInput(inputMedia!, user.id, apiKey, uploader) : '';
     const bindingValues = input.bindingValues
       ? {
         ...input.bindingValues,
         latents: useLocal ? input.bindingValues.latents : await resolveLatentValues(input.bindingValues.latents, user.id, apiKey, runningHubBase),
         /** 图片生成节点跑出来的图是本地资产，必须重传成对端认得的文件名才能当参考图喂给工作流。 */
-        referenceImages: await resolveReferenceImages(input.bindingValues.referenceImages, user.id, apiKey, uploader),
-        ...(operation === 'upscale' ? { upscaleInput: await resolveUpscaleInput(inputMedia!, user.id, apiKey, uploader) } : {}),
+        referenceImages: operation === 'upscale' ? [upscaleName] : await resolveReferenceImages(input.bindingValues.referenceImages, user.id, apiKey, uploader),
+        /** 老配置绑的是 `upscale_input` 这一支：值照样给，那条路不能因为新增槽位而断掉。 */
+        ...(operation === 'upscale' ? { upscaleInput: upscaleName } : {}),
         /*
          * 视频 / 音频**故意不进** `assertInputsAreWired` 那条「有值却没接进工作流就报错」的检查：
          * 它们是**可选**的补充输入 —— 视频输入节点还有「首帧当参考图」那条主路，绑不绑都能出片。
          * 一旦检查，接了视频却只配了参考图绑定的用户会莫名其妙生成不了。
          */
-        videoInputs: await resolveVideoInputs(videoList, user.id, apiKey, uploader),
+        videoInputs: operation === 'upscale' ? [upscaleName] : await resolveVideoInputs(videoList, user.id, apiKey, uploader),
         audioInputs: await resolveAudioInputs(audioList, user.id, apiKey, uploader),
         /* 数组接管之后这两个单值就不再作数 —— 留着会让「哪一份才生效」有第二个答案。 */
         videoInput: undefined,

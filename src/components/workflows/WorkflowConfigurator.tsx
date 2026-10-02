@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { AudioLines, Braces, Check, FileBox, Film, ImageIcon, List, Plus, Save, Search, Trash2, Type, Upload, X } from 'lucide-react';
-import { fieldKey, normalizeFieldLabel, bindingsForFields, nextSeriesBinding, canvasBindingLabels, configurationSchema, toNodeInfoList, MAX_REFERENCE_IMAGES, type CanvasBinding, type WorkflowField } from '@/lib/workflows/configuration';
+import { fieldKey, normalizeFieldLabel, bindingsForFields, isUpscaleInputBinding, nextSeriesBinding, canvasBindingLabels, configurationSchema, toNodeInfoList, MAX_REFERENCE_IMAGES, type CanvasBinding, type WorkflowField } from '@/lib/workflows/configuration';
 import { normalizeWorkflowName, readWorkflowName, WORKFLOW_NAME_MAX, workflowDisplayName } from '@/lib/workflows/label';
 import {
   categoriesFor,
@@ -163,7 +163,7 @@ export default function WorkflowConfigurator({ initialWorkflowId, initialKind = 
    * 而没有任何地方会说「你的输入没接上」。所以在这里**保存之前**就说清楚，
    * 并且直接告诉他下一步是去勾选哪个字段（超清不吃提示词，那套字段勾了也没用）。
    */
-  const upscaleWired = operation !== 'upscale' || fields.some(field => field.enabled && field.binding === 'upscale_input');
+  const upscaleWired = operation !== 'upscale' || fields.some(field => field.enabled && isUpscaleInputBinding(field.binding));
   /**
    * 改一个字段。
    *
@@ -249,7 +249,7 @@ export default function WorkflowConfigurator({ initialWorkflowId, initialKind = 
       超清工作流没绑定输入时**在保存之前**说清：这一步没做，点超清会得到一份和源素材无关的产出，
       而界面上没有任何地方会报错 —— 正是这套 UI 一直在防的那种静默失败。
     */}
-    {!upscaleWired && <p role="alert" className="workflow-lib-warn">这份工作流是「超清」工序，但还没有字段绑到「超清」上 —— 在下面勾选那个上传字段，把「画布绑定」选成它，否则点超清时输入会被丢掉。</p>}
+    {!upscaleWired && <p role="alert" className="workflow-lib-warn">这份工作流是「超清」工序，但还没有字段承接待加工的媒体 —— 在下面勾选那个上传字段，把「画布绑定」选成「画布 · 参考图 1」（图）或「画布 · 视频输入 1」（视频），否则点超清时输入会被丢掉。</p>}
     {error && <div role="alert" className="workflow-error">{error}</div>}
     {notice && <div role="status" className="workflow-success"><Check size={16} />{notice}</div>}
     <div className="workflow-layout">

@@ -2422,7 +2422,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     if (!target) {
       return patch(id, {
         status: 'failed',
-        result: `还没有配${generatorKindLabel(purpose)}超清工作流 —— 到「设置 · 工作流」新建一份工作流，把「工序」改成「超清」，再把工作流里那个上传段的绑定选成「超清」`,
+        result: `还没有配${generatorKindLabel(purpose)}超清工作流 —— 到「设置 · 工作流」新建一份工作流，把「工序」改成「超清」，再把工作流里那个上传段的「画布绑定」选成「画布 · 参考图 1」（图）或「画布 · 视频输入 1」（视频）`,
       });
     }
     patch(id, { status: 'running', result: `超清中 · ${workflowDisplayName(target)}` });

@@ -127,7 +127,8 @@ export const canvasBindingLabels: Record<CanvasBinding, string> = {
  * - 音频生成：只留提示词与参考图数量（2026-10-02）。**刻意不列时长与比例** ——
  *   画布上音频那一档把「生成时长 / 比例 / 分辨率」整组收掉了，这里再给个「画布 · 视频时长」
  *   绑上去，提交时那个值是空的，症状又是「任务成功、参数被静默丢掉」。
- * - 超清：只有「超清」这一个绑定（待加工的那一份媒体），与生成配置彻底独立。
+ * - 超清：只有「参考图 1 / 视频输入 1」两个**通用输入槽**（待加工的那一份媒体落在其中一个），
+ *   与生成配置彻底独立 —— 不要提示词、不要比例、不要 latent（理由见 `UPSCALE_BINDINGS`）。
  *
  * **不含序列项**（参考图 N / 视频 N / 音频 N）—— 那些由 `bindingsForFields` 按「已用到第几个」
  * 追加，全部铺开会让一个只用两张参考图的工作流面对 20 个选项。
@@ -142,7 +143,43 @@ const VIDEO_GENERATION_BINDINGS: CanvasBinding[] = [
 ];
 /** 音频：只有提示词与参考图数量（理由见上面「按用途过滤」那条注释）。 */
 const AUDIO_GENERATION_BINDINGS: CanvasBinding[] = ['prompt', 'reference_count'];
-const UPSCALE_BINDINGS: CanvasBinding[] = ['upscale_input'];
+/**
+ * 超清工序能绑的槽位：**通用输入槽，不再单造一个「超清」绑定**（2026-10-02 徐先）。
+ *
+ * 原来这里只有 `upscale_input` 一项，标签就叫「超清」。它是**为超清单造的一个概念** ——
+ * 而超清工作流真正吃的那份媒体，在工作流里长什么样，跟普通「加载视频 / 加载图片」节点
+ * 没有任何区别：都是「一个接收文件的字段」。专门为它造一个绑定，代价是
+ * ①又多一个要记的名字；②超清工作流**只要还需要第二份输入就没处选**。
+ *
+ * 现在改成复用现成的两个槽位：
+ * - `reference_image_1`（画布 · 参考图 1）—— 待加工的是一张图（图片超清）；
+ * - `video_input`（画布 · 视频输入 1）—— 待加工的是一段视频（视频超清）。
+ *
+ * 两者都给而不是按用途只给一个：同一种媒体在不同工作流里落在不同类型的加载节点上，
+ * 该绑哪个只有配这份工作流的人知道。没被绑的那一支不会进 `nodeInfoList`
+ * （绑定的机制本来就是「没人接就跳过」），所以两个都给不会有副作用。
+ *
+ * ⚠️ `upscale_input` **没有删**：老配置里已经绑上它的字段要照旧能读、能跑
+ * （读出来时 `selected.binding` 会把它带回下拉，可以改也可以留着）。
+ * 只做「下拉里不再主动给新的」，不做迁移 —— 那是把一份能用的配置改成坏掉的配置。
+ */
+const UPSCALE_BINDINGS: CanvasBinding[] = ['reference_image_1', 'video_input'];
+
+/**
+ * 这个绑定能不能承接**待超清的那份媒体**。
+ *
+ * 三类落点（理由见 `UPSCALE_BINDINGS` 那条注释）：
+ * `upscale_input`（老绑定，老配置里还绑着它，不能因为加了新槽位就把它们判成没接上）、
+ * `reference_image_*`（图超清）、`video_input*`（视频超清）。
+ *
+ * 🔴 配置页那句「还没有字段承接待加工的媒体」与服务端那条
+ * 「有值却没接进工作流就报错」的检查**必须走同一个判定** ——
+ * 两边各写一份的话，迟早出现「界面说绑好了、提交时却说没接上」。
+ */
+export function isUpscaleInputBinding(binding: unknown): boolean {
+  const value = String(binding ?? '');
+  return value === 'upscale_input' || value.startsWith('reference_image_') || value.startsWith('video_input');
+}
 
 export function bindingsForContext(
   kind: 'image' | 'video' | 'audio',
