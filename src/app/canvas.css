@@ -4584,6 +4584,36 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   -webkit-app-region: no-drag;
 }
 
+/* ---------- 无遮挡模式（2026-10-02 N+97，徐先）----------
+ * 「这些全部收起，只保留画布的功能和右上角那三个选项，切换快捷键为 Tab，按钮在画面右上角。」
+ *
+ * 收掉的是**界面外壳**：左上项目名、顶栏那一整排（余额 / 已保存 / 保存 / 项目 / 启动 /
+ * 运行次数）、左侧工具轨、左下视口控制条、右下小地图、右下那颗「画布外观」圆钮。
+ * 留着的是**画布自己**（节点 / 连线 / 参数底栏 / 右键菜单 / 浮层）+ 右上角那排圆钮
+ * （它在 `.cv-corner` 里，不在下面这份清单里）+ 那颗切换钮本身。
+ *
+ * 🔴 **`.cv-topbar` 本身不能收**，只清里面的东西，两个理由缺一不可：
+ *   ① 它是画布页**唯一**的窗口拖拽区（`-webkit-app-region: drag`，见本文件末尾那段），
+ *      连它一起 display:none 就拖不动窗口了；
+ *   ② 它那条 `padding-right: var(--window-controls-inset…)` 是给系统那三个按钮让位的 ——
+ *      没有它，`.cv-stage` 会顶到窗口最上面，右上角那排圆钮正好钻到系统按钮底下。
+ *   底色换成画布地板色（不是透明）：顶栏底下是 `.flow-shell` 那一层（`--cv-bg`），
+ *   换过画布底色的人会看到一条黑带，改成地板色才是「画布一直顶到最上面」的样子。
+ *
+ * ⚠️ 不要用 `visibility` / `opacity` 收 —— 那些元素仍然**占位、仍然能被 Tab 聚焦到**，
+ *    而无遮挡模式下 Tab 已经改成切换键了，焦点停在一个看不见的按钮上最糟。
+ * `display: none` 的另一个好处：`.cv-balance-slot` 里的账号卡只是不画，不会重新挂载。
+ */
+.flow-shell.cv-zen .cv-topbar > * { display: none; }
+.flow-shell.cv-zen .cv-topbar {
+  background: var(--cv-floor);
+  border-bottom-color: transparent;
+}
+.flow-shell.cv-zen .cv-rail,
+.flow-shell.cv-zen .cv-vp,
+.flow-shell.cv-zen .cv-ap-wrap,
+.flow-shell.cv-zen .react-flow__minimap { display: none; }
+
 /* ---------- SKILL 社区（2026-09-25，从 AIFISHER 迁过来） ---------- */
 /*
  * 一个盖在画布上的居中弹层。

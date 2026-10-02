@@ -9,7 +9,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import {
   ChevronDown, ChevronUp,
-  Ban, ClipboardPaste, Copy, CopyPlus, GitBranch, Globe, History, LayoutGrid, Link2, Maximize2, Palette, Plus,
+  Ban, ClipboardPaste, Copy, CopyPlus, Eye, EyeOff, GitBranch, Globe, History, LayoutGrid, Link2, Maximize2, Palette, Plus,
   Save, Scissors, SlidersHorizontal, Sparkles, Trash2, Unplug, Upload,
 } from 'lucide-react';
 import '@/app/canvas.css';
@@ -680,6 +680,23 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
   const [miniMap, setMiniMap] = useState(true);
   /** 右下角「画布外观」面板。 */
   const [appearanceOpen, setAppearanceOpen] = useState(false);
+  /**
+   * 无遮挡模式（2026-10-02 徐先）：「这些全部收起，只保留画布的功能和右上角那三个选项，
+   * 切换快捷键为 Tab，按钮在画面右上角」。
+   *
+   * 收起的是**界面外壳**：左上项目名、顶栏那排（余额 / 已保存 / 保存 / 项目 / 启动 / 运行次数）、
+   * 左侧工具轨、左下视口控制条、右下小地图、右下那颗「画布外观」圆钮。
+   * 留着的是**画布自己**（节点、连线、参数底栏、右键菜单、浮层）+ 右上角那排圆钮
+   * （生成结果 / 内置浏览器 / Codex）+ 这颗切换钮本身 —— 它是回来的唯一入口。
+   *
+   * ⚠️ 顶栏那一格**不清空、只清里面的东西**：它是画布页唯一的窗口拖拽区
+   *    （`-webkit-app-region: drag`，见 canvas.css），也是给系统那三个按钮让位的；
+   *    连它一起收掉就拖不动窗口了，而且右上角那排圆钮会跟着往上顶进系统按钮底下。
+   *
+   * 不落盘（和 `miniMap` / `appearanceOpen` 一样是**当前这一屏的视图状态**）：
+   * 刷新或换项目回到正常模式。它把「保存」这类按钮一并藏了，默认回到能看见的那一档更安全。
+   */
+  const [zen, setZen] = useState(false);
   /**
    * 左轨五项弹出的那张**居中大浮层**开着的是哪一项（2026-09-21）。
    * `null` = 都关着；`'assets' | 'workflow' | 'skill' | 'history' | 'settings'`。
@@ -3416,6 +3433,21 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
          选了多个就一起切：**只要有一个还没绕过就全部绕过**，再按一次全部取消 ——
          混合状态下按「多数」决定会让同一个键在不同时候做不同的事。 */
       else if (key === 'b') { event.preventDefault(); toggleBypass(); }
+      /*
+       * Tab = 正常模式 / 无遮挡模式来回切（2026-10-02 徐先）。
+       *
+       * 为什么必须 `preventDefault()`：Tab 是浏览器的焦点导航键，不拦住的话按一下
+       * 焦点会跳到顶栏那颗「保存」上（无遮挡模式下它还在 DOM 里、只是没显示），
+       * 再按一下有效果的就是别的键了。
+       * 上面那两道守卫（`overlay !== null` / `isEditingField()`）是**现成的**：
+       * 在提示词框里按 Tab 仍然该是跳焦点，不该把整个界面收掉。
+       * Shift+Tab（反向导航）不接 —— 那一路留给浏览器。
+       */
+      else if (key === 'tab' && !event.shiftKey) {
+        event.preventDefault();
+        setAppearanceOpen(false);
+        setZen(value => !value);
+      }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -4093,7 +4125,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     ];
   }, [abandonNode, addAt, autoLayout, clipboard, connectSelected, copyNodes, cutNodes, deleteNodes, disconnectNode, duplicateNodes, fitView, menu, nodes, openUpload, pasteNodes, pendingLink, save]);
 
-  return <div className="flow-shell">
+  return <div className={`flow-shell${zen ? ' cv-zen' : ''}`}>
     <div className="cv-topbar">
       <a className="cv-brand" href="/">{projectName || '未命名项目'}</a>
       <div className="cv-spacer" />
@@ -4369,8 +4401,25 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
 
           开一个就收另外两个：三个抽屉都占右边同一条边，叠着放谁也看不清。
           抽屉开着时整排图标往左挪一个抽屉的宽度（`right`），不然会被抽屉压在底下。
+
+          「无遮挡模式」那颗放在这一排**最左**（2026-10-02 N+97）：它和右边那三颗不是一类
+          （那三颗各开一格抽屉，它是切整屏的界面），排在最外一档不会看着像第四个抽屉入口；
+          而且无遮挡之后这一排就是画面上仅剩的控件，位置必须和现在一模一样 ——
+          钉在这排里最省，不必再算一次绝对坐标。
         */}
         <div className="cv-corner" style={{ right: 14 + (browserOpen ? browserDrawerSize : codexOpen ? (codexWidth ?? CODEX_DRAWER_WIDTH) : resultsOpen ? RESULTS_DRAWER_WIDTH : 0) }}>
+          <button
+            className={`cv-ap-open${zen ? ' on' : ''}`}
+            type="button"
+            data-zen-toggle=""
+            aria-pressed={zen}
+            aria-label={zen ? '退出无遮挡模式' : '无遮挡模式'}
+            data-tip={zen ? '退出无遮挡模式 · Tab' : '无遮挡模式 · Tab'}
+            onClick={() => { setAppearanceOpen(false); setZen(value => !value); }}
+          >
+            {/* 图标说的是**这一下会做什么**：能藏就画「闭眼」，已经是藏着的就画「睁眼」。 */}
+            {zen ? <Eye size={16} strokeWidth={2} aria-hidden /> : <EyeOff size={16} strokeWidth={2} aria-hidden />}
+          </button>
           <button
             className={`cv-ap-open${resultsOpen ? ' on' : ''}`}
             type="button"
