@@ -1461,7 +1461,7 @@ export default function GenerateDock({ data, nodeId, anchor }: {
           onClick={() => { setPop(value => !value); setUpPop(false); }}
         >
           <span className="cv-dock-summary-text">{summaryText || '—'}</span>
-          <ChevronDown size={13} strokeWidth={2} className={pop ? 'flip' : ''} aria-hidden />
+          <ChevronDown size={12} strokeWidth={2} className={pop ? 'flip' : ''} aria-hidden />
         </button>
         {/*
           「超清」胶囊（2026-10-02 徐先）：点开是「触发 + 来源」两行，长相跟左边那颗
@@ -1482,7 +1482,7 @@ export default function GenerateDock({ data, nodeId, anchor }: {
             <span className="cv-dock-summary-text">
               {upscaleMode === 'off' ? '超清' : `超清 · ${UPSCALE_MODE_LABELS[upscaleMode]}`}
             </span>
-            <ChevronDown size={13} strokeWidth={2} className={upPop ? 'flip' : ''} aria-hidden />
+            <ChevronDown size={12} strokeWidth={2} className={upPop ? 'flip' : ''} aria-hidden />
           </button>
         )}
         <button
@@ -1493,14 +1493,24 @@ export default function GenerateDock({ data, nodeId, anchor }: {
           title="自定义参数（工作流、负向提示词、张数 / 步数 / CFG / 种子 / 采样器）"
           onClick={() => setMore(value => !value)}
         >
-          <SlidersHorizontal size={14} strokeWidth={1.9} aria-hidden />
+          <SlidersHorizontal size={13} strokeWidth={1.9} aria-hidden />
         </button>
         <span className="cv-dock-spacer" />
-        {(running || String(data.result || '')) && (
-          <span className="cv-dock-status" data-dock-status={data.status || 'idle'}>
-            {running ? '生成中…' : String(data.result || '')}
-          </span>
-        )}
+        {/*
+          这一排**不写状态文字**（2026-10-02 徐先：「这里不要显示文字」）。
+
+          原来这里挂着一句 `data.result`（「生成完成」/「这一轮被放弃了 —— 已按失败处理。」这种），
+          两个问题：
+          ① **跟节点卡片上那条重复** —— 卡片本来就有一整条 `.cv-node-status`，同一句话在一屏里
+             说两遍，工具栏那一条反而把「这一排是控件」这件事读乱了；
+          ② 它最宽能到 160px（`.cv-dock-status` 的 `max-width`），是这一排**唯一会变的宽度** ——
+             正因为它在，放弃那一句会把「优化 / 发送」挤到第二行去（2026-10-02 的截图就是这个）。
+          去掉之后这一排宽度是**固定**的，多少条都只受引擎名长短影响。
+
+          ⚠️ 别搬回来。要报进度/结果，位置在**节点卡片自己身上**（`.cv-node-status`）；
+          真要在这里表达「在跑」，发送钮那颗已经会变成转圈（`running` 那支 `Loader`），
+          旁边还有「放弃」。
+        */}
         {/*
           「优化提示词」图标钮 —— 目标位置是操作排最右那一簇（参考图：… 参数图标 / ✦ / 发送）。
           放在发送钮左边是因为它俩同属「对提示词做点什么」的动作组；挨着发送，手不用挪。
@@ -1517,9 +1527,14 @@ export default function GenerateDock({ data, nodeId, anchor }: {
           disabled={optimizing}
           title="优化提示词：用文本模型把这句话改写成一段能直接生成的提示词（设置 · 模型服务里配的那家）"
         >
+          {/*
+            图标尺寸跟着 CSS 里那个 `--cv-dock-ctl` 走（现在是 20）：
+            钮只有 20 高，16 的图标会顶到边。改那个变量时这里也得跟着改 ——
+            图标是写死在 TSX 里的，CSS 变量管不到它。
+          */}
           {optimizing
-            ? <Loader size={15} strokeWidth={2.2} className="cv-spin" aria-hidden />
-            : <Sparkles size={16} strokeWidth={1.8} aria-hidden />}
+            ? <Loader size={13} strokeWidth={2.2} className="cv-spin" aria-hidden />
+            : <Sparkles size={14} strokeWidth={1.8} aria-hidden />}
         </button>
         {/*
           「放弃这一轮」（2026-09-29）：只在运行中露出。
@@ -1548,7 +1563,7 @@ export default function GenerateDock({ data, nodeId, anchor }: {
           title="生成"
           aria-label="生成"
         >
-          {running ? <Loader size={16} strokeWidth={2.2} className="cv-spin" aria-hidden /> : <ArrowUp size={17} strokeWidth={2.4} aria-hidden />}
+          {running ? <Loader size={14} strokeWidth={2.2} className="cv-spin" aria-hidden /> : <ArrowUp size={15} strokeWidth={2.4} aria-hidden />}
         </button>
       </div>
 
