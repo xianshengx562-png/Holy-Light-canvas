@@ -1,6 +1,6 @@
 {
   "name": "holy-light-canvas",
-  "version": "1.0.48",
+  "version": "1.0.49",
   "private": true,
   "description": "Holy Light画布桌面版：electron-vite 单进程结构，无本地 HTTP 服务、无外部数据库，数据存 userData 的 JSON",
   "main": "./out/main/index.js",

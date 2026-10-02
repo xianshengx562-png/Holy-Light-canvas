@@ -3833,6 +3833,17 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
         `DOCK_BOTTOM_SAFE = 56` 让 —— 它算「下方还剩多少空间」时就按那条线往上量。
    ============================================================ */
 .flow-shell .cv-dock {
+  /*
+    `--cv-dock-ctl`：底栏里**所有并排小控件**的高度（胶囊 / 下拉 / 图标钮 / 小号按钮）。
+
+    🔴 为什么必须是一个变量：这套控件会被全局 `button { height: 36px }` 顶住，
+    每一处都得**自己写死 height** 才盖得住 —— 一旦各处写死各自的数，改一次就是翻五处、
+    漏一处就错层（26 那一版就是这么漏的）。徐先 2026-10-02 连提两次「改小一点」，
+    36 → 26 → 24，有这个变量后面再调就是改一行。
+    ⚠️ 别拿它去对齐别处的 `.cv-btn.sm`：那是全库共用的（30 处在用），只有**底栏里**
+    那几颗才跟着这个变量（见下面 `.cv-dock .cv-btn.sm`）。
+  */
+  --cv-dock-ctl: 24px;
   position: absolute;
   left: 14px;
   top: 14px;
@@ -3908,8 +3919,8 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: var(--cv-dock-ctl);
+  height: var(--cv-dock-ctl);
   flex: none;
   padding: 0;
   background: transparent;
@@ -3934,7 +3945,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 .flow-shell .cv-dock-abandon {
   display: inline-flex;
   align-items: center;
-  height: 26px;
+  height: var(--cv-dock-ctl);
   padding: 0 10px;
   flex: none;
   background: transparent;
@@ -3966,18 +3977,19 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 
   ⚠️ `height` 必须写死、竖 padding 必须是 0：全局 `button { height: 36px }` 管不到 select，
   它是靠 padding 撑高的 —— 两个控件各撑各的，右边那排胶囊（被全局钉在 36）就比它高 5px，
-  一整排看着是错层的。两边都写死 26 才齐（2026-10-02 徐先：「这一行太密了」）。
+  一整排看着是错层的。两边都写死同一个 `--cv-dock-ctl` 才齐
+  （2026-10-02 徐先：「这一行太密了」，36 → 26 → 24）。
 */
 .cv-dock-eng {
   width: auto;
-  height: 26px;
+  height: var(--cv-dock-ctl);
   max-width: 200px;
-  padding: 0 24px 0 10px;
+  padding: 0 22px 0 9px;
   background: var(--cv-elev);
   border-color: transparent;
   border-radius: 999px;
   color: var(--cv-text);
-  font-size: 11.5px;
+  font-size: 11px;
   cursor: pointer;
 }
 .cv-dock-eng:hover { border-color: var(--cv-accent-line); }
@@ -4005,7 +4017,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 
 /* 参数摘要 chip：点开分组弹层的那颗。文字超长省略，档位一看即知。
    ⚠️ padding 只写横的 —— 高度由 `.cv-dock-chip` 统一给，这里再写竖 padding 就把它顶回去了。 */
-.cv-dock-summary { max-width: 220px; padding: 0 10px; }
+.cv-dock-summary { max-width: 220px; padding: 0 9px; }
 .cv-dock-summary-text {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4014,7 +4026,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 }
 /* 「自定义参数」图标钮：只留图标，说明搬进 title。
    ⚠️ 同上，只写横 padding（它是 `.cv-dock-chip`，高度归 chip 管）。 */
-.cv-dock-morebtn { padding: 0 8px; }
+.cv-dock-morebtn { padding: 0 7px; }
 
 .cv-dock-field { display: flex; align-items: center; gap: 6px; }
 .cv-dock-field > span { font-size: 11px; color: var(--cv-dim); white-space: nowrap; }
@@ -4040,20 +4052,20 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   ⚠️ `height` 必须写死：全局 `button { height: 36px; padding: 0 14px }`（globals.css）对所有
   button 生效，只改 padding / font-size 盖不掉那 36px —— 胶囊一直是 36 高，跟旁边 31 高的
   select 差 5px，一整排是错层的；九个控件（运行中多一颗「放弃」）挤不下，**发送钮掉到第二行**。
-  两边都写死 26 之后才回到一行、且一行内所有控件同高。
+  两边都写死同一个 `--cv-dock-ctl`（36 → 26 → 24）之后才回到一行、且一行内所有控件同高。
   ⚠️ 竖 padding 一律写 0：高度由 height 定，再给竖 padding 只会把字挤到一边。
 */
 .cv-dock-chip {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  height: 26px;
-  padding: 0 10px;
+  height: var(--cv-dock-ctl);
+  padding: 0 9px;
   background: var(--cv-elev);
   border: 1px solid var(--cv-line-strong);
   border-radius: 999px;
   color: var(--cv-dim);
-  font-size: 11.5px;
+  font-size: 11px;
   cursor: pointer;
 }
 .cv-dock-chip:hover { color: var(--cv-text); border-color: var(--cv-accent-line); }
@@ -4064,6 +4076,15 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 }
 .cv-dock-chip svg { transition: transform 0.15s ease; }
 .cv-dock-chip svg.flip { transform: rotate(180deg); }
+
+/*
+  底栏里那几颗 `.cv-btn.sm`（「打开工作流配置」「粘贴图片」「预览」）跟胶囊同高。
+
+  ⚠️ 只改**底栏这一棵子树**里的 —— `.cv-btn.sm` 是全库共用的（30 处在用，Codex / 导演台 /
+  外观面板都在里头），动它会把别人的界面一起改了。而这几颗是和胶囊**并排在同一行**的
+  （「接续」胶囊旁边就是「打开工作流配置」），不齐就会被看出来。
+*/
+.cv-dock .cv-btn.sm { height: var(--cv-dock-ctl); }
 
 .cv-dock-spacer { flex: 1 1 auto; }
 
@@ -4086,13 +4107,24 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 .cv-dock-status[data-dock-status='failed'] { color: var(--cv-danger); }
 .cv-dock-status[data-dock-status='success'] { color: var(--cv-text); }
 
+/*
+  发送钮：比同一排的胶囊**高 4px**（`calc(var(--cv-dock-ctl) + 4px)`）。
+  它是这一排里唯一的主操作，全排同高会让它读起来只是「又一颗胶囊」；
+  差 4px 是为了让它还是那一排里最大的一颗 —— 但仍然是**按比例**跟着 `--cv-dock-ctl` 走，
+  不会像以前那样各自写死、改一次漏一次（36 → 30 → 28）。
+*/
 .cv-dock-send {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: calc(var(--cv-dock-ctl) + 4px);
+  height: calc(var(--cv-dock-ctl) + 4px);
   flex: none;
+  /* ⚠️ `padding: 0` 不能省：全局 `button { padding: 0 14px }` 会留 28px 横内边距，
+     而这颗钮一共就 28px 宽（`box-sizing: border-box`）→ **内容盒被挤成 0**，
+     里面那个箭头是靠溢出显示出来的。现在没出问题只是因为没设 `overflow: hidden`，
+     谁哪天加一句裁剪，箭头就整颗不见了。 */
+  padding: 0;
   background: var(--cv-run-bg);
   color: var(--cv-run-ink);
   border: 0;
