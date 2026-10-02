@@ -16,8 +16,8 @@ import { watchLocalProgress } from '@/lib/providers/local/progress';
 import { latentAssetPrefix, readLatentFile } from '@/lib/latents';
 import {
   applyDefaultBindings, appendLatentEntries, applyLatentNodeIds, configurationSchema, consumedCanvasBindings,
-  isUpscaleInputBinding, MAX_AUDIO_INPUTS, MAX_REFERENCE_IMAGES, MAX_VIDEO_INPUTS,
-  mergeParamRows, paramRowSchema, toNodeInfoList,
+  MAX_AUDIO_INPUTS, MAX_REFERENCE_IMAGES, MAX_VIDEO_INPUTS,
+  mergeParamRows, orphanedCanvasBindings, paramRowSchema, toNodeInfoList, upscaleValueSlots,
   type CanvasBindingValues, type Configuration, type LatentNodeIds,
 } from '@/lib/workflows/configuration';
 import { validateImageParams, validateOutputSize } from '@/lib/workflows/imageParams';
@@ -126,42 +126,16 @@ async function resolveLatentValues(values: string[] | undefined, userId: string,
  * ignored the prompt. Anything the user definitely typed or picked deserves a loud error
  * rather than a silent no-op — and the fix (rebind the field on the workflow config page) is
  * something only they can do, so the message has to name it.
+ *
+ * 「哪些值算没接上」那份判定在 `orphanedCanvasBindings()`（纯函数、可单测）—— 这里只管
+ * 「怎么报」：报错文案要把人支到配置页去，而只有这一层知道他该点哪里。
  */
 function assertInputsAreWired(
   config: Configuration,
   values: CanvasBindingValues | undefined,
   latentNodeIds?: LatentNodeIds,
 ) {
-  if (!values) return;
-  const consumed = consumedCanvasBindings(config);
-  const has = (prefix: string) => [...consumed].some(binding => binding.startsWith(prefix));
-  const orphaned: string[] = [];
-  if (values.prompt?.trim() && !consumed.has('prompt')) orphaned.push('提示词');
-  // 负向提示词和提示词同性质：写了一段话却没有任何字段承接，等于白写。
-  // 步数 / CFG / 种子 / 张数 / 采样器**不在这里检查**——它们有默认值、每次都会提交，
-  // 而很多图片工作流压根不暴露这些字段，一旦检查就变成「不绑就永远生成不了」。
-  if (values.negativePrompt?.trim() && !consumed.has('negative_prompt')) orphaned.push('负向提示词');
-  const images = values.referenceImages?.length ?? 0;
-  if (images && !has('reference_image_')) orphaned.push(`${images} 张参考图`);
-  const latents = values.latents?.filter(Boolean).length ?? 0;
-  /*
-   * 节点上填了粗 / 精采样节点号时，latent **有地方可去**（服务端会按那个号改写或补一条），
-   * 不该再算「没接进工作流」—— 否则报错会把用户支到配置页去配一个他已经在画布上配好的东西。
-   */
-  const latentPlaced = has('latent_')
-    || Boolean(String(latentNodeIds?.coarse || '').trim() || String(latentNodeIds?.fine || '').trim());
-  if (latents && !latentPlaced) orphaned.push(`${latents} 个接续 latent`);
-  /*
-   * 超清只有这一个输入，**它没地方去就等于整次操作白做**：任务会跑成功、产出一份
-   * 和源视频毫无关系的素材，而界面上什么都不说。所以这里必须拦，而且要说清去哪儿补救。
-   *
-   * 落点有**三类**，任一接住就算接上了 —— 判定走 `isUpscaleInputBinding()`：
-   *   1. 老配置绑的 `upscale_input`（2026-10-02 之前只有这一个，老数据不能因为加了新槽位就报错）；
-   *   2. `reference_image_*` —— 待加工的是一张图（图片超清）；
-   *   3. `video_input*` —— 待加工的是一段视频（视频超清）。
-   * 后两类是「超清不再单造一个绑定」之后的新落点（详见 `UPSCALE_BINDINGS` 那条注释）。
-   */
-  if (values.upscaleInput?.trim() && ![...consumed].some(isUpscaleInputBinding)) orphaned.push('待超清的媒体');
+  const orphaned = orphanedCanvasBindings(config, values, latentNodeIds);
   if (!orphaned.length) return;
   throw new ApiError(400, `${orphaned.join('、')}没有接进工作流，生成出来不会带上它们。请到「设置 · 工作流配置」把对应字段的「画布绑定」选成画布值，并确认该字段已启用。`);
 }
@@ -358,19 +332,43 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
      * 直接把 `/api/assets/...` 塞进去，工作流收到的是一个它取不到的路径，
      * 症状正是这套 UI 一直在防的那种静默失败（任务成功、产出与输入无关）。
      *
-     * 换出来的名字**同时写进两个槽位**：2026-10-02 起超清不再单造一个「超清」绑定，
+     * 换出来的名字写进哪个槽位**要看配置**：2026-10-02 起超清不再单造一个「超清」绑定，
      * 用户可能把那个加载字段绑在「参考图 1」（图超清）也可能绑在「视频输入 1」（视频超清）。
-     * 没被绑的那一支不会进 `nodeInfoList` —— 绑定的机制本来就是「没人接就跳过」，
-     * 所以多给一个槽位没有副作用。
+     * 🔴 这里**不能两支都给**（原来的写法就是两支都给，注释还写着「没有副作用」）：
+     * `assertInputsAreWired` 里的「N 张参考图没有接进工作流」只看值在不在、不看是谁给的，
+     * 视频超清会被服务端自己塞进去的那份参考图判成「参考图没接上」，**一次也跑不了**，
+     * 而且报出来的是句与画布无关的话（画布上根本没有参考图）。判定走 `upscaleValueSlots()`。
      * 超清这次操作**只有这一份输入**，客户端也只发这一个值，所以这里是替换而不是追加。
      */
+    /*
+     * 这份工作流的节点配置。**提前到这里解析**（原来在下面 `if (!nodeInfoList)` 那一段里）——
+     * 超清要往哪个槽位填值得看它，而等填完再解析就已经晚了。
+     *
+     * Must go through applyDefaultBindings, exactly like GET /api/workflows/[id]/config does.
+     * A config saved before bindings existed carries no `binding` key at all, and
+     * configurationSchema would default every one of the 122 fields to 'manual' — which turns
+     * the prompt / reference image / latent fields into fixed-value fields with no value, so
+     * every canvas input gets dropped and the run still reports success.
+     */
+    const draftConfig = draft ? configurationSchema.safeParse(applyDefaultBindings(draft.config)) : null;
+    if (draft && !draftConfig?.success) throw new ApiError(400, '节点配置无效，请重新保存。');
+    /** 只有超清需要它；拿不到配置就传 null（那种路不走「没接上」那条检查，保持老行为）。 */
+    const upscaleSlots = operation === 'upscale'
+      ? upscaleValueSlots(draftConfig?.success ? consumedCanvasBindings(draftConfig.data) : null)
+      : null;
     const upscaleName = operation === 'upscale' ? await resolveUpscaleInput(inputMedia!, user.id, apiKey, uploader) : '';
     const bindingValues = input.bindingValues
       ? {
         ...input.bindingValues,
         latents: useLocal ? input.bindingValues.latents : await resolveLatentValues(input.bindingValues.latents, user.id, apiKey, runningHubBase),
-        /** 图片生成节点跑出来的图是本地资产，必须重传成对端认得的文件名才能当参考图喂给工作流。 */
-        referenceImages: operation === 'upscale' ? [upscaleName] : await resolveReferenceImages(input.bindingValues.referenceImages, user.id, apiKey, uploader),
+        /**
+         * 图片生成节点跑出来的图是本地资产，必须重传成对端认得的文件名才能当参考图喂给工作流。
+         * 超清时**只在配置真的绑了「参考图 1」时才填**（图超清），否则填一份没人接的参考图
+         * 会把「参考图没接进工作流」那条检查自己绊倒 —— 详见上面 `upscaleSlots`。
+         */
+        referenceImages: operation === 'upscale'
+          ? (upscaleSlots?.asReference ? [upscaleName] : [])
+          : await resolveReferenceImages(input.bindingValues.referenceImages, user.id, apiKey, uploader),
         /** 老配置绑的是 `upscale_input` 这一支：值照样给，那条路不能因为新增槽位而断掉。 */
         ...(operation === 'upscale' ? { upscaleInput: upscaleName } : {}),
         /*
@@ -378,7 +376,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
          * 它们是**可选**的补充输入 —— 视频输入节点还有「首帧当参考图」那条主路，绑不绑都能出片。
          * 一旦检查，接了视频却只配了参考图绑定的用户会莫名其妙生成不了。
          */
-        videoInputs: operation === 'upscale' ? [upscaleName] : await resolveVideoInputs(videoList, user.id, apiKey, uploader),
+        /** 视频超清同理：只在配置绑了「视频输入 1」时才填那一份。 */
+        videoInputs: operation === 'upscale'
+          ? (upscaleSlots?.asVideo ? [upscaleName] : [])
+          : await resolveVideoInputs(videoList, user.id, apiKey, uploader),
         audioInputs: await resolveAudioInputs(audioList, user.id, apiKey, uploader),
         /* 数组接管之后这两个单值就不再作数 —— 留着会让「哪一份才生效」有第二个答案。 */
         videoInput: undefined,
@@ -388,21 +389,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     let nodeInfoList = input.nodeInfoList;
     if (!nodeInfoList) {
       if (!draft) throw new ApiError(400, '请先保存该工作流的节点配置。');
-      /*
-       * Must go through applyDefaultBindings, exactly like GET /api/workflows/[id]/config does.
-       * A config saved before bindings existed carries no `binding` key at all, and
-       * configurationSchema would default every one of the 122 fields to 'manual' — which turns
-       * the prompt / reference image / latent fields into fixed-value fields with no value, so
-       * every canvas input gets dropped and the run still reports success.
-       */
-      const config = configurationSchema.safeParse(applyDefaultBindings(draft.config));
-      if (!config.success) throw new ApiError(400, '节点配置无效，请重新保存。');
-      assertInputsAreWired(config.data, bindingValues, input.latentNodeIds);
+      /** 配置在上面（超清要按它决定往哪个槽位填值）已经解析过了，这里直接用那一份。 */
+      if (!draftConfig?.success) throw new ApiError(400, '节点配置无效，请重新保存。');
+      const config = draftConfig.data;
+      assertInputsAreWired(config, bindingValues, input.latentNodeIds);
       /*
        * latent 的落点可能要按画布上填的节点号改写（配置页没绑 latent 时还要补一条），
        * 所以这里过一遍这两步，再交给 `toNodeInfoList`。
        */
-      const redirected = applyLatentNodeIds(config.data, input.latentNodeIds);
+      const redirected = applyLatentNodeIds(config, input.latentNodeIds);
       nodeInfoList = appendLatentEntries(
         toNodeInfoList(redirected, bindingValues),
         redirected,

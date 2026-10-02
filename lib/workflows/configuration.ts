@@ -157,7 +157,13 @@ const AUDIO_GENERATION_BINDINGS: CanvasBinding[] = ['prompt', 'reference_count']
  *
  * 两者都给而不是按用途只给一个：同一种媒体在不同工作流里落在不同类型的加载节点上，
  * 该绑哪个只有配这份工作流的人知道。没被绑的那一支不会进 `nodeInfoList`
- * （绑定的机制本来就是「没人接就跳过」），所以两个都给不会有副作用。
+ * （绑定的机制本来就是「没人接就跳过」）。
+ *
+ * 🔴 **但「多给的那一支没人接」不等于没有副作用**（这句原来写的就是「不会有副作用」，
+ * 2026-10-02 真机踩出来了）：服务端那条「有值却没接进工作流就报错」的检查里，
+ * 「N 张参考图」看的是**值存不存在**，不看这个值是谁给的 —— 视频超清（绑的是
+ * `video_input`）于是被服务端自己塞进去的那份参考图判成「参考图没接上」，一次也跑不了。
+ * 所以填值那一步必须走 `upscaleValueSlots()`（按配置只填被绑的那一支）。
  *
  * ⚠️ `upscale_input` **没有删**：老配置里已经绑上它的字段要照旧能读、能跑
  * （读出来时 `selected.binding` 会把它带回下拉，可以改也可以留着）。
@@ -178,7 +184,35 @@ const UPSCALE_BINDINGS: CanvasBinding[] = ['reference_image_1', 'video_input'];
  */
 export function isUpscaleInputBinding(binding: unknown): boolean {
   const value = String(binding ?? '');
-  return value === 'upscale_input' || value.startsWith('reference_image_') || value.startsWith('video_input');
+  /*
+   * 只认 **1 号槽位**：超清那一次**只有一份**媒体，服务端也只往第 1 份里填
+   * （`referenceImages[0]` / `videoInputs[0]`）。绑到「参考图 2」上的人和没绑的人
+   * 结果一模一样 —— 都取不到值。老代码在这里放行（`startsWith`），于是那类配置
+   * 会一路跑成功、产出一份与源素材无关的东西：正是这套检查存在的理由。
+   */
+  return value === 'upscale_input' || value === 'reference_image_1' || value === 'video_input';
+}
+
+/**
+ * 超清那一道：这份待加工的媒体该往哪几个槽位填值。
+ *
+ * 上游给两份（图 / 视频各一个名字）是因为服务端事先不知道这份工作流绑的是哪一类加载字段；
+ * 但**只有 1 号槽位**才是那份媒体的家，所以这里按配置把没被绑的那一支直接省掉。
+ *
+ * 🔴 为什么必须按配置决定（见 `UPSCALE_BINDINGS` 那条注释里 2026-10-02 那笔）：
+ * 「N 张参考图没有接进工作流」那条检查只看值在不在，不看值是谁给的，
+ * 视频超清会被自己塞进去的那份参考图绊倒，报出一句和画布毫无关系的话。
+ *
+ * `consumed` 传 null = 拿不到配置（老客户端直接交了 `nodeInfoList`，那种路不走这条检查）——
+ * 这时保持老行为，两支都给。
+ */
+export function upscaleValueSlots(consumed: Iterable<string> | null): { asReference: boolean; asVideo: boolean } {
+  if (!consumed) return { asReference: true, asVideo: true };
+  const list = [...consumed];
+  return {
+    asReference: list.includes('reference_image_1'),
+    asVideo: list.includes('video_input'),
+  };
 }
 
 export function bindingsForContext(
@@ -530,6 +564,48 @@ export function consumedCanvasBindings(config: Configuration) {
  * （不是「用 210 / 278」—— 那份默认工作流的编号对别的工作流不成立）。
  */
 export type LatentNodeIds = { coarse?: string; fine?: string };
+
+/**
+ * 画布交上来的值里，**哪些没有字段承接** —— 有值、却没有任何已启用字段接住它。
+ *
+ * 返回人话（`'提示词'` / `'1 张参考图'`），**不含任何界面动作** —— 怎么报、把人支到哪儿去，
+ * 由调用方决定（服务端那条报错要点名「设置 · 工作流配置」）。
+ *
+ * 🔴 从 `server/api/projects/[id]/generation/route.ts` 搬到这里，就是为了能单测：
+ * 这段判定的坑全在细节里，而它拦错了就是「用户明明配好了却生成不了」，
+ * 从外面（真机点一次）很难看清是哪一条判出来的 —— 只能拿真实配置直接跑函数。
+ *
+ * 判据逐条：
+ * - **提示词 / 负向提示词**：写了一段话却没有任何字段承接，等于白写。
+ *   步数 / CFG / 种子 / 张数 / 采样器**不在这里检查**——它们有默认值、每次都会提交，
+ *   而很多图片工作流压根不暴露这些字段，一旦检查就变成「不绑就永远生成不了」。
+ * - **参考图**：看 `reference_image_*` 有没有被启用字段接住。
+ * - **latent**：节点上填了粗 / 精采样节点号时 latent **有地方可去**（服务端会按那个号改写
+ *   或补一条），不该再算「没接进工作流」—— 否则报错会把用户支到配置页去配一个他已经在
+ *   画布上配好的东西。
+ * - **待超清的媒体**：超清那一次**只有这一个输入**，没地方去就等于整次操作白做
+ *   （任务成功、产出一份和源视频毫无关系的东西）。落点判定走 `isUpscaleInputBinding()`。
+ */
+export function orphanedCanvasBindings(
+  config: Configuration,
+  values: CanvasBindingValues | undefined,
+  latentNodeIds?: LatentNodeIds,
+): string[] {
+  if (!values) return [];
+  const consumed = consumedCanvasBindings(config);
+  const has = (prefix: string) => [...consumed].some(binding => binding.startsWith(prefix));
+  const orphaned: string[] = [];
+  if (values.prompt?.trim() && !consumed.has('prompt')) orphaned.push('提示词');
+  if (values.negativePrompt?.trim() && !consumed.has('negative_prompt')) orphaned.push('负向提示词');
+  const images = values.referenceImages?.length ?? 0;
+  if (images && !has('reference_image_')) orphaned.push(`${images} 张参考图`);
+  const latents = values.latents?.filter(Boolean).length ?? 0;
+  const latentPlaced = has('latent_')
+    || Boolean(String(latentNodeIds?.coarse || '').trim() || String(latentNodeIds?.fine || '').trim());
+  if (latents && !latentPlaced) orphaned.push(`${latents} 个接续 latent`);
+  if (values.upscaleInput?.trim() && ![...consumed].some(isUpscaleInputBinding)) orphaned.push('待超清的媒体');
+  return orphaned;
+}
 
 /**
  * 补写 latent 时用的字段名：RunningHub 那份默认工作流里就是 `210.手动上传` / `278.手动上传`。
