@@ -4063,6 +4063,119 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 */
 .cv-dock-field.half { flex: 1 1 calc(50% - 8px); min-width: 0; }
 .cv-dock-field.half > span { min-width: 5em; }
+/*
+  可输入的搜索框（`DockCombo`，2026-10-02 徐先：「工作流可以输入文本或者字符串，
+  自动索引对应的工作流」）。122 条工作流全是 19 位编号，原生下拉里翻找等于靠记忆力认人，
+  所以框里能直接打字、列表边打边筛。
+*/
+/*
+  ⚠️ 这里**不能有** `position: relative`：那会把列表的包含块从 `.cv-dock` 换成 `.cv-combo`，
+  列表就重新落回 `.cv-dock-scroll` 那个 `overflow-y: auto` 里、只能看见上面一截。
+  要给箭头定位就用下面那层 `.cv-combo-box`。
+*/
+.cv-combo { flex: 1 1 auto; min-width: 0; }
+.cv-combo-box { position: relative; display: flex; align-items: center; min-width: 0; }
+.cv-combo-input {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  /* 右边让出箭头那一格 —— 名字很长时省略号不会顶到箭头底下。 */
+  padding: 7px 22px 7px 9px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--cv-text);
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  /* 名字很长，超出的部分省略掉 —— 点开之后框里才是可以打字的关键词。 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-combo-input:focus {
+  outline: none;
+  border-color: var(--cv-accent);
+  box-shadow: 0 0 0 3px var(--cv-accent-ring);
+}
+.cv-combo-input::placeholder { color: var(--cv-mute); }
+/*
+  下拉箭头（「下拉的也保留啊」）。
+  🔴 `padding: 0` 与 `height` **都必须写**：全局那条 `button { height: 36px; padding: 0 14px }`
+  会把一颗 18px 的小箭头撑成 36px、还把内容盒挤成 0（图标只能靠溢出显示）。
+*/
+.cv-combo-caret {
+  position: absolute;
+  right: 3px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--cv-mute);
+  cursor: pointer;
+}
+.cv-combo-caret:hover { background: var(--cv-panel-2); color: var(--cv-text); }
+.cv-combo-caret.on { color: var(--cv-accent); }
+.cv-combo-caret .flip { transform: rotate(180deg); }
+/*
+  列表 `position: absolute`、以 `.cv-dock` 为包含块 —— 这样才不会被 `.cv-dock-scroll`
+  那个 `overflow-y: auto` 裁掉（坐标由 JS 量，见 `DockCombo.tsx` 文件头第 1 条）。
+  ⚠️ 别给 `.cv-combo` 或它的祖先加 `position: relative` —— 那会把它重新收进滚动盒里，
+  长列表只能看见上面一截。
+  ⚠️ 这里的 `left/top/width` 只是首帧兜底，运行时被行内 style 覆盖。
+*/
+.cv-combo-list {
+  position: absolute;
+  left: 0;
+  top: 100%;
+  z-index: 60;
+  width: 240px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 6px;
+  background: var(--cv-elev);
+  border: 1px solid var(--cv-line-strong);
+  border-radius: var(--cv-radius-sm);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cv-combo-group { display: flex; flex-direction: column; gap: 2px; }
+.cv-combo-head { padding: 4px 8px; font-size: 10.5px; color: var(--cv-mute); }
+/*
+  🔴 全局 `button { height: 36px; padding: 0 14px }` 会把它钉成一颗 36 高的方钮 ——
+  这里必须自己写 `height: auto` 才盖得住（写 padding / 字号是盖不掉那 36px 的）。
+  另外全局给 button 的是 `display: inline-flex`，那会让 `text-overflow: ellipsis` 失效，
+  所以也要改回 `block`。
+*/
+.cv-combo-row {
+  display: block;
+  width: 100%;
+  height: auto;
+  padding: 6px 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--cv-dim);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-combo-row:hover, .cv-combo-row.active { background: var(--cv-panel-2); color: var(--cv-text); }
+.cv-combo-row.on { color: var(--cv-accent); }
+.cv-combo-row.action, .cv-combo-row.current { color: var(--cv-text); }
+.cv-combo-empty { padding: 8px; font-size: 11px; line-height: 1.5; color: var(--cv-mute); white-space: normal; }
 .cv-dock-size-inputs { display: flex; align-items: center; gap: 4px; }
 .cv-dock-size-inputs > span { color: var(--cv-mute); font-size: 12px; }
 .cv-dock-size-inputs .cv-input { width: 78px; }

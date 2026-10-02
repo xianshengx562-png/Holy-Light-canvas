@@ -48,6 +48,7 @@ import {
 } from './nodeMeta';
 import type { UpscaleMode, UpscaleSource } from './nodeMeta';
 import type { ParamRow } from '@/lib/workflows/configuration';
+import DockCombo from './DockCombo';
 
 /** 有这一块的三种节点：图片生成 / 视频生成 / RunningHub 应用。 */
 export type DockKind = 'image-generate' | 'video-generate' | 'app-generate';
@@ -108,11 +109,15 @@ type AppField = {
   options?: string[];
 };
 
-/**
- * 工作流下拉里那条「去库里挑」的哨兵值（2026-10-01）。
- * 不会和任何真实 workflowId 撞：真实的要么是 `local-…`，要么是一串数字。
+/*
+ * 「从工作流库中选择…」**不再需要一个哨兵值**了（2026-10-02）。
+ *
+ * 以前它是一个 `<option value="__library__">`：受控下拉的 value 来自 `data.workflowId`，
+ * 所以选中它必须**特殊处理** —— 一旦手滑把 `__library__` 落到 `onField`，节点就指向一份
+ * 不存在的工作流，而界面上完全看不出错了（下拉空白、提交时才报「配置不存在」）。
+ * `DockCombo` 里它是列表最上面一颗**独立的按钮行**（`action`），压根不进候选，
+ * 这个问题从结构上就不存在了。`NodeParamBar` 那份仍然用哨兵值（它还是原生下拉）。
  */
-const LIBRARY_OPTION = '__library__';
 
 export default function GenerateDock({ data, nodeId, anchor }: {
   data: NodeData;
@@ -288,6 +293,17 @@ export default function GenerateDock({ data, nodeId, anchor }: {
     : workflowsForGeneration(workflows, purposesOfNode(data.kind));
   const listedWorkflows = workflowsForProvider(listedBase, engineProvider);
   const listedGroups = groupWorkflowsByProvider(listedWorkflows);
+  /**
+   * 「同类但**来源对不上**」的那几份。
+   *
+   * 候选为空有两种，界面上长得一模一样，但要用户做的事完全不同：
+   * ① 一份都没存过 → 去设置页存一份；
+   * ② 存过，只是都属于**另一个来源档**（引擎选了 RunningHub，手上那两份却是本机 ComfyUI 的）
+   *    → 把「引擎」切过去就选得到。
+   * 不分开说，用户只会得出「我明明有工作流，它却说一份都没有」。
+   */
+  const otherSourceCount = listedBase
+    .filter(item => !listedWorkflows.some(mine => mine.workflowId === item.workflowId)).length;
 
   /*
    * 「超清」这一道（2026-10-02 徐先）：触发方式（关闭 / 手动 / 自动）+ 用哪一份（来源）。
@@ -324,6 +340,19 @@ export default function GenerateDock({ data, nodeId, anchor }: {
    * 应用节点没有「超清工作流」）时剩下的那个仍然占满整行，不然会凭空空出半行。
    */
   const pairWorkflows = !isGateway && !!upscalePurpose && !isApp;
+  /*
+   * 两个可输入搜索框的候选（`DockCombo`）。形状只有两个字段：
+   * `value` 是工作流编号、`label` 是整行文案（**名字 + 编号 + 多少项启用**，由
+   * `workflowLabel()` 拼）。匹配就在这条 label 上做 —— 它同时含着名字和编号，
+   * 所以无论用户记的是「我起的那个名字」还是「那串数字」都能搜到（口径与设置页一致）。
+   */
+  const wfItems = listedWorkflows.map(item => ({ value: String(item.workflowId), label: workflowLabel(item) }));
+  const wfGroups = listedGroups.map(group => ({
+    key: group.provider,
+    label: `${group.label} · ${group.items.length}`,
+    items: group.items.map(item => ({ value: String(item.workflowId), label: workflowLabel(item) })),
+  }));
+  const upItems = upscaleOptions.map(item => ({ value: String(item.workflowId), label: workflowLabel(item) }));
 
   const slots = [...(data.inputs || [])].sort((a, b) => (SLOT_ORDER[a.kind] ?? 9) - (SLOT_ORDER[b.kind] ?? 9));
   const resultUrl = String(data.resultUrl || '');
@@ -1077,55 +1106,34 @@ export default function GenerateDock({ data, nodeId, anchor }: {
           {!isGateway && (
             <label className={`cv-dock-field ${pairWorkflows ? 'half' : 'wide'}`}>
               <span>{isApp ? '应用' : '工作流'}</span>
-              <select
-                className="cv-select"
-                data-dock-workflow=""
-                aria-label="工作流"
+              <DockCombo
+                hook="workflow"
+                ariaLabel="工作流"
                 value={String(data.workflowId || '')}
-                onChange={event => {
-                  const next = event.target.value;
-                  /*
-                   * 「从工作流库中选择…」不是一份工作流，是一个动作（2026-10-01 徐先）：
-                   * 开库、挑完由画布写回。**这一支绝不能落到 `onField`** ——
-                   * 把 `__library__` 当成 workflowId 存进去，节点就指向一份不存在的工作流，
-                   * 而且界面上看不出哪里错了（下拉显示空白，提交时才报「配置不存在」）。
-                   * 受控 select 的 value 来自 `data.workflowId`，这里不写值 → 它会自己弹回去。
-                   */
-                  if (next === LIBRARY_OPTION) { data.onPickWorkflow?.(); return; }
-                  data.onField?.('workflowId', next);
-                }}
-              >
-                {/* 放第一位：工作流多的时候排到底部要先滚一遍才看得见。 */}
-                <option value={LIBRARY_OPTION}>＋ 从工作流库中选择…</option>
-                {!chosenWorkflow && (
-                  <option value={String(data.workflowId || '')}>
-                    {data.workflowId ? `${String(data.workflowId)} · 未保存配置` : '— 选择工作流 —'}
-                  </option>
-                )}
-                {listedGroups.map(group => (
-                  <optgroup key={group.provider} label={`${group.label} · ${group.items.length}`}>
-                    {group.items.map(item => <option key={item.workflowId} value={item.workflowId}>{workflowLabel(item)}</option>)}
-                  </optgroup>
-                ))}
-              </select>
+                items={wfItems}
+                groups={wfGroups}
+                missingLabel={!chosenWorkflow && data.workflowId ? `${String(data.workflowId)} · 未保存配置` : null}
+                placeholder="— 输入名字或编号，自动找工作流 —"
+                action={{ label: '＋ 从工作流库中选择…', onPick: () => data.onPickWorkflow?.() }}
+                emptyHint={`没有名字或编号里含这段字的${generatorKindLabel(purpose)}工作流 —— 换个短一点的关键词，或点上面那颗「从工作流库中选择…」`}
+                onChange={next => data.onField?.('workflowId', next)}
+              />
             </label>
           )}
 
           {upscalePurpose && !isApp && (
             <label className={`cv-dock-field ${pairWorkflows ? 'half' : 'wide'}`}>
               <span>超清工作流</span>
-              <select
-                className="cv-select"
-                data-dock-upscale-workflow=""
-                aria-label="超清工作流"
+              <DockCombo
+                hook="upscale-workflow"
+                ariaLabel="超清工作流"
                 value={upscaleChosen}
-                onChange={event => data.onField?.('upscaleWorkflowId', event.target.value)}
-              >
-                <option value="">自动（最近改过的那份）</option>
-                {upscaleOptions.map(item => (
-                  <option key={item.workflowId} value={item.workflowId}>{workflowLabel(item)}</option>
-                ))}
-              </select>
+                items={upItems}
+                missingLabel={upscaleChoiceStale ? `${upscaleChosen} · 这份不在候选里` : null}
+                placeholder="自动（最近改过的那份）"
+                emptyHint={`没有名字或编号里含这段字的${generatorKindLabel(upscalePurpose)}超清工作流`}
+                onChange={next => data.onField?.('upscaleWorkflowId', next)}
+              />
             </label>
           )}
 
@@ -1139,9 +1147,11 @@ export default function GenerateDock({ data, nodeId, anchor }: {
                 ? `${chosenWorkflow.provider === 'local' ? '本地 ComfyUI' : 'RunningHub（云端）'} · ${chosenWorkflow.enabledCount} / ${chosenWorkflow.totalCount} 项启用`
                 : listedWorkflows.length
                   ? `先选一个工作流（这里只列${generatorKindLabel(purpose)}生成用、且属于「${engineProvider === 'local' ? '本地 ComfyUI' : 'RunningHub'}」的已保存配置）`
-                  : engineProvider === 'local'
-                    ? `还没有保存过本机 ComfyUI 的${generatorKindLabel(purpose)}工作流 —— 到「设置 · 工作流」的「本机 ComfyUI」那一档，把 ComfyUI「导出（API）」的 JSON 贴进去就有了`
-                    : `还没有保存过${generatorKindLabel(purpose)}工作流配置，先到设置页保存一份`}</span>
+                  : otherSourceCount
+                    ? `${generatorKindLabel(purpose)}工作流存了 ${otherSourceCount} 份，但都属于「${engineProvider === 'local' ? 'RunningHub（云端）' : '本机 ComfyUI'}」—— 把上面「引擎」切到那一档就选得到`
+                    : engineProvider === 'local'
+                      ? `还没有保存过本机 ComfyUI 的${generatorKindLabel(purpose)}工作流 —— 到「设置 · 工作流」的「本机 ComfyUI」那一档，把 ComfyUI「导出（API）」的 JSON 贴进去就有了`
+                      : `还没有保存过${generatorKindLabel(purpose)}工作流配置，先到设置页保存一份`}</span>
               {chosenWorkflow && chosenWorkflow.kind !== purpose && (
                 <span className="cv-dock-hint warn">{workflowMismatchHint(purpose, chosenWorkflow)}</span>
               )}
