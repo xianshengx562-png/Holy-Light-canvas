@@ -29,7 +29,7 @@ export {
   DEFAULT_CATEGORY_NAMES, LEGACY_CATEGORY_SLUGS,
   normalizeCategoryName, isCategoryName, isCategoryFilter,
 } from './asset-kinds';
-import type { AssetCategoryItem, AssetKind, CategoryFilter } from './asset-kinds';
+import type { AssetCategoryItem, AssetKind, CategoryFilter, RelayLatentItem } from './asset-kinds';
 import {
   DEFAULT_CATEGORY_NAMES, LEGACY_CATEGORY_SLUGS, isCategoryName, normalizeCategoryName,
 } from './asset-kinds';
@@ -53,6 +53,10 @@ export type AssetItem = {
   sizeLabel: string;
   projectId: string;
   projectName: string;
+  /** 这次生成是哪条任务 —— 视频能不能「接续」就看它（按它去找那次归档的 latent）。 */
+  sourceTaskId: string | null;
+  /** 这次生成归档下来的 latent（粗 / 精）。只有视频会有，其它类型是空数组。 */
+  relayLatents: RelayLatentItem[];
 };
 
 export function formatSize(bytes: number) {
@@ -104,11 +108,38 @@ export async function listAssets(input: {
       take,
       select: {
         id: true, name: true, type: true, category: true, url: true, metadata: true, createdAt: true,
-        projectId: true, project: { select: { name: true } },
+        projectId: true, sourceTaskId: true, project: { select: { name: true } },
       },
     }),
     db.asset.groupBy({ by: ['type'], where, _count: { _all: true } }),
   ]);
+
+  /*
+   * 视频能不能「接续」：那一次生成归档下来的 latent（粗 / 精）。
+   * 🔴 **全库查，不按项目** —— 见本文件顶部注释。
+   */
+  const taskIds = Array.from(new Set(
+    rows.filter(row => row.type === 'video' && row.sourceTaskId).map(row => String(row.sourceTaskId)),
+  ));
+  const latentRows = taskIds.length
+    ? await db.asset.findMany({
+      where: { userId: input.userId, type: 'latent', sourceTaskId: { in: taskIds } },
+      select: { id: true, sourceTaskId: true, metadata: true },
+      orderBy: { createdAt: 'asc' },
+    })
+    : [];
+  const relayByTask = new Map<string, RelayLatentItem[]>();
+  for (const row of latentRows) {
+    const meta = metaOf(row.metadata);
+    const list = relayByTask.get(String(row.sourceTaskId)) || [];
+    list.push({
+      id: row.id,
+      sequence: String(meta.sequence || ''),
+      kind: meta.kind === 'fine' ? 'fine' : 'coarse',
+      size: Number(meta.size || 0),
+    });
+    relayByTask.set(String(row.sourceTaskId), list);
+  }
 
   const total = groups.reduce((sum, group) => sum + group._count._all, 0);
   const items = rows.flatMap(row => {
@@ -129,6 +160,9 @@ export async function listAssets(input: {
       sizeLabel: formatSize(size),
       projectId: row.projectId,
       projectName: row.project.name,
+      sourceTaskId: row.sourceTaskId ? String(row.sourceTaskId) : null,
+      /* 只有视频会拿到东西 —— 它就是「接一个 Latent 中转就能续接」的那几份。 */
+      relayLatents: row.sourceTaskId ? (relayByTask.get(String(row.sourceTaskId)) || []) : [],
     }];
   });
 

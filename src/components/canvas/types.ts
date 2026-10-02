@@ -3,6 +3,7 @@ import type { GeneratorKind } from '@/lib/workflows/purpose';
 import type { WorkflowCategory } from '@/lib/workflows/category';
 import type { WorkflowOperation } from '@/lib/workflows/operation';
 import type { DirectorScene } from '@/lib/director';
+import type { RelayLatentItem } from '@/lib/asset-kinds';
 
 export type LatentRecord = {
   id: string;
@@ -417,6 +418,21 @@ export type NodeData = {
    * 同样只在 `hydrated` 里算，不写库。
    */
   relayBroken?: LatentChain['broken'];
+  /**
+   * **从资产库放进来的**视频：它是哪一次生成的。
+   *
+   * 有了这个，画布上接一个「Latent 中转」就能拿那次归档的 latent 续接下一段 ——
+   * 不用回原来的画布去找那个（可能已经删掉的）视频生成节点。
+   */
+  sourceTaskId?: string;
+  /**
+   * 那一次生成归档下来的 latent（粗 / 精），**放进画布的那一刻**记下来。
+   *
+   * 🔴 必须当场记：画布上的 `latents` 列表只有**当前项目**那一份，
+   *    而从资产库点进来的视频可能属于别的项目 —— 那时候再按项目去查，
+   *    结果就是「明明有 latent，中转节点下拉里却什么都没有」。
+   */
+  relayLatents?: RelayLatentItem[];
   latents?: LatentRecord[];
   workflows?: WorkflowOption[];
   /** 自定义参数块（`kind: 'params'`）里的行。 */

@@ -64,6 +64,7 @@ import {
   canConnect, connectionHint, isGeneratorKind, isLatentKind, isLatentSourceKind, isVideoUrl, latentAssetPrefix,
   isRunnableKind, isTextValueKind, displayLabelOf, normalizeNodeLabels,
   latentBrokenHint, latentBrokenLabel, latentLabel, purposeOfNode, workflowMismatchHint, upscaleWorkflowFor,
+  isRelayLatentSource, resolvePickedLatent,
   workflowDisplayName, generatorKindLabel, newNodeData, isReferenceSource, referenceUrlsOf, latentNodeIdOf,
   mediaReadyForRun, isResolvableUrl, workflowsForProvider, engineSwitchPatch, readInstanceType,
 } from './nodeMeta';
@@ -1342,12 +1343,21 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       ? latents.filter(item => item.sourceTaskId && runIds.has(String(item.sourceTaskId)))
       : [];
     const from = String(node.data.label || NODE_META['video-generate'].label);
-    if (!mine.length) return { value: '', from, broken: 'empty' };
-    if (!pick || !mine.some(item => `${latentAssetPrefix}${item.id}` === pick)) {
-      return { value: '', from, broken: 'unpicked' };
-    }
-    return { value: pick, from, broken: null };
+    return resolvePickedLatent(mine.map(item => `${latentAssetPrefix}${item.id}`), pick, from);
   }, [latents]);
+
+  /**
+   * 一个**从资产库放进来的视频节点**身上记的那几份 latent（导入那一刻的快照）。
+   *
+   * 与 `videoLatentsOf` 唯一的区别是**不看 `data.runs`** —— 这种节点不是画布上跑出来的，
+   * 它没有 runs，只有「我来自哪一次生成」（`sourceTaskId`）以及那次归档了什么。
+   * 判定规则共用 `resolvePickedLatent`，界面上的说法才一致。
+   */
+  const assetLatentsOf = useCallback((node: Node<NodeData>, pick: string): LatentChain => {
+    const mine = node.data.relayLatents || [];
+    const from = String(node.data.label || NODE_META['video-input'].label);
+    return resolvePickedLatent(mine.map(item => `${latentAssetPrefix}${item.id}`), pick, from);
+  }, []);
 
   /**
    * 中转节点「取自上游哪一份 latent」下拉里的选项。
@@ -1361,14 +1371,26 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     for (const edge of edges) {
       if (edge.target !== id) continue;
       const from = nodes.find(item => item.id === edge.source);
-      if (!from || from.data.kind !== 'video-generate') continue;
+      if (!from) continue;
+      const who = String(from.data.label || NODE_META[from.data.kind as NodeKind]?.label || '');
+      /*
+       * 从资产库放进来的视频（2026-10-02）：它自己带着那次生成归档的 latent，
+       * 不用去项目列表里筛 —— 那段视频可能属于**别的项目**，这边根本筛不到。
+       */
+      if (isRelayLatentSource(from.data)) {
+        (from.data.relayLatents || []).forEach(item => options.push({
+          value: `${latentAssetPrefix}${item.id}`,
+          label: `${who} · ${latentLabel(item)}`,
+        }));
+        continue;
+      }
+      if (from.data.kind !== 'video-generate') continue;
       const runIds = new Set(
         ((from.data.runs || []) as GenerationRun[])
           .filter(run => run.status === 'success')
           .map(run => String(run.id || '')),
       );
       if (!runIds.size) continue;
-      const who = String(from.data.label || NODE_META['video-generate'].label);
       latents
         .filter(item => item.sourceTaskId && runIds.has(String(item.sourceTaskId)))
         .forEach(item => options.push({
@@ -1414,7 +1436,8 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       for (const edge of edges) {
         if (edge.target !== current) continue;
         const from = nodes.find(item => item.id === edge.source);
-        if (from && isLatentSourceKind(from.data.kind)) links.push(from);
+        /* 从资产库放进来的视频也算一个源头 —— 值在它自己身上，不在上游。 */
+      if (from && (isLatentSourceKind(from.data.kind) || isRelayLatentSource(from.data))) links.push(from);
       }
       if (!links.length) return done({ value: '', from: '', broken: 'upstream' });
       const next = new Set(path).add(current);
@@ -1430,14 +1453,16 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
          */
         const upper = from.data.kind === 'video-generate'
           ? videoLatentsOf(from, String(node.data.latentPick || '').trim())
-          : walk(from.id, next);
+          : isRelayLatentSource(from.data)
+            ? assetLatentsOf(from, String(node.data.latentPick || '').trim())
+            : walk(from.id, next);
         if (upper.value) return done({ value: upper.value, from: String(from.data.label || NODE_META.latent.label), broken: null });
         if (upper.broken && (rank[upper.broken] || 0) > (broken ? rank[broken] || 0 : 0)) broken = upper.broken;
       }
       return done({ value: '', from: '', broken });
     };
     return walk(id, new Set());
-  }, [edges, nodes, videoLatentsOf]);
+  }, [assetLatentsOf, edges, nodes, videoLatentsOf]);
 
   /**
    * 一个节点的显示名（卡片上那句「来自「X」」要用）：自己起过名就用那个，
@@ -2843,11 +2868,25 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     else if (kind === 'audio-input') part.audioUrl = item.url;
     /** latent 也不上传：它的值就是「库里那一份」的引用，与 latent 节点上那个下拉同一个形态。 */
     else part.remoteFile = `${latentAssetPrefix}${item.id}`;
+    /*
+     * 视频额外记下「它是哪次生成的、那次归档了哪几份 latent」（2026-10-02）。
+     * 有了这个，画布上接一个「Latent 中转」就能拿它续接下一段 —— 不用回到原来那张画布
+     * 去找把它跑出来的那个视频节点（它可能已经删了，也可能在别的项目里）。
+     * 🔴 必须**当场记**：画布上的 `latents` 只有当前项目那一份，事后再查就查不到了。
+     */
+    if (kind === 'video-input' && item.sourceTaskId) {
+      part.sourceTaskId = item.sourceTaskId;
+      if (item.relayLatents.length) part.relayLatents = item.relayLatents;
+    }
+    /** 有 latent 才补这一句 —— 这是「接下去点哪儿」，不是装饰。 */
+    const relayNote = kind === 'video-input' && item.relayLatents.length
+      ? ` · 这次生成归档了 ${item.relayLatents.length} 份 latent，接一个「Latent 中转」就能续接`
+      : '';
 
     if (reuse) {
       patch(reuse.id, part);
       setSelected(reuse.id);
-      setNotice(`已把「${item.name}」放进选中的节点`);
+      setNotice(`已把「${item.name}」放进选中的节点${relayNote}`);
       return;
     }
     const id = crypto.randomUUID();
@@ -2867,11 +2906,11 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       setEdges(es => [...es, {
         id: `${id}-${linkTarget}`, source: id, target: linkTarget, type: 'default', animated: true,
       } as Edge]);
-      setNotice(`已把「${item.name}」放进画布`);
+      setNotice(`已把「${item.name}」放进画布${relayNote}`);
     } else if (generators.length > 1) {
       setNotice(`已添加「${item.name}」 · 画布里有多个生成节点，请手动连线`);
     } else {
-      setNotice(`已把「${item.name}」放进画布`);
+      setNotice(`已把「${item.name}」放进画布${relayNote}`);
     }
     setSelected(id);
   }, [edges, nodes, patch, pointFor, selected, setEdges, setNodes, setNotice]);

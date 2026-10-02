@@ -110,3 +110,21 @@ export function isCategoryFilter(value: unknown): value is CategoryFilter {
   return typeof value === 'string'
     && (value === CATEGORY_ALL || value === CATEGORY_NONE || isCategoryName(value));
 }
+
+/* ------------------------------------------------------------------ *
+ * 「这段视频能不能接续」：一次生成归档下来的 latent
+ * ------------------------------------------------------------------ */
+
+/**
+ * 一次生成归档下来的那几份 latent（一次会归档两份：粗采样 `coarse` / 精采样 `fine`）。
+ *
+ * 放在这里而不是 `lib/assets.ts`，是因为**画布那一头也要认这同一份形状** ——
+ * 而 `lib/assets.ts` 带 `node:fs` 和数据库，浏览器包一 import 就构建失败。
+ */
+export type RelayLatentItem = {
+  id: string;
+  /** 归档编号（L001 这种）。 */
+  sequence: string;
+  kind: 'coarse' | 'fine';
+  size: number;
+};

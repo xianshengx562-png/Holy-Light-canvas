@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { FileArchive, Music } from 'lucide-react';
 import CanvasOverlay from './CanvasOverlay';
 import { useApi } from '@/lib/client';
+import type { RelayLatentItem } from '@/lib/asset-kinds';
 
 /**
  * 画布左轨「资产」弹出的那个大浮层（与左轨其它四项共用 `CanvasOverlay` 那个壳）。
@@ -36,6 +37,10 @@ export type CanvasAssetItem = {
   sizeLabel: string;
   createdLabel: string;
   projectName: string;
+  /** 这段视频是哪次生成的（不是视频就是 null）。 */
+  sourceTaskId: string | null;
+  /** 这次生成归档下来的 latent —— 有它，接一个「Latent 中转」就能续接。 */
+  relayLatents: RelayLatentItem[];
 };
 
 type KindFilter = 'all' | 'image' | 'video' | 'audio' | 'latent';

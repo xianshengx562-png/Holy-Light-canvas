@@ -260,7 +260,7 @@ export const ACCEPTS: Record<NodeKind, NodeKind[]> = {
    * 还能接**视频生成节点** —— 它每次生成完会归档 latent，中转可以把那一份传给下一个节点，
    * 省掉「先去 latent 节点上手动选归档」这一步（选哪一份由中转节点上的下拉决定）。
    */
-  'latent-relay': ['latent', 'latent-relay', 'video-generate'],
+  'latent-relay': ['latent', 'latent-relay', 'video-generate', 'video-input'],
   workflow: [],
   // 参数块可以再接参数块：串在后面的覆盖前面的，越靠近生成节点优先级越高。
   params: ['params'],
@@ -683,7 +683,46 @@ export function formatSize(bytes: number) {
   return `${bytes} B`;
 }
 
-export function latentLabel(item: LatentRecord) {
+/**
+ * 只吃这三个字段是有意的：除了项目里那份 `LatentRecord`，
+ * 从资产库带回来的那几份 latent 也走这里（它们没有 `createdAt` / `sourceTaskId`）。
+ */
+/**
+ * 「上游这一次生成归档了几份 latent，中转节点要其中哪一份」—— 两处共用的那一段判定。
+ *
+ * 两个入口都走它：视频生成节点（按 `data.runs` 找自己的归档）和从资产库放进来的
+ * 视频节点（按导入时记下的那份快照）。**别在两头各写一遍** ——
+ * 一边判定成 `empty`、另一边判定成 `unpicked`，界面上就成了同一件事两种说法。
+ *
+ * 🔴 `unpicked` 不是「没有」：没选哪一份时**不能**悄悄挑第一份。一次生成归档两份
+ * （粗 / 精），跑多轮又有好几组，猜错的症状是接续悄悄喂了错的 latent ——
+ * 任务照样成功、产出和上一段毫无关系，界面上什么都不说。
+ */
+export function resolvePickedLatent(ids: string[], pick: string, from: string): {
+  value: string; from: string; broken: 'empty' | 'unpicked' | null;
+} {
+  if (!ids.length) return { value: '', from, broken: 'empty' };
+  if (!pick || !ids.includes(pick)) return { value: '', from, broken: 'unpicked' };
+  return { value: pick, from, broken: null };
+}
+
+/**
+ * 这个节点能不能当中转节点的 latent 源头（2026-10-02）。
+ *
+ * 除了 `latent` / `latent-relay` / `video-generate`，**从资产库放进来的视频也算** ——
+ * 它身上带着「那次生成归档了哪几份」的快照（`sourceTaskId` + `relayLatents`），
+ * 于是「拿库里那段视频续接下一段」不必回到原来的画布去找那个视频生成节点
+ * （它可能已经删了，也可能在别的项目里）。
+ */
+export function isRelayLatentSource(data: { kind?: unknown; sourceTaskId?: unknown }) {
+  return data.kind === 'video-input' && !!data.sourceTaskId;
+}
+
+/**
+ * 只吃这三个字段是有意的：除了项目里那份 `LatentRecord`，
+ * 从资产库带回来的那几份 latent 也走这里（它们没有 `createdAt` / `sourceTaskId`）。
+ */
+export function latentLabel(item: { sequence: string; kind: string; size: number }) {
   return `${item.sequence} · ${item.kind === 'fine' ? '精采样' : '粗采样'} · ${formatSize(item.size)}`;
 }
 
