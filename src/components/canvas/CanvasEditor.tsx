@@ -65,6 +65,7 @@ import {
   canConnect, connectionHint, isAudioUrl, isGeneratorKind, isLatentKind, isLatentSourceKind, isVideoUrl, latentAssetPrefix,
   isRunnableKind, isTextValueKind, displayLabelOf, normalizeNodeLabels,
   latentBrokenHint, latentBrokenLabel, latentLabel, purposeOfNode, purposeForNode, workflowMismatchHint, upscaleWorkflowFor,
+  nodeEngineProvider, readUpscaleMode, readUpscaleSource, UPSCALE_SOURCE_LABELS,
   isRelayLatentSource, resolvePickedLatent,
   workflowDisplayName, generatorKindLabel, newNodeData, isReferenceSource, referenceUrlsOf, latentNodeIdOf,
   mediaReadyForRun, isResolvableUrl, workflowsForProvider, engineSwitchPatch, readInstanceType,
@@ -1162,7 +1163,21 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     return { workflowId: unique[0], note: `跟随「${uniqueLabels[0]}」选的工作流` };
   }, [edges, nodes, sources]);
 
-  const poll = useCallback(async (taskId: string, id: string, label: string, meta: { externalTaskId?: string; workflowId: string }) => {
+  /**
+   * 自动超清的待办队列（2026-10-02 徐先）。
+   *
+   * 🔴 为什么不能直接从 `poll()` 的 success 分支里调 `upscale()`：那一刻
+   * `patch(id, { status: 'success' })` 只是**排进了** state 队列、还没重渲染，
+   * `upscale` 闭包里的 `nodes` 仍是「运行中」—— 进去第一行就被挡回来，什么都不发生。
+   * 交给 effect 在**提交之后**跑，读到的一定是已经落好的那次成功。
+   */
+  const [autoUpscaleQueue, setAutoUpscaleQueue] = useState<string[]>([]);
+
+  const poll = useCallback(async (
+    taskId: string, id: string, label: string,
+    /** `operation` 决定这一轮成功后**要不要**接着自动超清 —— 超清自己跑完不能再接一道。 */
+    meta: { externalTaskId?: string; workflowId: string; operation?: 'generate' | 'upscale' },
+  ) => {
     /*
      * 越等越慢（规矩见 `lib/taskPoll`）：原来固定 3 秒一趟，一个任务跑满就是 240 次请求，
      * 批量跑十几个节点时把上游限流撞光的正是我们自己。
@@ -1271,6 +1286,19 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
               : '本次结果没有对应的输出',
           });
         });
+        /*
+         * 自动超清（2026-10-02 徐先）：这一轮**是普通生成**（不是超清自己）、
+         * 这一节点把超清设成了「自动」、且真的出了一份结果 —— 三个都成立才接上去跑。
+         *
+         * 🔴 认「这一轮是不是超清」是防死循环的关键：超清跑完同样走这个 success 分支，
+         * 不认出来的话它会再给自己来一道，一次生成变成一次次扣费，停不下来。
+         */
+        if (meta.operation !== 'upscale' && primary?.url) {
+          const node = nodes.find(item => item.id === id);
+          if (node && readUpscaleMode(node.data.upscaleMode) === 'auto') {
+            setAutoUpscaleQueue(queue => queue.includes(id) ? queue : [...queue, id]);
+          }
+        }
         return;
       }
       if (task.status === 'failed') {
@@ -2063,7 +2091,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         }),
       }));
       patch(id, { result: '任务已提交' });
-      void poll(body.taskId, id, String(node.data.label || '视频'), { externalTaskId: body.externalTaskId, workflowId: workflowIdForRun });
+      void poll(body.taskId, id, String(node.data.label || '视频'), { externalTaskId: body.externalTaskId, workflowId: workflowIdForRun, operation: 'generate' });
     } catch (error) {
       patch(id, { status: 'failed', result: error instanceof Error ? error.message : '提交失败' });
     }
@@ -2130,10 +2158,19 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       nodes.filter(node => node.data.status === 'running').forEach(node => {
         const alive = runningByNode.get(node.id);
         if (alive?.taskId) {
-          /* 上游还在跑 —— 接着查，一直查到它给出成功或失败。 */
+          /*
+           * 上游还在跑 —— 接着查，一直查到它给出成功或失败。
+           *
+           * 这一轮**是超清还是普通生成**只能问它跑的那份工作流（任务号自己不带这个信息）：
+           * 认不出来就会被当成普通生成，于是「上次没跑完的那道超清」成功后又自动接一道。
+           */
+          const resumedId = String(alive.workflowId || node.data.workflowId || '');
+          const resumedOp = workflows.find(item => item.workflowId === resumedId)?.operation === 'upscale'
+            ? 'upscale' : 'generate';
           void poll(alive.taskId, node.id, String(node.data.label || '生成'), {
             externalTaskId: alive.externalTaskId,
-            workflowId: String(alive.workflowId || node.data.workflowId || ''),
+            workflowId: resumedId,
+            operation: resumedOp,
           });
           return;
         }
@@ -2405,7 +2442,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
    * 落点与生成完全一致（也走 `poll()`），所以结果是**追加成一条新的生成记录**：
    * 原版还在历史里，超清版覆盖到画面上，两者能来回对照。
    */
-  const upscale = useCallback(async (id: string) => {
+  const upscale = useCallback(async (id: string, auto = false) => {
     const node = nodes.find(item => item.id === id);
     if (!node) return;
     /** 只有生成节点能超清：超清的输入是「这个节点自己生成出来的东西」。 */
@@ -2418,11 +2455,23 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
      * 一份都没配时要把话说完整：「没有超清工作流」只是现象，用户要的是「去哪儿配」。
      * 少了后半句，用户会以为这是个没实现的功能，而不是一个两分钟就能配好的选项。
      */
-    const target = upscaleWorkflowFor(workflows, purpose);
+    const asked = readUpscaleSource(node.data.upscaleSource);
+    const target = upscaleWorkflowFor(workflows, purpose, asked, nodeEngineProvider(node.data.kind, node.data.engine));
     if (!target) {
+      /*
+       * 指定了来源时要把「哪一边没有」说进句子里：只说「还没有配视频超清工作流」，
+       * 而用户明明配过一份云端的 —— 他会以为我们没读到，其实是他自己选了「本地」。
+       */
+      /*
+       * 🔴 自动那一路（`auto`）没配就**什么都不做**，绝不写失败：那一刻节点上躺着的是一份
+       * 刚刚生成成功的结果，把它改写成「还没有配超清工作流」等于用一次成功换一句报错。
+       * 该说的话在配置那一刻就说过了 —— 胶囊弹层里就有一条「这一档还没有…超清工作流」。
+       */
+      if (auto) return;
+      const side = asked === 'follow' ? '' : `${UPSCALE_SOURCE_LABELS[asked]} 的`;
       return patch(id, {
         status: 'failed',
-        result: `还没有配${generatorKindLabel(purpose)}超清工作流 —— 到「设置 · 工作流」新建一份工作流，把「工序」改成「超清」，再把工作流里那个上传段的「画布绑定」选成「画布 · 参考图 1」（图）或「画布 · 视频输入 1」（视频）`,
+        result: `还没有配${side}${generatorKindLabel(purpose)}超清工作流 —— 到「设置 · 工作流」新建一份工作流，把「工序」改成「超清」，再把工作流里那个上传段的「画布绑定」选成「画布 · 参考图 1」（图）或「画布 · 视频输入 1」（视频）`,
       });
     }
     patch(id, { status: 'running', result: `超清中 · ${workflowDisplayName(target)}` });
@@ -2442,11 +2491,25 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         }),
       }));
       patch(id, { result: '超清任务已提交' });
-      void poll(body.taskId, id, String(node.data.label || '超清'), { externalTaskId: body.externalTaskId, workflowId: target.workflowId });
+      void poll(body.taskId, id, String(node.data.label || '超清'), { externalTaskId: body.externalTaskId, workflowId: target.workflowId, operation: 'upscale' });
     } catch (error) {
       patch(id, { status: 'failed', result: error instanceof Error ? error.message : '提交失败' });
     }
   }, [nodes, patch, poll, projectId, workflows]);
+
+  /**
+   * 排掉「自动超清」的待办（见 `autoUpscaleQueue` 那条注释：必须等提交之后再跑）。
+   *
+   * 队列而不是直接调用，还顺带收掉一个重复：一次成功只排一个节点 id（`queue.includes`），
+   * 于是「同一轮结果被两个地方同时看见」也只会接一道超清。
+   */
+  useEffect(() => {
+    if (!autoUpscaleQueue.length) return;
+    const ids = autoUpscaleQueue;
+    setAutoUpscaleQueue([]);
+    /* `true` = 这一道是自动接的：没配对应的超清工作流时安静跳过（见 upscale 里那条注释）。 */
+    ids.forEach(id => void upscale(id, true));
+  }, [autoUpscaleQueue, upscale]);
 
 
   /**

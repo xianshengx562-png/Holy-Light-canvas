@@ -8,6 +8,7 @@ import {
   LATENT_SLOTS, NODE_META, NODE_SIZE,
   isAudioUrl, isGeneratorKind, isLatentKind, isVideoUrl, latentAssetPrefix, latentBrokenHint, latentLabel, paramRowLabel,
   purposeOfNode, upscaleWorkflowFor, usesGenerateDock, workflowDisplayName, workflowIdNote, displayLabelOf,
+  nodeEngineProvider, readUpscaleMode, readUpscaleSource,
 } from './nodeMeta';
 import type { NodeKind } from './nodeMeta';
 import { NodeGlyph } from './nodeIcons';
@@ -98,12 +99,18 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
   const sizedWidth = Number(data.width) > 0 ? Math.round(Number(data.width)) : undefined;
   const sizedHeight = Number(data.height) > 0 ? Math.round(Number(data.height)) : undefined;
   /**
-   * 右上角「超清」按钮用不用得上。三个条件缺一不可：
-   * 这是个生成节点（超清的输入就是它自己的结果）、它已经有结果、以及配置里有同用途的超清工作流。
+   * 右上角「超清」按钮用不用得上。四个条件缺一不可：
+   * 这是个生成节点（超清的输入就是它自己的结果）、它已经有结果、
+   * 这一节点没把超清关掉（参数条上那个胶囊能选「关闭 / 手动 / 自动」，2026-10-02）、
+   * 以及配置里有**同用途且来源对得上**的超清工作流。
    */
   const upscalePurpose = purposeOfNode(kind);
-  const upscaleTarget = upscalePurpose && resultValue
-    ? upscaleWorkflowFor(data.workflows || [], upscalePurpose)
+  const upscaleMode = readUpscaleMode(data.upscaleMode);
+  const upscaleTarget = upscalePurpose && resultValue && upscaleMode !== 'off'
+    ? upscaleWorkflowFor(
+      data.workflows || [], upscalePurpose,
+      readUpscaleSource(data.upscaleSource), nodeEngineProvider(kind, data.engine),
+    )
     : undefined;
 
   /**
@@ -519,8 +526,10 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
           「超清」按钮：把这份结果再加工一道。
           **平时不显形**（悬停或选中才出来）——生成节点上已经挤了标题、状态、参数条，
           再摆一个常驻按钮，用户扫一眼根本分不清哪个是干什么的。
-          条件是「有结果 + 配了同用途的超清工作流」，缺哪个都不显示：
+          条件是「有结果 + 配了同用途的超清工作流 + 这一节点没把超清关掉」，缺哪个都不显示：
           显示一个点了只报错的按钮，等于在骗用户。
+          自动那一档（参数条胶囊里选的）**也画这颗按钮** —— 自动跑的那一道失败了，
+          用户总得有个地方再点一次，而不是只能重跑整段生成。
         */}
         {upscaleTarget && (
           <button

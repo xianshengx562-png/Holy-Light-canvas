@@ -9,10 +9,10 @@ import { generatorKindLabel } from '@/lib/workflows/purpose';
 import { workflowDisplayName } from '@/lib/workflows/label';
 /* 同上：**凡是要读值的**都得在本地建立绑定，光有末尾那批 `export ... from` 是不够的。 */
 import { defaultWorkflowIdFor } from '@/lib/workflows/defaults';
-import { DEFAULT_IMAGE_ENGINE } from '@/lib/workflows/imageEngine';
+import { DEFAULT_IMAGE_ENGINE, imageEngineProvider } from '@/lib/workflows/imageEngine';
 import { IMAGE2_DEFAULTS } from '@/lib/workflows/image2Params';
 import { VIDEO_API_DEFAULTS } from '@/lib/workflows/videoApiParams';
-import { DEFAULT_VIDEO_ENGINE } from '@/lib/workflows/videoEngine';
+import { DEFAULT_VIDEO_ENGINE, videoEngineProvider } from '@/lib/workflows/videoEngine';
 import { ASPECT_RATIOS, DEFAULT_RATIO, defaultImageRatioForEngine, IMAGE_DEFAULTS } from '@/lib/workflows/imageParams';
 import { initialDirectorScene } from '@/lib/director';
 import { isRunningHubAppWorkflowId } from '@/lib/workflows/runninghubApp';
@@ -72,13 +72,78 @@ export function groupWorkflowsByProvider<T extends WorkflowOption>(workflows: T[
 }
 
 /**
- * 「超清」按钮要用的那份工作流：同用途 + 工序是超清。
+ * 「超清」这一道的**触发方式**（2026-10-02 徐先）。
+ *
+ * 默认 `manual`：加这个字段之前，只要配了同用途的超清工作流，卡片上就会出那颗按钮 ——
+ * 老画布上已经跑过一轮的节点不能因为升级就突然少一个入口，所以「没填」等于「手动」。
+ */
+export const UPSCALE_MODES = ['off', 'manual', 'auto'] as const;
+export type UpscaleMode = (typeof UPSCALE_MODES)[number];
+export const DEFAULT_UPSCALE_MODE: UpscaleMode = 'manual';
+
+export function readUpscaleMode(value: unknown): UpscaleMode {
+  const text = String(value ?? '').trim();
+  return (UPSCALE_MODES as readonly string[]).includes(text) ? (text as UpscaleMode) : DEFAULT_UPSCALE_MODE;
+}
+
+/** 胶囊上那三个档的名字。**「关闭」要说成「关闭」而不是「不超清」**：跟「手动 / 自动」并列时，
+ *  前两个是做法、这一个是不做，说法上必须一眼能分出它是第三种。 */
+export const UPSCALE_MODE_LABELS: Record<UpscaleMode, string> = {
+  off: '关闭',
+  manual: '手动',
+  auto: '自动',
+};
+
+/**
+ * 超清工作流从哪一边挑。`follow` = 跟这个节点当前的引擎走（引擎换档它跟着换）；
+ * 另两档是**指定**，选中那一档没有就直接是没有。
+ */
+export const UPSCALE_SOURCES = ['follow', 'runninghub', 'local'] as const;
+export type UpscaleSource = (typeof UPSCALE_SOURCES)[number];
+export const DEFAULT_UPSCALE_SOURCE: UpscaleSource = 'follow';
+
+export function readUpscaleSource(value: unknown): UpscaleSource {
+  const text = String(value ?? '').trim();
+  return (UPSCALE_SOURCES as readonly string[]).includes(text) ? (text as UpscaleSource) : DEFAULT_UPSCALE_SOURCE;
+}
+
+export const UPSCALE_SOURCE_LABELS: Record<UpscaleSource, string> = {
+  follow: '跟随节点',
+  runninghub: 'RunningHub',
+  local: '本地 ComfyUI',
+};
+
+/**
+ * 这个节点**当前**会把活交给哪一边（`local` / `runninghub`）。
+ *
+ * 视频网关 / 自定义接口那两档不经过工作流，返回 `null` = 「这一档不按来源筛」。
+ * 抽出来是因为「引擎 ↔ 工作流来源」这道对账在生成、超清、按钮可见性三处都要用，
+ * 各写一遍迟早会有一处漏掉应用节点（`app-generate` 没有引擎这一说）。
+ */
+export function nodeEngineProvider(kind: unknown, engine: unknown): 'local' | 'runninghub' | null {
+  if (kind === 'image-generate') return imageEngineProvider(engine);
+  if (kind === 'video-generate') return videoEngineProvider(engine);
+  return null;
+}
+
+/**
+ * 「超清」按钮要用的那份工作流：同用途 + 工序是超清（+ 来源对得上）。
  *
  * 与上面那条是**同一个维度的两面**：一份工作流属于哪一种工序，决定了它出现在哪个入口。
  * 万一一个用途下配了多份超清工作流，取最近改过的那份（列表已经按 `updatedAt` 倒序）。
+ *
+ * 🔴 `source` 指定了某一来源却一份都没有时**返回 undefined，不回退**：用户选了
+ * 「本地 ComfyUI」，我们不该悄悄拿云端那份去跑 —— 那一路花的是他自己账号里的钱。
+ * `follow` 且这一档不经过工作流（`provider` 为 null）时同样不筛，取第一份。
  */
-export function upscaleWorkflowFor<T extends WorkflowOption>(workflows: T[], purpose: GeneratorKind): T | undefined {
-  return workflows.find(item => item.kind === purpose && item.operation === 'upscale');
+export function upscaleWorkflowFor<T extends WorkflowOption>(
+  workflows: T[], purpose: GeneratorKind,
+  source: UpscaleSource = DEFAULT_UPSCALE_SOURCE, provider: 'local' | 'runninghub' | null = null,
+): T | undefined {
+  const pool = workflows.filter(item => item.kind === purpose && item.operation === 'upscale');
+  const wanted = source === 'follow' ? provider : source;
+  if (!wanted) return pool[0];
+  return pool.find(item => (item.provider === 'local' ? 'local' : 'runninghub') === wanted);
 }
 
 export type { NodeData, InputSlot, LatentRecord, ParamRow, WorkflowOption } from './types';

@@ -42,8 +42,11 @@ import {
   readImageEngine, readImageSizeMode, readInstanceType, readVideoApiParams, readVideoEngine, resolveImageSize,
   validateCustomSize, videoEngineLabel,
   videoEngineProvider, workflowDisplayName, workflowLabel, workflowMismatchHint,
-  workflowsForApp, workflowsForGeneration, workflowsForProvider, purposeForNode, purposesOfNode,
+  workflowsForApp, workflowsForGeneration, workflowsForProvider, purposeForNode, purposeOfNode, purposesOfNode,
+  nodeEngineProvider, readUpscaleMode, readUpscaleSource, upscaleWorkflowFor,
+  UPSCALE_MODE_LABELS, UPSCALE_MODES, UPSCALE_SOURCE_LABELS, UPSCALE_SOURCES,
 } from './nodeMeta';
+import type { UpscaleMode, UpscaleSource } from './nodeMeta';
 import type { ParamRow } from '@/lib/workflows/configuration';
 
 /** 有这一块的三种节点：图片生成 / 视频生成 / RunningHub 应用。 */
@@ -122,6 +125,8 @@ export default function GenerateDock({ data, nodeId, anchor }: {
   const isImage = kind === 'image-generate';
   const [more, setMore] = useState(false);
   const [pop, setPop] = useState(false);
+  /** 「超清」那一颗胶囊自己的弹层（不与参数摘要共用一个开关：两个都开着会互相盖住）。 */
+  const [upPop, setUpPop] = useState(false);
   const running = data.status === 'running';
 
   /*
@@ -283,6 +288,19 @@ export default function GenerateDock({ data, nodeId, anchor }: {
     : workflowsForGeneration(workflows, purposesOfNode(data.kind));
   const listedWorkflows = workflowsForProvider(listedBase, engineProvider);
   const listedGroups = groupWorkflowsByProvider(listedWorkflows);
+
+  /*
+   * 「超清」这一道（2026-10-02 徐先）：触发方式（关闭 / 手动 / 自动）+ 用哪一份（来源）。
+   *
+   * 应用节点不参与 —— 它没有「引擎」那一档，`upscale()` 也只认两种生成节点，
+   * 给它画一颗胶囊等于给一个点了必然报错的开关。
+   */
+  const upscalePurpose = purposeOfNode(kind);
+  const upscaleMode = readUpscaleMode(data.upscaleMode);
+  const upscaleSource = readUpscaleSource(data.upscaleSource);
+  const upscaleTarget = upscalePurpose
+    ? upscaleWorkflowFor(workflowOptions, upscalePurpose, upscaleSource, nodeEngineProvider(kind, data.engine))
+    : undefined;
 
   const slots = [...(data.inputs || [])].sort((a, b) => (SLOT_ORDER[a.kind] ?? 9) - (SLOT_ORDER[b.kind] ?? 9));
   const resultUrl = String(data.resultUrl || '');
@@ -1241,6 +1259,67 @@ export default function GenerateDock({ data, nodeId, anchor }: {
     </div>
   );
 
+  /*
+   * 「超清」胶囊的弹层：触发 + 来源两行。
+   *
+   * 为什么是**两个各选一个**而不是一个四选一的下拉：「什么时候跑」和「用哪一份」是两件事，
+   * 挤成一列的话「手动 + 本地」这种组合就没地方放了。
+   */
+  const upscalePop = !upPop || !upscalePurpose ? null : (
+    <div className="cv-dock-pop" data-dock-upscale-pop="">
+      <div className="cv-dock-row">
+        <div className="cv-dock-field wide">
+          <span>触发</span>
+          <div className="cv-dock-upscale-modes" role="radiogroup" aria-label="超清触发方式">
+            {UPSCALE_MODES.map(mode => (
+              <button
+                key={mode}
+                type="button"
+                className={`cv-dock-chip${upscaleMode === mode ? ' on' : ''}`}
+                data-dock-upscale-mode={mode}
+                aria-pressed={upscaleMode === mode}
+                onClick={() => data.onField?.('upscaleMode', mode as UpscaleMode)}
+              >
+                {UPSCALE_MODE_LABELS[mode]}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="cv-dock-row">
+        <div className="cv-dock-field wide">
+          <span>来源</span>
+          <div className="cv-dock-upscale-modes" role="radiogroup" aria-label="超清工作流来源">
+            {UPSCALE_SOURCES.map(item => (
+              <button
+                key={item}
+                type="button"
+                className={`cv-dock-chip${upscaleSource === item ? ' on' : ''}`}
+                data-dock-upscale-source={item}
+                aria-pressed={upscaleSource === item}
+                onClick={() => data.onField?.('upscaleSource', item as UpscaleSource)}
+              >
+                {UPSCALE_SOURCE_LABELS[item]}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+      {/*
+        选了「自动 / 手动」却找不到对应的那份时，在这里就把话说完：
+        否则用户配好了触发方式，画布上什么都没有，只能猜是没生效还是没配好。
+      */}
+      {upscaleMode !== 'off' && !upscaleTarget && (
+        <span className="cv-dock-hint warn" data-dock-upscale-missing="">
+          {upscaleSource === 'follow'
+            ? `这一档还没有${generatorKindLabel(upscalePurpose)}超清工作流`
+            : `还没有${UPSCALE_SOURCE_LABELS[upscaleSource]} 的${generatorKindLabel(upscalePurpose)}超清工作流`}
+          {' —— 到「设置 · 工作流」新建一份，把「工序」改成「超清」。'}
+        </span>
+      )}
+    </div>
+  );
+
   return (
     <div
       className="cv-dock nodrag"
@@ -1324,11 +1403,33 @@ export default function GenerateDock({ data, nodeId, anchor }: {
           title={isApp
             ? '这个 RunningHub 应用自己的参数 —— 点开可以改（只影响本节点）'
             : isImage ? '比例 · 分辨率 · 长宽' : '比例 · 分辨率 · 时长'}
-          onClick={() => setPop(value => !value)}
+          onClick={() => { setPop(value => !value); setUpPop(false); }}
         >
           <span className="cv-dock-summary-text">{summaryText || '—'}</span>
           <ChevronDown size={13} strokeWidth={2} className={pop ? 'flip' : ''} aria-hidden />
         </button>
+        {/*
+          「超清」胶囊（2026-10-02 徐先）：点开是「触发 + 来源」两行，长相跟左边那颗
+          参数摘要一致（文字 + 下拉符号）—— 一排胶囊里混进一个形状不同的，扫一眼就读不出来。
+          名字只有一个「超清」，后缀是**当前档位**，不靠换名字表示开关。
+        */}
+        {upscalePurpose && (
+          <button
+            className={`cv-dock-chip cv-dock-upscale${upPop ? ' on' : ''}`}
+            type="button"
+            data-dock-upscale=""
+            aria-expanded={upPop}
+            title={upscaleMode === 'off'
+              ? '关着 —— 点开可以改成「生成好后自动超清」或「出结果后手动点」'
+              : `超清：${UPSCALE_MODE_LABELS[upscaleMode]}（${upscaleSource === 'follow' ? '跟随节点的引擎' : UPSCALE_SOURCE_LABELS[upscaleSource]}）`}
+            onClick={() => { setUpPop(value => !value); setPop(false); }}
+          >
+            <span className="cv-dock-summary-text">
+              {upscaleMode === 'off' ? '超清' : `超清 · ${UPSCALE_MODE_LABELS[upscaleMode]}`}
+            </span>
+            <ChevronDown size={13} strokeWidth={2} className={upPop ? 'flip' : ''} aria-hidden />
+          </button>
+        )}
         <button
           className={`cv-dock-chip cv-dock-morebtn${more ? ' on' : ''}`}
           type="button"
@@ -1397,6 +1498,7 @@ export default function GenerateDock({ data, nodeId, anchor }: {
       </div>
 
       {settingsPop}
+      {upscalePop}
     </div>
   );
 }

@@ -4050,6 +4050,8 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 
 /* 本地模型装卸两档（2026-09-26）：两颗互斥 chip，选中态复用 `.cv-dock-chip.on`。 */
 .cv-dock-local-modes { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+/* 超清弹层里那两行 chips（触发 / 来源）：跟「本地模型」那两档一个排法，只是名字不同。 */
+.cv-dock-upscale-modes { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .cv-dock-local-state { font-size: 11px; color: var(--cv-mute); white-space: nowrap; }
 .cv-dock-local-state[data-dock-local-state="on"] { color: var(--cv-accent); }
 
@@ -4087,6 +4089,11 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   绝对定位在操作排上沿、**往上浮**，可以高出面板本体 —— 面板本体 overflow 可见，
   所以不会被裁。它盖住的是提示词区，不遮操作排本身；关掉它的手段就是再点一下摘要。
 */
+/*
+  超清那颗胶囊的弹层比其他弹层宽一点：来源那一行的三档（跟随节点 / RunningHub / 本地 ComfyUI）
+  按 300px 排会掉一行 —— 「本地 ComfyUI」正好差几十像素，看着像少了一项。
+*/
+.cv-dock-pop[data-dock-upscale-pop] { width: 352px; }
 .cv-dock-pop {
   position: absolute;
   left: 10px;
