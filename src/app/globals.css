@@ -1190,7 +1190,24 @@ html[data-nav='collapsed'] .shell:not(.home-shell) .sidebar { transform: transla
   gap: calc(20px * var(--ui));
   height: calc(72px * var(--ui));
   padding: 0 calc(32px * var(--ui));
-  border-bottom: 1px solid var(--line);
+  /*
+   * 2026-10-02 徐先：「这里有一条极细的白线，请消除」——原来这行是
+   * `border-bottom: 1px solid var(--line)`，全站十二个页头共用。
+   * 去掉是有依据的，不是随手删：
+   *  · 它本来就极淡（白 8%），DPR 1.5 的机器上更被吸成 0.667px —— 截图里量出来
+   *    只是 `#131313` 上一行 `#252525`，看不出"分隔"，只像画错的一根头发丝；
+   *  · 非首页那批页头是 `position: sticky; background: var(--bg)`（见上面 `.shell:not(.home-shell)` 那条），
+   *    内容滚过去靠**底色**挡住，不靠这条线；
+   *  · 首页 / 项目页的页头是 `position: fixed` 且完全透明（`home.css` 那边没给 background），
+   *    正文留 104px 顶部间距，这条线底下本来就是空的。
+   * → 两边都不需要它。**不要加回来。** 想恢复"页头有下边界"，正确的做法是给非首页那批
+   *   页头换个底色或加投影，而不是再画一根发丝线（同一件事 2026-10-01 已经讨论过一轮：
+   *   界面只留"输入 / 按钮 / 状态 / 报错"，纯装饰的线一律砍）。
+   *
+   * ⚠️ `.workspace-header::after` 那个 66px 的 CMYK 色标（见文件后面第 ① 条装饰）
+   *    `bottom: -1px` 是**贴着这条线**摆的。现在线没了，它照旧画在那儿（`--cmyk-c`
+   *    两套主题都是 `transparent`，本来就是不可见的），不用跟着动。
+   */
 }
 /*
  * 页头里**第二个**孩子往右顶：它前面那条自动外边距会把剩余空间一次吃光，
