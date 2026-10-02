@@ -29,7 +29,11 @@ export async function POST(request: Request) {
     if (file.size > maxBytes) throw new ApiError(413, '文件不能超过 100 MB。');
     const { apiKey, message: keyMessage, baseUrl } = await resolveRunningHub(user.id);
     if (!apiKey) throw new ApiError(400, keyMessage || '尚未配置 RunningHub API Key。');
+    /*
+     * 失败原因要带出去。原来这里只回一句「上传失败，请检查连接或文件格式后重试」——
+     * 那是在让人猜：是 Key 不认、还是文件太大、还是上游抽风？（同 `lib/upload.ts` 那条规矩）
+     */
     try { return Response.json(await uploadMedia(file, apiKey, baseUrl)); }
-    catch { throw new ApiError(502, 'RunningHub 上传失败，请检查连接或文件格式后重试。'); }
+    catch (error) { throw new ApiError(502, error instanceof Error ? error.message : 'RunningHub 上传失败。'); }
   });
 }

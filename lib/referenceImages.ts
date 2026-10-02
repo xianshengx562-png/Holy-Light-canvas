@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { ApiError } from '@/lib/api';
 import { openMediaAsset } from '@/lib/media';
 import { uploadMedia } from '@/lib/providers/runninghub/client';
+import { uploadOrExplain } from '@/lib/upload';
 
 /**
  * 参考图的体积上限（与 `/api/providers/runninghub/upload` 同数）。
@@ -91,7 +92,8 @@ export async function resolveReferenceImage(
   }
 
   const uploader = options.upload || ((file: File) => uploadMedia(file, apiKey).then(item => item.fileName));
-  return uploader(new File([bytes], name));
+  /* 与超清那条同一条规矩：上传失败要报「哪一份东西、上游为什么」，别被兜成「服务暂时不可用」。 */
+  return uploadOrExplain(label, () => uploader(new File([bytes], name)));
 }
 
 export async function resolveReferenceImages(

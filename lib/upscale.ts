@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { ApiError } from '@/lib/api';
 import { openMediaAsset } from '@/lib/media';
 import { uploadMedia } from '@/lib/providers/runninghub/client';
+import { uploadOrExplain } from '@/lib/upload';
 
 /**
  * 一次上传的体积上限，与 `/api/providers/runninghub/upload` 那条路由同一个数。
@@ -82,7 +83,8 @@ export async function resolveUpscaleInput(
   }
 
   const uploader = upload || ((file: File) => uploadMedia(file, apiKey).then(item => item.fileName));
-  return uploader(new File([bytes], name));
+  /* 上传失败要说清「哪一步、为什么」（`uploadOrExplain` 那条注释里就是这一轮撞出来的事）。 */
+  return uploadOrExplain('待超清的媒体', () => uploader(new File([bytes], name)));
 }
 
 function mimeExt(contentType: string | null) {

@@ -44,7 +44,16 @@ export async function uploadMedia(file: File, apiKey?: string, baseUrl?: string)
     signal: AbortSignal.timeout(120_000),
   });
   const body = await response.json().catch(() => null);
-  if (!response.ok || !body || body.code !== 0 || !body.data?.fileName) throw new Error('RunningHub 上传失败。');
+  /*
+   * 🔴 失败原因要**带出去**：原来只有一句「RunningHub 上传失败。」，HTTP 状态码与上游的原话
+   * 全丢了，界面上（被 `api()` 兜成 500）更是只剩一句「服务暂时不可用」——
+   * 2026-10-02 徐先点超清就是这种局面：谁都看不出是 413 还是 401。
+   */
+  if (!response.ok || !body || body.code !== 0 || !body.data?.fileName) {
+    const detail = String(body?.errorMessage || body?.msg || '').trim()
+      || (body && body.code !== undefined ? `code ${body.code}` : '');
+    throw new Error(`RunningHub 上传失败（HTTP ${response.status}${detail ? ' · ' + detail : ''}）`);
+  }
   return { fileName: String(body.data.fileName), url: String(body.data.download_url || ''), uploadedAt: new Date().toISOString() };
 }
 
