@@ -59,14 +59,14 @@ export type DockKind = 'image-generate' | 'video-generate' | 'app-generate';
  * 这里刻意**不自己算**：视口变换、画布尺寸、节点实测高度都只有那边拿得到，
  * 组件里再算一遍就是第二份真相。
  *
- * `top` 与 `bottom` **只会有一个有值**：优先贴在节点下方，下方放不下就翻到上方
- * （这时给 `bottom`，内容变长是向上长的，不会把面板顶出画布）。
+ * ⚠️ **只有 `top`，没有 `bottom` 这一支了**（2026-10-02）：以前「下方放不下就翻到节点上方」
+ * 那一支是靠 `bottom` 定位的，徐先看过之后要求「节点移到下面时参数框不用移到上方」，
+ * 于是那条分支整个删掉（见 `CanvasEditor` 的 `dockAnchorFor`）。
  */
 export type DockAnchor = {
   left: number;
   width: number;
-  top?: number;
-  bottom?: number;
+  top: number;
   maxHeight: number;
 };
 
@@ -1380,15 +1380,15 @@ export default function GenerateDock({ data, nodeId, anchor }: {
       className="cv-dock nodrag"
       data-dock=""
       data-kind={kind}
-      /* 探针要能一眼看出它是「挂在节点下方」还是「翻到节点上方」：
-         单看坐标分不出「照着节点算的」和「碰巧算对了」。 */
-      data-dock-anchor={anchor ? (anchor.top === undefined ? 'above' : 'below') : 'fixed'}
+      /* 探针要能一眼看出它是「挂在节点下方」还是「没有节点、退回 CSS 兜底位置」：
+         单看坐标分不出「照着节点算的」和「碰巧算对了」。
+         ⚠️ 2026-10-02 起不会再有 `above` —— 翻到节点上方那一支已删。 */
+      data-dock-anchor={anchor ? 'below' : 'fixed'}
       data-dock-node={nodeId || ''}
       style={anchor
         ? {
           left: anchor.left,
           top: anchor.top,
-          bottom: anchor.bottom,
           width: anchor.width,
           maxHeight: anchor.maxHeight,
         }

@@ -114,49 +114,38 @@ const RESULTS_DRAWER_WIDTH = 420;
 /** 常规宽度。窄到这个值以下就跟着画布缩，别撑出去。 */
 const DOCK_WIDTH = 680;
 const DOCK_MIN_W = 320;
-/** 高度上限：展开「自定义参数」之后很长，没上限会把画布整个吃掉。 */
+/**
+ * 高度上限：展开「自定义参数」之后很长，没上限会把画布整个吃掉。
+ *
+ * 🔴 这是**唯一还在管高度的数** —— 面板多高由它自己内容决定，只在这里封顶。
+ * ⚠️ **别再拿「下方还剩多少」去压它**（2026-10-02 徐先：「不是压矮」）：压矮之后
+ * 提示词只剩一条缝，比「往画布外面伸一截」难受得多。
+ */
 const DOCK_MAX_H = 460;
 /**
- * 面板自然高度，也是「这一边放得下吗」的门槛。
+ * 面板的「自然高度」≈ 240，**只作说明，不参与计算**。
  *
- * 组成：标题 20 + 参考图 44 + 提示词 56 + 操作排 81 + 间隙 24 + 内边距 12 ≈ 237，
- * 所以取 **240**。三个地方都在拿它当尺子，改任何一处内容高度都要回来改它：
- *   - 小于它 → 考虑**翻到节点上方**（上面通常空得多）；
- *   - 面板高度的**下限**（再挤也别低于这个数，否则正文区没法看）。
+ * 组成：标题 20 + 参考图 44 + 提示词 56 + 操作排 81 + 间隙 24 + 内边距 12 ≈ 237。
+ * 改任何一处内容高度都要回来改这句注释。
  *
- * ⚠️ 曾经写过 330（那时主层有 330 高）。数字必须跟着主层实际高度走：
- * 写太大会动不动就翻到节点上方；写太小（第一版是 190）会在下方只剩 200 出头时
+ * ⚠️ 它以前当过「这一边放得下吗」的门槛（放不下就翻到节点上方）和面板高度的下限，
+ * 那一支 2026-10-02 已删 —— 现在高度完全由内容决定，只受 `DOCK_MAX_H` 封顶。
+ * 曾经写过 330（那时主层有 330 高），也写过 190：写太小会在下方只剩 200 出头时
  * 也照放不误 —— 面板被压得比内容矮，而那时操作排还没 sticky，底部那一排连同
  * 发送按钮被卷到可视区外，用户不滚一下根本看不见发送键。
  */
-const DOCK_MIN_H = 240;
-/**
- * 「下方还值不值得待」的门槛：过了这条线就**翻到节点上方**。
- *
- * 190 ≈ 内边距 24 + 提示词 56 + 操作排 81 + 间隙 8 —— 也就是「提示词和操作排
- * 还露得出来」的最低要求。190～240 之间留在下方，代价是正文区要滚一下
- * （参考图那一行会被推到可视区外，那是可以接受的：它是「看」的）。
- *
- * 门槛不能定得太高：面板明明还看得见东西却突然跳到节点上方，比让它自己滚更让人困惑。
- */
-const DOCK_FLIP_H = 190;
-/** 与节点之间的空隙 / 与画布边缘的安全边距。 */
+/** 与节点之间的空隙 / 左右两道安全边距（上下不夹，见下面第二条规则）。 */
 const DOCK_GAP = 12;
 const DOCK_EDGE = 12;
-/**
- * 画布**底边要留出的那条带**（不是普通边距）。
- *
- * 左下的视口控制条 `.cv-vp` 是 `left:14 / bottom:14`、高 38px —— 面板贴到画布下沿
- * 就会把它压在下面，缩放滑块点不着。所以「下方还剩多少」要按这条线往上算。
- * 原来固定在底部那版是直接 `bottom:60px` 让开的，现在是跟着节点走，只能在这里让。
- */
-const DOCK_BOTTOM_SAFE = 56;
 /** 量不到节点实测尺寸时的兜底（一张生成卡片的常规大小）。 */
 const DOCK_FALLBACK_W = 220;
 const DOCK_FALLBACK_H = 150;
 
-/** 画布当前的观察框：视口变换 + 画布尺寸。 */
-type DockFrame = { x: number; y: number; zoom: number; width: number; height: number };
+/**
+ * 画布当前的观察框：视口变换 + 画布**宽度**。
+ * ⚠️ 没有 `height` —— 面板已经不做上下夹取了，画布多高跟它没关系（见下面第二条）。
+ */
+type DockFrame = { x: number; y: number; zoom: number; width: number };
 
 /**
  * 对话框该钉在哪儿 —— **纯函数**，好读也好改。
@@ -165,21 +154,28 @@ type DockFrame = { x: number; y: number; zoom: number; width: number; height: nu
  * `translate(x, y) scale(zoom)` 变换一次，所以
  * `画布坐标 = flow 坐标 × zoom + 平移量`。
  *
- * 三条取值规则：
- *   1. 优先贴在节点**正下方**，左右以节点为中心（不是跟画布对齐）；
- *   2. 下方放不下「主层」（见 `DOCK_MIN_H`）就**翻到节点上方** —— 这时给 `bottom`，
- *      内容变长是**向上**长的，不会把面板顶出画布；
- *   3. 左右越界就往回收，绝不越出画布的边界。
+ * 三条取值规则（2026-10-02 徐先定的）：
+ *   1. **永远**贴在节点**正下方**，左右以节点为中心（不是跟画布对齐）；
+ *   2. **高度不跟着下方剩余空间变** —— 下方装不下就让它**往下伸出画布**；
+ *   3. 只有**左右**越界才往回收，**上下一律不夹**。
  *
- * ⚠️ 「放得下」的判据是**主层那一排要能露出来**，不是「还剩一点点地方也行」。
- * 压得太扁时面板会自己滚，而滚动条在面板最底下 —— 结果就是提示词看得见、
- * **发送按钮看不见**（自动化更难堪：按 rect 点过去会点到后面的画布上把节点取消选中）。
+ * 🔴 **不再「翻到节点上方」**（徐先：「如果节点移到下面，提示词参数框不用移到上方」）。
+ * 老规则是「下方装不下主层就翻上去」—— 翻上去那一刻面板离节点一整屏远，
+ * 而且是**bottom 定位、往上长**，一展开就占掉上半屏，看着跟那个节点没关系了。
+ *
+ * 🔴 **也不再「压矮」**（同一轮他的第二句：「不是压矮」）。为了不翻上去而想出的折中是
+ * 「下方剩多少给多少、最多压到 120」—— 面板是没被裁了，可 120 高意味着提示词只剩
+ * 一条缝，正是这块面板最没用的时候。他要的是**面板保持原样**，多出来的一截往画布外伸。
+ *
+ * ⚠️ 「往下伸出画布」是有代价的，别当成 bug 再修回去：
+ *   - 最底下的**操作排连同发送键会被裁掉**，得把节点往上移一点才看得见；
+ *   - 会压住左下角那条视口控制条 `.cv-vp`（`left:14 / bottom:14`、高 38px）。
+ *   换来的是**位置永不跳动**：面板永远在节点正下方 12px，节点往上挪一点它就自己回来。
  */
 function dockAnchorFor(node: Node<NodeData>, frame: DockFrame): DockAnchor {
   const zoom = frame.zoom || 1;
-  /* 画布还没量出来（首帧 width/height 是 0）时按窗口算 —— 不然会蹦到左上角一下。 */
+  /* 画布还没量出来（首帧 width 是 0）时按窗口算 —— 不然会蹦到左上角一下。 */
   const paneW = frame.width || window.innerWidth;
-  const paneH = frame.height || window.innerHeight;
   const nodeLeft = node.position.x * zoom + frame.x;
   const nodeTop = node.position.y * zoom + frame.y;
   const boxW = (node.measured?.width ?? node.width ?? DOCK_FALLBACK_W) * zoom;
@@ -189,27 +185,9 @@ function dockAnchorFor(node: Node<NodeData>, frame: DockFrame): DockAnchor {
   const centered = nodeLeft + boxW / 2 - width / 2;
   const left = Math.max(DOCK_EDGE, Math.min(centered, paneW - width - DOCK_EDGE));
 
-  const below = nodeTop + boxH + DOCK_GAP;
-  const above = nodeTop - DOCK_GAP;
-  /* 选边看的是「安全线以内还剩多少」—— 平时就不该压住左下那条视口控制条。
-     下方放得下提示词与操作排就留在下方（面板的习惯位置）；上方也一样放不下时
-     仍旧留在下方 —— 正文滚一下也比整块面板跳走好。 */
-  const roomBelow = paneH - DOCK_BOTTOM_SAFE - below;
-  const roomAbove = above - DOCK_EDGE;
-  const useBelow = roomBelow >= DOCK_FLIP_H || roomAbove < DOCK_FLIP_H;
-  const room = useBelow ? roomBelow : roomAbove;
-  /** 硬边界：不算那条安全带，真正不能越过的是画布边缘。 */
-  const hardRoom = useBelow ? paneH - DOCK_EDGE - below : roomAbove;
-  /**
-   * 高度：这一边剩多少就多少，但**不低于 `DOCK_MIN_USABLE`**，且**不越过硬边界**、不超过上限。
-   *
-   * 「不越过硬边界」这一条比「尽量给高」重要：越过去面板就会被画布裁掉，
-   * 钉在底部的操作排跟着一起被裁 —— 那正是这套 sticky 想解决的问题。
-   */
-  const maxHeight = Math.min(Math.max(room, DOCK_MIN_H), Math.max(hardRoom, 160), DOCK_MAX_H);
-  return useBelow
-    ? { left, width, top: below, maxHeight }
-    : { left, width, top: undefined, bottom: paneH - above, maxHeight };
+  /** 位置：节点下沿再往下 `DOCK_GAP`。**不加任何上下夹取** —— 见上面第二条。 */
+  const top = nodeTop + boxH + DOCK_GAP;
+  return { left, width, top, maxHeight: DOCK_MAX_H };
 }
 
 /**
@@ -3883,9 +3861,8 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
   const viewY = useStore(state => state.transform[1]);
   const viewZoom = useStore(state => state.transform[2]);
   const paneW = useStore(state => state.width);
-  const paneH = useStore(state => state.height);
   const dockAnchor = dockNode
-    ? dockAnchorFor(dockNode, { x: viewX, y: viewY, zoom: viewZoom, width: paneW, height: paneH })
+    ? dockAnchorFor(dockNode, { x: viewX, y: viewY, zoom: viewZoom, width: paneW })
     : undefined;
 
   /**
