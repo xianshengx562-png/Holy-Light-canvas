@@ -76,7 +76,14 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
   const resultValue = String(data.resultUrl || '');
   const resultIsVideo = !!resultValue && isVideoUrl(resultValue);
   /** 音频同样不能当图片画 —— 见 `nodeMeta.ts` 里 `isAudioUrl` 那条注释。 */
-  const resultImage = resultValue && !resultIsVideo && !isAudioUrl(resultValue) ? resultValue : '';
+  const resultIsAudio = !!resultValue && isAudioUrl(resultValue);
+  const resultImage = resultValue && !resultIsVideo && !resultIsAudio ? resultValue : '';
+  /**
+   * 音频结果的正面：一条播放器，不是 `<img>`、也不是 16:9 的黑框。
+   * ⚠️ 下面那两个 `kind === '…-generate'` 分支原来是「不是视频就当图片」写的，
+   * 漏了音频那一支的话，出音频之后卡片正面是一张**打不开的坏图**（零报错）。
+   */
+  const audioFace = <div className="cv-audio nodrag"><audio src={resultValue} controls preload="metadata" /></div>;
   const outputImage = resultImage || String(data.passthroughImage || '');
   const text = String(data.text || '').trim();
   const paramRows = (data.paramRows || []) as ParamRow[];
@@ -283,19 +290,23 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
             ? (resultValue
               ? (resultIsVideo
                 ? <video className="cv-video nodrag" src={resultValue} controls preload="metadata" />
-                : <div className="cv-thumb media">
-                  <img src={resultValue} alt="生成结果" onClick={previewIfSelected(resultValue)} />
-                  <span className="cv-badge">生成结果</span>
-                </div>)
+                : resultIsAudio
+                  ? audioFace
+                  : <div className="cv-thumb media">
+                    <img src={resultValue} alt="生成结果" onClick={previewIfSelected(resultValue)} />
+                    <span className="cv-badge">生成结果</span>
+                  </div>)
               : (frameStrip() || slotGrid()))
             : kind === 'image-generate' || kind === 'app-generate'
               ? (resultValue
                 ? (resultIsVideo
                   ? <video className="cv-video nodrag" src={resultValue} controls preload="metadata" />
-                  : <div className="cv-thumb media">
-                    <img src={resultValue} alt="生成结果" onClick={previewIfSelected(resultValue)} />
-                    <span className="cv-badge">生成结果</span>
-                  </div>)
+                  : resultIsAudio
+                    ? audioFace
+                    : <div className="cv-thumb media">
+                      <img src={resultValue} alt="生成结果" onClick={previewIfSelected(resultValue)} />
+                      <span className="cv-badge">生成结果</span>
+                    </div>)
                 : (frameStrip() || slotGrid()))
             : kind === 'video-input'
               ? (videoSource

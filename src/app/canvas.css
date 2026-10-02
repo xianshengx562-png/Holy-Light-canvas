@@ -3008,6 +3008,11 @@ html[data-theme='light'] .cv-skill-mask {
 }
 .cv-lightbox img { max-width: 92vw; max-height: 86vh; border-radius: var(--cv-radius); box-shadow: var(--cv-shadow-3); }
 .cv-lightbox span { font-size: 12px; color: var(--cv-dim); }
+/* 视频 / 音频也走这一层：原来这里只画 `<img>`，视频结果点「预览」是一张打不开的坏图。
+   `cursor: auto` + 自己不关（`onClick` 里 stopPropagation）—— 不然调进度条的动作会被当成「点遮罩关闭」。 */
+.cv-lightbox video { max-width: 92vw; max-height: 86vh; border-radius: var(--cv-radius); box-shadow: var(--cv-shadow-3); cursor: auto; }
+.cv-lightbox .cv-lightbox-audio { width: min(560px, 86vw); padding: 14px 12px; background: var(--cv-media-solid); border-radius: var(--cv-radius); box-shadow: var(--cv-shadow-3); cursor: auto; }
+.cv-lightbox .cv-lightbox-audio audio { display: block; width: 100%; }
 
 /* ---------- 自定义参数块 ---------- */
 /* 一行参数 = 名字 + 节点 id + 字段名 + 值。参数条和右侧栏共用，宽度都得吃得住。 */

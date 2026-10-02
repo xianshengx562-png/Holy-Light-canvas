@@ -4515,7 +4515,19 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
 
     {preview && (
       <div className="cv-lightbox" onClick={() => setPreview(null)}>
-        <img src={preview} alt="参考图预览" />
+        {/*
+         * 预览这一层现在要装三种东西（2026-10-02）。
+         * 原来只有 `<img>`：**视频结果点「预览」本来就是一张打不开的坏图**（音频同理，
+         * 这次一起修掉）。`onClick` 里 `stopPropagation` 是必须的 —— 不然在播放器上调
+         * 进度条那一下会被当成「点遮罩关闭」，控件等于点不动。
+         */}
+        {isAudioUrl(preview)
+          ? <div className="cv-lightbox-audio" onClick={event => event.stopPropagation()}>
+            <audio src={preview} controls autoPlay />
+          </div>
+          : isVideoUrl(preview)
+            ? <video src={preview} controls autoPlay onClick={event => event.stopPropagation()} />
+            : <img src={preview} alt="参考图预览" />}
         <span>点击任意处或按 Esc 关闭</span>
       </div>
     )}
