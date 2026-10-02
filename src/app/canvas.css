@@ -3882,9 +3882,14 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 */
 .flow-shell .cv-dock-slots .cv-slot,
 .flow-shell .cv-dock-slots .cv-slot-add { width: 44px; height: 44px; }
-/* 提示词：参考图的样式是「直接写在面板上」，没有自己的框。 */
+/*
+  提示词：参考图的样式是「直接写在面板上」，没有自己的框。
+  初始高度给到 4 行多（2026-10-02 徐先：「初始的提示词输入的文本框提高一点」，72 → 96）——
+  72 只有三行半，写完第一句就得拖右下角，而那个角根本不容易看见。
+  仍然留 `resize: vertical`：想再高自己拖。
+*/
 .cv-dock-input {
-  min-height: 72px;
+  min-height: 96px;
   resize: vertical;
   padding: 4px 2px;
   background: transparent;
