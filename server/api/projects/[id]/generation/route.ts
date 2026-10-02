@@ -31,6 +31,8 @@ import { DUPLICATE_WINDOW_MS, isDuplicateSubmit } from '@/lib/submitGuard';
 
 const schema = z.object({
   nodeId: z.string().min(1).max(120),
+  /** 节点名快照：写进 `Task.nodeLabel`。历史要靠它显示「这条是谁跑的」（节点删了也还在）。 */
+  nodeLabel: z.string().max(60).optional(),
   /** 工作流 ID。云端是 RunningHub 的纯数字，本地带 `local-` 前缀 —— 判定同 `lib/workflows/local.ts`。 */
   workflowId: z.string().refine(value => !workflowIdError(value), { message: '工作流 ID 无效。' }),
   /*
@@ -514,7 +516,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       update: { type: workflowType },
     });
     const task = await db.task.create({ data: {
-      userId: user.id, projectId: id, nodeId: input.nodeId, provider: useLocal ? 'local' : 'runninghub', workflowId: workflow.id,
+      userId: user.id, projectId: id, nodeId: input.nodeId, nodeLabel: input.nodeLabel || null, provider: useLocal ? 'local' : 'runninghub', workflowId: workflow.id,
       externalTaskId: externalId, idempotencyKey: key,
       status: initialStatus === 'SUCCESS' ? 'success' : initialStatus === 'QUEUED' ? 'queued' : 'running',
       input: nodeInfoList as Prisma.InputJsonValue,

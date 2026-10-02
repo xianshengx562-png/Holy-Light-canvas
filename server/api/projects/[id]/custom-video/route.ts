@@ -35,6 +35,8 @@ function sizeFrom(resolution: string, aspectRatio: string) {
 
 const schema = z.object({
   nodeId: z.string().min(1).max(120),
+  /** 节点名快照：写进 `Task.nodeLabel`。历史要靠它显示「这条是谁跑的」（节点删了也还在）。 */
+  nodeLabel: z.string().max(60).optional(),
   prompt: z.string().min(1).max(40000),
   /** `<providerId>::<modelId>`。 */
   model: z.string().trim().min(1).max(400),
@@ -110,7 +112,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     });
 
     const task = await db.task.create({ data: {
-      userId: user.id, projectId: id, nodeId: input.nodeId, provider: 'custom', workflowId: workflow.id,
+      userId: user.id, projectId: id, nodeId: input.nodeId, nodeLabel: input.nodeLabel || null, provider: 'custom', workflowId: workflow.id,
       externalTaskId: externalId,
       idempotencyKey: `cvid:${user.id}:${id}:${input.nodeId}:${Date.now()}`,
       status: 'running',

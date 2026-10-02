@@ -897,7 +897,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
    */
   const skipAutosave = useRef(false);
   const saveRef = useRef<(options?: { force?: boolean }) => void>(() => {});
-  const { fitView, screenToFlowPosition, setCenter } = useReactFlow();
+  const { fitView, getViewport, screenToFlowPosition, setCenter } = useReactFlow();
 
   const patch = useCallback((id: string, part: Partial<NodeData>) => {
     /*
@@ -1748,7 +1748,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
-            nodeId: id, prompt, model: customModel, ...customVideoValues,
+            nodeId: id, nodeLabel: String(node.data.label || ''), prompt, model: customModel, ...customVideoValues,
             ...(imageUrls[0] ? { firstFrame: imageUrls[0] } : {}),
           }),
         }));
@@ -1786,6 +1786,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
             nodeId: id,
+            nodeLabel: String(node.data.label || ''),
             prompt,
             ...videoApiValues,
             ...(firstFrame ? { firstFrame } : {}),
@@ -1863,7 +1864,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
-            nodeId: id, prompt, model: customModel, ...customImageValues, referenceImages: collected,
+            nodeId: id, nodeLabel: String(node.data.label || ''), prompt, model: customModel, ...customImageValues, referenceImages: collected,
           }),
         }));
         const results: RunResult[] = (Array.isArray(body.results) ? body.results : [])
@@ -1994,6 +1995,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           nodeId: id,
+          nodeLabel: String(node.data.label || ''),
           workflowId: workflowIdForRun,
           kind: purpose,
           /*
@@ -2393,6 +2395,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           nodeId: id,
+          nodeLabel: String(node.data.label || ''),
           workflowId: target.workflowId,
           kind: purpose,
           operation: 'upscale',
@@ -3015,6 +3018,35 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     if (selected && gone.has(selected)) setSelected(null);
     setNotice(ids.length > 1 ? `已删除 ${ids.length} 个节点` : '已删除节点');
   }, [selected, setEdges, setNodes]);
+
+  /**
+   * 让一颗节点「被选中并且看得见」（2026-10-02，历史浮层点一项时用）。
+   *
+   * 两件事都做才成立：
+   * - `selected` 是 React Flow 节点上的那个标记（`.cv-node.selected` 读的就是它），
+   *   画布自己的 `selected` state 只决定参数条挂在哪 —— 只设后者，画面上一点反应都没有；
+   * - 节点在视口外时，光标选中也是看不见的，得把它挪到屏幕中间（**缩放不动**，
+   *   突然拉近会让人失去方位感）。
+   */
+  const focusNode = useCallback((id: string) => {
+    setNodes(ns => ns.map(node => ({ ...node, selected: node.id === id })));
+    const target = nodesRef.current.find(node => node.id === id);
+    if (!target) return;
+    const view = getViewport();
+    const zoom = view.zoom || 1;
+    const w = (target.measured?.width || 240) * zoom;
+    const h = (target.measured?.height || 140) * zoom;
+    const x = (target.position?.x || 0) * zoom + view.x;
+    const y = (target.position?.y || 0) * zoom + view.y;
+    const inside = x > 40 && y > 40 && x + w < window.innerWidth - 40 && y + h < window.innerHeight - 40;
+    if (!inside) {
+      setCenter(
+        (target.position?.x || 0) + (target.measured?.width || 240) / 2,
+        (target.position?.y || 0) + (target.measured?.height || 140) / 2,
+        { zoom, duration: 320 },
+      );
+    }
+  }, [getViewport, setCenter, setNodes]);
 
   /** 拆掉一个节点上的所有连线，节点本身留着 —— 只想改接线的时候不用删了重建。 */
   const disconnectNode = useCallback((id: string) => {
@@ -3756,6 +3788,11 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
   }, [nodes, patch, setNotice]);
 
   const allRuns = useMemo(() => collectRuns(hydrated), [hydrated]);
+  /**
+   * 当前画布上还有哪些节点 —— 历史浮层要用它判断「这条记录的节点还在不在」。
+   * 历史现在读的是库（见 `lib/runs.ts`），节点删了记录还在，所以不能再默认「点了就能跳过去」。
+   */
+  const nodeIds = useMemo(() => nodes.map(node => node.id), [nodes]);
   const saveText = saveState === 'saving' ? '保存中…' : saveState === 'failed' ? '保存失败' : saveState === 'conflict' ? '有冲突' : '已保存';
 
   /* 右键菜单的条目。三份内容互不重叠：
@@ -4384,10 +4421,21 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     )}
     {overlay === 'history' && (
       <CanvasHistoryPanel
+        projectId={projectId}
         runs={allRuns}
+        nodeIds={nodeIds}
         onClose={() => setOverlay(null)}
-        /* 点一项 = 回到生成它的那个节点：关掉浮层并选中它，接下来改参数还是重跑由用户决定。 */
-        onPick={nodeId => { setOverlay(null); if (nodeId) setSelected(nodeId); }}
+        /* 点一项 = 回到生成它的那个节点。节点已经删了就不跳 —— 记录还在，只是没地方可去。 */
+        onPick={nodeId => {
+          setOverlay(null);
+          if (!nodeId) return;
+          if (!nodes.some(node => node.id === nodeId)) {
+            setNotice('生成它的那个节点已经删掉了 —— 这条记录留在历史里。');
+            return;
+          }
+          setSelected(nodeId);
+          focusNode(nodeId);
+        }}
       />
     )}
     {overlay === 'skill' && (

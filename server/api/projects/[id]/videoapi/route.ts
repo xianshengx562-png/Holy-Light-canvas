@@ -24,6 +24,8 @@ import { DUPLICATE_WINDOW_MS, isDuplicateSubmit } from '@/lib/submitGuard';
  */
 const schema = z.object({
   nodeId: z.string().min(1).max(120),
+  /** 节点名快照：写进 `Task.nodeLabel`。历史要靠它显示「这条是谁跑的」（节点删了也还在）。 */
+  nodeLabel: z.string().max(60).optional(),
   prompt: z.string().min(1).max(40000),
   model: z.string().max(120).optional(),
   duration: z.union([z.string().max(8), z.number().int()]).optional(),
@@ -158,7 +160,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     });
 
     const task = await db.task.create({ data: {
-      userId: user.id, projectId: id, nodeId: input.nodeId, provider: 'videoapi', workflowId: workflow.id,
+      userId: user.id, projectId: id, nodeId: input.nodeId, nodeLabel: input.nodeLabel || null, provider: 'videoapi', workflowId: workflow.id,
       externalTaskId: externalId, idempotencyKey: key,
       status: 'running',
       input: {

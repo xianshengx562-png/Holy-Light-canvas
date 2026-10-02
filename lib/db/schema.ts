@@ -293,6 +293,12 @@ export const MODELS: Record<string, ModelMeta> = {
       { name: 'workflowId', kind: 'string', optional: false, default: { type: 'none' }, updatedAt: false, unique: false },
       { name: 'workflow', kind: 'string', optional: true, default: { type: 'none' }, updatedAt: false, unique: false, relation: { model: 'Workflow', many: false, fk: 'workflowId', ref: 'id' } },
       { name: 'externalTaskId', kind: 'string', optional: true, default: { type: 'none' }, updatedAt: false, unique: false },
+      /*
+       * 生成它的那个节点的名字（快照，2026-10-02 加）。
+       * 历史已经改读 Task 表（见 `lib/runs.ts`），节点删掉之后**只有这里**还能回答
+       * 「这条是谁跑的」—— 所以建单那一刻就写进来，事后回画布去查，节点可能已经不在了。
+       */
+      { name: 'nodeLabel', kind: 'string', optional: true, default: { type: 'literal', value: null }, updatedAt: false, unique: false },
       { name: 'idempotencyKey', kind: 'string', optional: false, default: { type: 'none' }, updatedAt: false, unique: true },
       { name: 'status', kind: 'enum', optional: false, default: { type: 'literal', value: 'queued' }, updatedAt: false, unique: false },
       { name: 'input', kind: 'json', optional: false, default: { type: 'none' }, updatedAt: false, unique: false },

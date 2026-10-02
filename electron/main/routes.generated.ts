@@ -90,6 +90,7 @@ import * as m76 from '@/server/api/tasks/scan/route';
    下次重跑生成器时要确认这两条没被冲掉（见本文件末尾那条注释）。 */
 import * as m77 from '@/server/api/workflows/categories/route';
 import * as m78 from '@/server/api/workflows/categories/[id]/route';
+import * as m79 from '@/server/api/projects/[id]/runs/route';
 
 export type RouteEntry = {
   /** `/api/projects/[id]/canvas` 这样的原始模式，报错信息里要用 */
@@ -237,6 +238,12 @@ export const ROUTES: RouteEntry[] = [
     regex: /^\/api\/projects\/([^\/]+)\/videoapi$/,
     keys: ['id'],
     mod: m22 as unknown as ApiModule,
+  },
+  {
+    pattern: '/api/projects/[id]/runs',
+    regex: /^\/api\/projects\/([^\/]+)\/runs$/,
+    keys: ['id'],
+    mod: m79 as unknown as ApiModule,
   },
   {
     pattern: '/api/provider-keys/[id]/test',

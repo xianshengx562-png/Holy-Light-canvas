@@ -3489,6 +3489,8 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 .cv-hist-meta small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cv-hist-meta b { font-size: 12.5px; font-weight: 600; color: var(--cv-text); }
 .cv-hist-meta small { font-size: 11px; color: var(--cv-mute); }
+/* 记录还在、生成它的节点已经删了 —— 这一条要点出来，否则点了没反应会以为坏了。 */
+.cv-hist-gone { margin-left: 6px; font-size: 11px; font-style: normal; font-weight: 400; color: var(--cv-mute); }
 
 /* 工作流那一屏：`.workflow-page` 在整页里是「铺满 + 自带底色」，在浮层里两样都得去掉，
    否则卡片里会再垫一层地板色，滚动条也跟着跑到里面去。 */

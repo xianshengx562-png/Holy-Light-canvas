@@ -1,12 +1,11 @@
 'use client';
 
-import type { Node } from '@xyflow/react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Download, Loader2, RefreshCw } from 'lucide-react';
-import { collectRuns } from './collectRuns';
 import { latentLabel } from './nodeMeta';
-import type { GenerationRun, LatentRecord, NodeData } from './types';
+import type { RunRecord } from '@/lib/runs';
+import type { GenerationRun, LatentRecord } from './types';
 
 /**
  * 右上角「生成结果」侧边栏。**跨画布共通**：一张画布上看到的，是所有画布的生成结果。
@@ -19,12 +18,12 @@ import type { GenerationRun, LatentRecord, NodeData } from './types';
  *
  * 三条刻意的取舍：
  *
- * 1. **当前这张画布的结果用内存里那一份，不拉接口。**
- *    刚跑完的那次可能还没落库（自动保存有间隔），拉接口会读到旧数据，
- *    表现就是「明明刚生成完，侧边栏里却没有」。所以当前画布的 `currentRuns`
- *    由 `CanvasEditor` 直接传进来，接口只用来补**别的**画布。
- * 2. **别的画布按项目逐个拉画布再汇总，共用 `collectRuns`。**
- *    汇总规则只有一份（见 `collectRuns.ts`），否则同一张画布在两处列出的次数会不一样。
+ * 1. **每张画布都走接口，内存里那份只兜底。**
+ *    库里那一份是准的（任务一提交就写库，删节点动不到它）；只有库里一条都没有时
+ *    （很早的画布，Task 表还没记东西）才用 `currentRuns`，免得升级之后历史突然变空。
+ * 2. **按项目逐个拉 `/api/projects/:id/runs`**（2026-10-02 改）。
+ *    以前是拉整张画布再用 `collectRuns` 汇总 —— 节点一删，它身上的记录就跟着没了。
+ *    顺带：拉的是一份几百条的记录，比拉整张画布小得多。
  * 3. **没有结果也要把话说清楚。** 「还没开始生成」和「加载失败了」是两回事，
  *    静默空列表会让人以为功能坏了。
  */
@@ -55,7 +54,7 @@ export default function CanvasResultsPanel({
   /** 当前项目的 Latent 包索引。Latent 是按项目归档的，不跨画布。 */
   latents: LatentRecord[];
 }) {
-  const [others, setOthers] = useState<ResultsRun[]>([]);
+  const [loaded, setLoaded] = useState<ResultsRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadSeq, setReloadSeq] = useState(0);
@@ -72,7 +71,8 @@ export default function CanvasResultsPanel({
         const rows = (await response.json()) as ProjectRow[];
         if (!alive) return;
         setProjectCount(rows.length);
-        const targets = rows.filter(row => row.id !== projectId);
+        /* 当前这张画布也一起拉：删掉节点之后，「历史」得靠库里那份才还在。 */
+        const targets = rows;
         const found: ResultsRun[] = [];
         let cursor = 0;
         /* 并发拉画布，但一次只放 CONCURRENCY 个 —— 项目一多，
@@ -83,14 +83,16 @@ export default function CanvasResultsPanel({
             if (index >= targets.length) return;
             const row = targets[index];
             try {
-              const canvasResponse = await fetch(`/api/projects/${row.id}/canvas`);
-              if (!canvasResponse.ok) continue;
-              const canvas = await canvasResponse.json() as { nodes?: unknown };
-              /* 服务端给的就是画布原始 JSON，字段和 React Flow 的 Node 一致 ——
-                 只是没有泛型信息，这里一次性转成 `Node<NodeData>[]` 交给 collectRuns。 */
-              const nodes = (Array.isArray(canvas?.nodes) ? canvas.nodes : []) as unknown as Node<NodeData>[];
-              for (const run of collectRuns(nodes)) {
-                found.push({ ...run, projectId: row.id, projectName: row.name || '未命名项目', current: false });
+              const runsResponse = await fetch(`/api/projects/${row.id}/runs`);
+              if (!runsResponse.ok) continue;
+              const payload = await runsResponse.json() as { runs?: RunRecord[] };
+              for (const run of Array.isArray(payload?.runs) ? payload.runs : []) {
+                found.push({
+                  ...run,
+                  projectId: row.id,
+                  projectName: row.name || '未命名项目',
+                  current: row.id === projectId,
+                });
               }
             } catch {
               /* 某一张画布拉不动不该让整个列表空掉，跳过它继续 */
@@ -99,7 +101,7 @@ export default function CanvasResultsPanel({
         };
         await Promise.all(Array.from({ length: Math.min(CONCURRENCY, targets.length) }, worker));
         if (!alive) return;
-        setOthers(found);
+        setLoaded(found);
       } catch {
         if (alive) setError('没能读出其他画布的生成结果。');
       } finally {
@@ -112,11 +114,13 @@ export default function CanvasResultsPanel({
   }, [projectId, reloadSeq]);
 
   const runs = useMemo(() => {
-    const mine: ResultsRun[] = currentRuns.map(run => ({
-      ...run, projectId, projectName: projectName || '未命名项目', current: true,
-    }));
-    return [...mine, ...others].sort((a, b) => (b.ts ?? 0) - (a.ts ?? 0));
-  }, [currentRuns, others, projectId, projectName]);
+    /* 库里那一份是准的；只有库里一条都没有时（很早的画布）才落回节点上那份。 */
+    const fromDb = loaded.filter(run => run.current);
+    const mine: ResultsRun[] = fromDb.length
+      ? fromDb
+      : currentRuns.map(run => ({ ...run, projectId, projectName: projectName || '未命名项目', current: true }));
+    return [...mine, ...loaded.filter(run => !run.current)].sort((a, b) => (b.ts ?? 0) - (a.ts ?? 0));
+  }, [currentRuns, loaded, projectId, projectName]);
 
   const reload = useCallback(() => setReloadSeq(seq => seq + 1), []);
 
