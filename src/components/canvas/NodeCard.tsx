@@ -110,6 +110,7 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
     ? upscaleWorkflowFor(
       data.workflows || [], upscalePurpose,
       readUpscaleSource(data.upscaleSource), nodeEngineProvider(kind, data.engine),
+      data.upscaleWorkflowId,
     )
     : undefined;
 

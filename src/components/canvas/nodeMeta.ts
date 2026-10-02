@@ -136,14 +136,30 @@ export function nodeEngineProvider(kind: unknown, engine: unknown): 'local' | 'r
  * 「本地 ComfyUI」，我们不该悄悄拿云端那份去跑 —— 那一路花的是他自己账号里的钱。
  * `follow` 且这一档不经过工作流（`provider` 为 null）时同样不筛，取第一份。
  */
+export function upscaleWorkflowsFor<T extends WorkflowOption>(
+  workflows: T[], purpose: GeneratorKind,
+  source: UpscaleSource = DEFAULT_UPSCALE_SOURCE, provider: 'local' | 'runninghub' | null = null,
+): T[] {
+  const pool = workflows.filter(item => item.kind === purpose && item.operation === 'upscale');
+  const wanted = source === 'follow' ? provider : source;
+  if (!wanted) return pool;
+  return pool.filter(item => (item.provider === 'local' ? 'local' : 'runninghub') === wanted);
+}
+
+/**
+ * `chosenId` 是用户在「超清工作流」那一行点名的哪一份（见 `NodeData.upscaleWorkflowId`）。
+ * 它**只在那批候选里挑**：点名了一份来源对不上的，等于想绕开「来源」那一档，不给。
+ * 点名的那份不在了就退回自动挑（`pool[0]`）—— 那一刻界面那一行会说出「不在了」，
+ * 所以这里安静退回不算静默失败。
+ */
 export function upscaleWorkflowFor<T extends WorkflowOption>(
   workflows: T[], purpose: GeneratorKind,
   source: UpscaleSource = DEFAULT_UPSCALE_SOURCE, provider: 'local' | 'runninghub' | null = null,
+  chosenId: unknown = '',
 ): T | undefined {
-  const pool = workflows.filter(item => item.kind === purpose && item.operation === 'upscale');
-  const wanted = source === 'follow' ? provider : source;
-  if (!wanted) return pool[0];
-  return pool.find(item => (item.provider === 'local' ? 'local' : 'runninghub') === wanted);
+  const pool = upscaleWorkflowsFor(workflows, purpose, source, provider);
+  const wanted = String(chosenId ?? '').trim();
+  return (wanted ? pool.find(item => String(item.workflowId) === wanted) : undefined) ?? pool[0];
 }
 
 export type { NodeData, InputSlot, LatentRecord, ParamRow, WorkflowOption } from './types';

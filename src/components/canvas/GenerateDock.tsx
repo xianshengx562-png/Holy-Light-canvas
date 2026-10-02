@@ -41,7 +41,7 @@ import {
   groupWorkflowsByProvider, imageEngineLabel, imageEngineProvider, isAudioUrl, isVideoUrl, readImage2Params,
   readImageEngine, readImageSizeMode, readInstanceType, readVideoApiParams, readVideoEngine, resolveImageSize,
   validateCustomSize, videoEngineLabel,
-  videoEngineProvider, workflowDisplayName, workflowLabel, workflowMismatchHint,
+  videoEngineProvider, workflowDisplayName, workflowLabel, workflowMismatchHint, upscaleWorkflowsFor,
   workflowsForApp, workflowsForGeneration, workflowsForProvider, purposeForNode, purposeOfNode, purposesOfNode,
   nodeEngineProvider, readUpscaleMode, readUpscaleSource, upscaleWorkflowFor,
   UPSCALE_MODE_LABELS, UPSCALE_MODES, UPSCALE_SOURCE_LABELS, UPSCALE_SOURCES,
@@ -298,8 +298,21 @@ export default function GenerateDock({ data, nodeId, anchor }: {
   const upscalePurpose = purposeOfNode(kind);
   const upscaleMode = readUpscaleMode(data.upscaleMode);
   const upscaleSource = readUpscaleSource(data.upscaleSource);
+  const upscaleProvider = nodeEngineProvider(kind, data.engine);
+  /*
+   * 「超清工作流」那一行的候选：用途 + 工序 + 来源都对得上的那批。
+   * 与下面挑「这次用哪一份」**同一个筛法**（`upscaleWorkflowsFor`），所以下拉里列出来的
+   * 一定就是能被选中的那一批 —— 两处各写一份的话，会出现「列表里有、选了他又说没有」。
+   */
+  const upscaleOptions = upscalePurpose
+    ? upscaleWorkflowsFor(workflowOptions, upscalePurpose, upscaleSource, upscaleProvider)
+    : [];
+  /** 点名的哪一份；空 = 自动。 */
+  const upscaleChosen = String(data.upscaleWorkflowId || '').trim();
+  /** 点名的那份已经不在这批候选里了（删了 / 改了工序 / 来源对不上）。 */
+  const upscaleChoiceStale = !!upscaleChosen && !upscaleOptions.some(item => String(item.workflowId) === upscaleChosen);
   const upscaleTarget = upscalePurpose
-    ? upscaleWorkflowFor(workflowOptions, upscalePurpose, upscaleSource, nodeEngineProvider(kind, data.engine))
+    ? upscaleWorkflowFor(workflowOptions, upscalePurpose, upscaleSource, upscaleProvider, upscaleChosen)
     : undefined;
 
   const slots = [...(data.inputs || [])].sort((a, b) => (SLOT_ORDER[a.kind] ?? 9) - (SLOT_ORDER[b.kind] ?? 9));
@@ -1121,6 +1134,48 @@ export default function GenerateDock({ data, nodeId, anchor }: {
                 : '不接上一段，按提示词单独出这一段；再点一下改成接着上一段跑'}
               onClick={() => data.onField?.('continuationEnabled', continuationOn ? 'off' : 'on')}
             >接续</button>
+          )}
+        </div>
+      )}
+
+      {/*
+        「超清工作流」这一行（2026-10-02 徐先：「新加一条，选择超清工作流的一列，与选择工作流并列」）。
+        跟上面那一行形状一样、紧跟着它：**这一行说的是「超清那一道用哪一份」**，
+        而上面那行说的是「这次生成用哪一份」—— 两份工作流，两个位置。
+        留空 = 按来源自动挑最近改过的那份（`data.upscaleWorkflowId` 不填就是它）。
+        ⚠️ 应用节点不画（`upscalePurpose` 为空）：应用没有「引擎」，也走不了超清那一道。
+      */}
+      {upscalePurpose && !isApp && (
+        <div className="cv-dock-row">
+          <label className="cv-dock-field wide">
+            <span>超清工作流</span>
+            <select
+              className="cv-select"
+              data-dock-upscale-workflow=""
+              aria-label="超清工作流"
+              value={upscaleChosen}
+              onChange={event => data.onField?.('upscaleWorkflowId', event.target.value)}
+            >
+              <option value="">自动（最近改过的那份）</option>
+              {upscaleOptions.map(item => (
+                <option key={item.workflowId} value={item.workflowId}>{workflowLabel(item)}</option>
+              ))}
+            </select>
+          </label>
+          {upscaleChoiceStale ? (
+            <span className="cv-dock-hint warn" data-dock-upscale-workflow-stale="">
+              点名的那份超清工作流不在了（删了？还是改了工序 / 来源？）—— 现在按「自动」走
+            </span>
+          ) : upscaleOptions.length ? (
+            <span className="cv-dock-hint">
+              {upscaleTarget
+                ? `${generatorKindLabel(upscalePurpose)}超清 · 这次会用「${workflowDisplayName(upscaleTarget)}」`
+                : ''}
+            </span>
+          ) : (
+            <span className="cv-dock-hint">
+              还没有可用的{generatorKindLabel(upscalePurpose)}超清工作流 —— 到「设置 · 工作流」新建一份，把「工序」改成「超清」
+            </span>
           )}
         </div>
       )}

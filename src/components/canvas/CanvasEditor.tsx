@@ -2456,7 +2456,10 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
      * 少了后半句，用户会以为这是个没实现的功能，而不是一个两分钟就能配好的选项。
      */
     const asked = readUpscaleSource(node.data.upscaleSource);
-    const target = upscaleWorkflowFor(workflows, purpose, asked, nodeEngineProvider(node.data.kind, node.data.engine));
+    const target = upscaleWorkflowFor(
+      workflows, purpose, asked, nodeEngineProvider(node.data.kind, node.data.engine),
+      node.data.upscaleWorkflowId,
+    );
     if (!target) {
       /*
        * 指定了来源时要把「哪一边没有」说进句子里：只说「还没有配视频超清工作流」，
