@@ -3839,13 +3839,13 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
     🔴 为什么必须是一个变量：这套控件会被全局 `button { height: 36px }` 顶住，
     每一处都得**自己写死 height** 才盖得住 —— 一旦各处写死各自的数，改一次就是翻五处、
     漏一处就错层（26 那一版就是这么漏的）。徐先 2026-10-02 连提三次「改小一点」，
-    36 → 26 → 24 → 20，有这个变量后面再调就是改一行。
+    36 → 26 → 24 → 20 → 22，有这个变量后面再调就是改一行。
     ⚠️ **图标尺寸不在这个变量里**：它们是写死在 TSX 里的（`Sparkles size={14}` 这种），
-    控件缩到 20 时图标也得跟着缩，不然 16px 的图标塞进 20px 的圆钮就顶到边了。
+    控件再缩小时图标也得跟着缩，不然 16px 的图标塞进 20px 的圆钮就顶到边了。
     ⚠️ 别拿它去对齐别处的 `.cv-btn.sm`：那是全库共用的（30 处在用），只有**底栏里**
     那几颗才跟着这个变量（见下面 `.cv-dock .cv-btn.sm`）。
   */
-  --cv-dock-ctl: 20px;
+  --cv-dock-ctl: 22px;
   position: absolute;
   left: 14px;
   top: 14px;
@@ -3980,7 +3980,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   ⚠️ `height` 必须写死、竖 padding 必须是 0：全局 `button { height: 36px }` 管不到 select，
   它是靠 padding 撑高的 —— 两个控件各撑各的，右边那排胶囊（被全局钉在 36）就比它高 5px，
   一整排看着是错层的。两边都写死同一个 `--cv-dock-ctl` 才齐
-  （2026-10-02 徐先：「这一行太密了」，36 → 26 → 24 → 20）。
+  （2026-10-02 徐先：「这一行太密了」，36 → 26 → 24 → 20 → 22）。
 */
 .cv-dock-eng {
   width: auto;
@@ -4054,7 +4054,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   ⚠️ `height` 必须写死：全局 `button { height: 36px; padding: 0 14px }`（globals.css）对所有
   button 生效，只改 padding / font-size 盖不掉那 36px —— 胶囊一直是 36 高，跟旁边 31 高的
   select 差 5px，一整排是错层的；九个控件（运行中多一颗「放弃」）挤不下，**发送钮掉到第二行**。
-  两边都写死同一个 `--cv-dock-ctl`（36 → 26 → 24 → 20）之后才回到一行、且一行内所有控件同高。
+  两边都写死同一个 `--cv-dock-ctl`（36 → 26 → 24 → 20 → 22）之后才回到一行、且一行内所有控件同高。
   ⚠️ 竖 padding 一律写 0：高度由 height 定，再给竖 padding 只会把字挤到一边。
 */
 .cv-dock-chip {
