@@ -1086,16 +1086,23 @@ html[data-theme='light'] .cv-skill-mask {
   pointer-events: none;
 }
 
-/* 四角星（sparkle）用一行 `clip-path` 画出来 —— 不引 SVG、不引图标字体。 */
+/*
+ * 光点（2026-10-02 第二次改：徐先「改为光点（一个个小点）」—— 原来是四角星，
+ * 那个 `clip-path` 已经去掉了）。
+ * 就是一个**小圆点**：正方形 + `border-radius: 50%`。不引 SVG / 图标字体，
+ * 也不给发光（box-shadow）—— 这点尺寸下加光晕只会糊成一团，而且"光点"靠的是
+ * 亮度（白点压在深色地板上）不是光晕。
+ * ⚠️ 判"圆"按几何判（正方形 + 圆角 ≥ 边长一半），别按字符串 —— 见探针 P-3。
+ */
 .cv-star {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 11px;
-  height: 11px;
-  margin: -5.5px 0 0 -5.5px;
+  width: 7px;
+  height: 7px;
+  margin: -3.5px 0 0 -3.5px;
+  border-radius: 50%;
   background: var(--cv-accent);
-  clip-path: polygon(50% 0, 58% 42%, 100% 50%, 58% 58%, 50% 100%, 42% 58%, 0 50%, 42% 42%);
   animation: cv-star-flow 1.7s linear infinite;
   will-change: transform, opacity;
 }
@@ -1106,14 +1113,16 @@ html[data-theme='light'] .cv-skill-mask {
  * 于是一颗星就是一条**朝中心的直线**，而 12 条直线的角度各不相同。
  */
 @keyframes cv-star-flow {
+  /* 起点 0.5（3.5px）→ 终点 1（7px）：靠近中心时**变大一点**，
+     光点太小的话在中心那一下根本看不见，"流到了"这件事就没了。 */
   0% {
-    transform: rotate(var(--cv-star-a)) translateX(calc(var(--cv-star-r) * 118px)) rotate(calc(var(--cv-star-a) * -1)) scale(0.4);
+    transform: rotate(var(--cv-star-a)) translateX(calc(var(--cv-star-r) * 118px)) rotate(calc(var(--cv-star-a) * -1)) scale(0.5);
     opacity: 0;
   }
   22% { opacity: 0.95; }
   78% { opacity: 0.7; }
   100% {
-    transform: rotate(var(--cv-star-a)) translateX(4px) rotate(calc(var(--cv-star-a) * -1)) scale(0.95);
+    transform: rotate(var(--cv-star-a)) translateX(4px) rotate(calc(var(--cv-star-a) * -1)) scale(1);
     opacity: 0;
   }
 }
@@ -1123,9 +1132,9 @@ html[data-theme='light'] .cv-skill-mask {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 7px;
-  height: 7px;
-  margin: -3.5px 0 0 -3.5px;
+  width: 5px;
+  height: 5px;
+  margin: -2.5px 0 0 -2.5px;
   border-radius: 50%;
   background: var(--cv-accent);
   opacity: 0.3;
