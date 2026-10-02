@@ -4039,7 +4039,8 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 
   ⚠️ `height` 必须写死：全局 `button { height: 36px; padding: 0 14px }`（globals.css）对所有
   button 生效，只改 padding / font-size 盖不掉那 36px —— 胶囊一直是 36 高，跟旁边 31 高的
-  select 差 5px，一整排是错层的，十个控件挤成三行。写死 26 之后一排才齐得起来。
+  select 差 5px，一整排是错层的；九个控件（运行中多一颗「放弃」）挤不下，**发送钮掉到第二行**。
+  两边都写死 26 之后才回到一行、且一行内所有控件同高。
   ⚠️ 竖 padding 一律写 0：高度由 height 定，再给竖 padding 只会把字挤到一边。
 */
 .cv-dock-chip {
