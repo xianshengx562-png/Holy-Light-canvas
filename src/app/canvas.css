@@ -2423,6 +2423,19 @@ html[data-theme='light'] .cv-skill-mask {
   background: var(--cv-text);
   cursor: pointer;
 }
+/*
+ * 「界面大小」那根滑杆**占满它那一栏**（2026-10-02 徐先："无极拉杆长一点"）。
+ *
+ * 上面那条 `width: 92px` 是给「背景图」那两根定的 —— 它们两张**并排各占一半**，
+ * 92 正好；而这一根是**独占一行**的单根滑杆，跟着 92 走就只占右栏四成，
+ * 130 档的滑块挤在中间一小段里，一格一格地跳，读不出"无级"。
+ *
+ * ⚠️ 必须带 `[data-ap-ui-scale]` 这个钩子：光写 `.cv-ap-slider input[type='range']`
+ *    会把背景图那两根也拉成整宽（两栏各自 100% → 撑爆右栏）。
+ * ⚠️ `margin: 0` 不能省：上面那条带着 `margin: 0 2px`，`width: 100%` 加左右各 2px
+ *    就会比右栏宽出 4px（`box-sizing: border-box` 管不到 margin）。
+ */
+.flow-shell .cv-ap-slider[data-ap-ui-scale] input[type='range'] { width: 100%; margin: 0; }
 
 /* 快捷键说明：悬停或聚焦就展开，点一下钉住（Theme 面板要来回对照的时候，
    松开鼠标就消失的那种体验很烦）。 */
