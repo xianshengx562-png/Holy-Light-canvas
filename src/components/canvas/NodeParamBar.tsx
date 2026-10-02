@@ -272,7 +272,6 @@ export default function NodeParamBar({ data }: { data: NodeData }) {
             onChange={event => { const file = event.target.files?.[0]; if (file) data.onFile?.(file); event.target.value = ''; }}
           />
         </label>
-        {data.videoRemoteUrl && <Link className="cv-btn sm ghost" href={data.videoRemoteUrl} download>下载视频</Link>}
         {videoSrc && <button className="cv-btn sm ghost" type="button" onClick={() => data.onPreview?.(videoSrc)}>预览</button>}
       </>,
     );
@@ -353,7 +352,6 @@ export default function NodeParamBar({ data }: { data: NodeData }) {
         {frames.filter(item => item.url).map(item => (
           <span key={item.tag} className="cv-param-inline">
             <button className="cv-btn sm ghost" type="button" onClick={() => data.onPreview?.(item.url)}>看{item.tag}</button>
-            <Link className="cv-btn sm ghost" href={item.url} download>下载{item.tag}</Link>
           </span>
         ))}
       </>,
@@ -383,7 +381,6 @@ export default function NodeParamBar({ data }: { data: NodeData }) {
             onChange={event => { const file = event.target.files?.[0]; if (file) data.onFile?.(file); event.target.value = ''; }}
           />
         </label>
-        {data.audioRemoteUrl && <Link className="cv-btn sm ghost" href={data.audioRemoteUrl} download>下载音频</Link>}
       </>,
     );
   }
@@ -580,7 +577,6 @@ export default function NodeParamBar({ data }: { data: NodeData }) {
       <>
         <button className="cv-btn sm" type="button" onClick={() => data.onOpenDirector?.()}>打开导演台</button>
         {shot && <button className="cv-btn sm ghost" type="button" onClick={() => data.onPreview?.(shot)}>预览参考图</button>}
-        {shot && <Link className="cv-btn sm ghost" href={shot} download>下载参考图</Link>}
       </>,
     );
   }
@@ -593,7 +589,6 @@ export default function NodeParamBar({ data }: { data: NodeData }) {
         <span className="cv-param-hint">视频输出已并入视频生成节点，这个节点只为老画布保留</span>
       </>,
       <>
-        {data.resultUrl && <Link className="cv-btn sm" href={String(data.resultUrl)} download>下载视频</Link>}
         {data.resultUrl && <button className="cv-btn sm ghost" type="button" onClick={() => data.onPreview?.(String(data.resultUrl))}>预览</button>}
         {archived.slice(0, 2).map(item => (
           <Link key={item.id} className="cv-btn sm ghost" href={`/api/assets/${item.id}/download`}>
@@ -620,7 +615,6 @@ export default function NodeParamBar({ data }: { data: NodeData }) {
       </>,
       <>
         {outputImage && <button className="cv-btn sm" type="button" onClick={() => data.onPreview?.(String(outputImage))}>查看原图</button>}
-        {outputImage && <Link className="cv-btn sm ghost" href={outputImage} download>下载图片</Link>}
       </>,
     );
   }

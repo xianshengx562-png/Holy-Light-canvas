@@ -32,7 +32,6 @@ import { apiPost } from '@/lib/client';
 import { useApi } from '@/lib/client';
 import { customEngineVisible } from '@/lib/providers/custom-visible';
 import { ArrowUp, ChevronDown, Download, Loader, Plus, SlidersHorizontal, Sparkles } from 'lucide-react';
-import Link from 'next/link';
 import type { NodeData } from './types';
 import {
   ASPECT_RATIOS, DEFAULT_RATIO, IMAGE2_FIXED_RATIO, IMAGE2_RATIOS, IMAGE2_RESOLUTIONS, IMAGE2_SIZE_AUTO,
@@ -1165,7 +1164,6 @@ export default function GenerateDock({ data, nodeId, anchor }: {
           ? `${data.referenceCount || 0}/9 图 · 已连 ${slots.length} 个输入${data.paramCount ? ` · 自定义 ${data.paramCount} 行` : ''}`
           : `${data.referenceCount || 0}/9 图 · 接续 ${data.latentCount || 0}/2${data.paramCount ? ` · 自定义 ${data.paramCount} 行` : ''}${slots.length ? ` · 已连 ${slots.length} 个输入` : ''}`}</span>
         <button className="cv-btn sm ghost" type="button" onClick={pasteFromClipboard}>粘贴图片</button>
-        {resultUrl && <Link className="cv-btn sm" href={resultUrl} download>{isImage ? '下载图片' : '下载视频'}</Link>}
         {resultImage && <button className="cv-btn sm ghost" type="button" onClick={() => data.onPreview?.(resultImage)}>预览</button>}
         {resultUrl && !resultImage && <button className="cv-btn sm ghost" type="button" onClick={() => data.onPreview?.(resultUrl)}>预览</button>}
       </div>
