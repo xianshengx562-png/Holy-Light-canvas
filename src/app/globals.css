@@ -119,6 +119,14 @@
   --warn-soft: rgba(251, 146, 60, 0.12);
   --info: #b9b9b9;
 
+  /* 「钱」的那一支（2026-10-02 徐先：账号卡里的余额「颜色改为金色」）。
+     为什么不借现成的：`--warn` 是**橙**（#fb923c）且语义是"警告"，
+     `--accent` 会跟着配色档变（选到琥珀那档就分不出哪个是余额哪个是强调）。
+     余额的金是这张卡自己的语义色，**固定不跟配色走**。
+     ⚠️ 深浅两档各一支（日间那支压深，见下面 light 块）—— 只写夜间那支的话，
+     日间主题下是"浅金压白底"，数字会糊成一片。 */
+  --gold: #e8c15f;
+
   --grid-dot: rgba(255, 255, 255, 0.05);
   --scroll: rgba(255, 255, 255, 0.12);
   --scroll-hover: rgba(255, 255, 255, 0.22);
@@ -223,6 +231,11 @@
   --text: #111111;
   --text-dim: #5c5c5c;
   --text-mute: #8f8f8f;
+
+  /* 金的那一支（同 `--gold` 的说明，在夜间块里）：白底上要压深才读得出来 ——
+     #8a6a12 对卡片底 #f7f7f7 是 4.72:1、对纯白 5.06:1，和这套里其他正文色同一档。
+     夜间那支 #e8c15f 直接搬过来的话在白底上只有 1.6:1，等于没字。 */
+  --gold: #8a6a12;
 
   /* 强调色：**黑** #111111 —— 黑白配色里它就是「最深的那一档墨」：
      按钮是黑底白字，链接、选中态、进度条一律黑。对比度 18.9:1，
@@ -1261,12 +1274,17 @@ html[data-nav='collapsed'] .shell:not(.home-shell) .sidebar { transform: transla
 .site-balance-avatar .avatar-initial { font-size: calc(12px * var(--ui)); }
 .site-balance-who {
   max-width: calc(120px * var(--ui)); overflow: hidden; text-overflow: ellipsis;
+  /* 「颜色改为白色」（2026-10-02 徐先）。⚠️ 走 `--text` 而不是写死 `#fff`：
+     夜间它是近白 #eef1f3（他看到的"白"就是这个），日间自动落成 #111111 ——
+     写死白色的话，日间主题下这一行会变成白底白字、整个名字看不见。 */
+  color: var(--text);
 }
 /* 余额只显示数值（「站点余额」四个字已撤，见 `SiteBalance.tsx`）。
-   竖分隔线跟着搬到这一段的左边 —— 它分的是「名称 | 余额」，不再是「余额 | 名称」。 */
+   竖分隔线跟着搬到这一段的左边 —— 它分的是「名称 | 余额」，不再是「余额 | 名称」。
+   值改金色（`--gold`）：这支卡上唯一一处"钱"，金是它的语义色。 */
 .site-balance strong {
   padding-left: calc(7px * var(--ui)); border-left: 1px solid var(--line);
-  font-size: calc(13px * var(--ui)); color: var(--text); font-variant-numeric: tabular-nums;
+  font-size: calc(13px * var(--ui)); color: var(--gold); font-variant-numeric: tabular-nums;
 }
 
 .content { max-width: 1200px; margin: 0 auto; padding: 36px 32px 64px; }
