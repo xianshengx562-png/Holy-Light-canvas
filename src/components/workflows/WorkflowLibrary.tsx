@@ -801,6 +801,8 @@ export default function WorkflowLibrary({ workflows, defaultWorkflowId, onOpen, 
                   {isLocal && item.graphNodes > 0 && ` · ${item.graphNodes} 个节点`}
                   {/* 只在超清时才标：普通生成是绝大多数，标它等于每行都多一串字，反而看不出哪个是特殊的。 */}
                   {item.operation === 'upscale' && <b className="workflow-tag op-upscale">{workflowOperationLabel(item.operation)}</b>}
+                  {/* 软件自带的预设：说明它「不用自己配、也删不掉」，不然人会去找删除按钮。 */}
+                  {item.builtin && <b className="workflow-tag op-builtin">内置</b>}
                   {item.isDefault && ' · 默认'}
                 </small>
               </>}
@@ -845,7 +847,12 @@ export default function WorkflowLibrary({ workflows, defaultWorkflowId, onOpen, 
               ? <button type="button" className="secondary" onClick={() => onOpen({ id: item.workflowId })}>配置</button>
               : <Link className="button secondary" href={`/settings/providers/workflows?id=${item.workflowId}`}>配置</Link>}
             <button className="secondary workflow-icon" title="给它起个名字（画布下拉里显示的就是名字）" aria-label="改名" onClick={() => (editing === item.workflowId ? setEditing('') : startRename(item))} disabled={busy === item.workflowId}><Pencil size={16} /></button>
-            <button className="secondary workflow-icon danger" title="删除这份工作流" aria-label="删除这份工作流" disabled={busy === item.workflowId} onClick={() => void removeWorkflow(item)}><Trash2 size={16} /></button>
+            {/*
+              内置（预设）工作流**不摆删除按钮**：它下次开库还会被补回来，摆一颗点了没用的
+              按钮比不摆更让人糊涂。剩下的（改名 / 分类 / 配置）都照常 —— 内置只是「自带一份」，
+              改过之后就以他那一份为准。
+            */}
+            {!item.builtin && <button className="secondary workflow-icon danger" title="删除这份工作流" aria-label="删除这份工作流" disabled={busy === item.workflowId} onClick={() => void removeWorkflow(item)}><Trash2 size={16} /></button>}
           </div>
         </li>;
       })}

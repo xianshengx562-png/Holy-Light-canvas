@@ -1,4 +1,5 @@
 import { db } from '@/lib/db';
+import { isBuiltinWorkflowId } from '@/lib/workflows/builtin';
 import { applyDefaultBindings, configurationSchema } from '@/lib/workflows/configuration';
 import { defaultWorkflowId } from '@/lib/workflows/defaults';
 import { readWorkflowName } from '@/lib/workflows/label';
@@ -50,6 +51,12 @@ export type WorkflowSummary = {
   totalCount: number;
   enabledCount: number;
   isDefault: boolean;
+  /**
+   * 这份是不是**软件自带的预设**（2026-10-02 徐先：内置两条 RunningHub 超清工作流）。
+   * 内置的不给删、界面上标一句「内置」—— 判定只有 `isBuiltinWorkflowId()` 一处，
+   * 这里只是把它带出去给界面看（不新增列：它就是一份代码里的常量清单）。
+   */
+  builtin: boolean;
   /**
    * 这份本地工作流带了多少个节点（ComfyUI 图的顶层节点数）。
    * 云端工作流恒为 0 —— 它的图不在本地，界面上不该显示这个数。
@@ -131,6 +138,7 @@ export async function listWorkflowDrafts(userId: string, filter: WorkflowFilter 
       enabledCount: fields.filter(field => field?.enabled).length,
       // 「默认」这个概念只对视频成立：defaultWorkflowId 就是那条视频工作流。
       isDefault: kind === 'video' && draft.workflowId === defaultWorkflowId,
+      builtin: isBuiltinWorkflowId(draft.workflowId),
       /* 图在本地才数得出来；云端那份 `graph` 是 NULL，`graphNodeCount` 会返回 0。 */
       graphNodes: readWorkflowProvider(draft.provider) === 'local' ? graphNodeCount(draft.graph) : 0,
     };

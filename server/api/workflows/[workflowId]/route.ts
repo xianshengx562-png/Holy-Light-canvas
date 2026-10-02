@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { api, apiUser, ApiError, checkOrigin, jsonBody } from '@/lib/api';
 import { db } from '@/lib/db';
+import { isBuiltinWorkflowId } from '@/lib/workflows/builtin';
 import { normalizeWorkflowName, readWorkflowName } from '@/lib/workflows/label';
 import { categoriesFor, readWorkflowCategory } from '@/lib/workflows/category';
 import { workflowCategoryAllowed } from '@/lib/workflows/customCategory';
@@ -127,6 +128,14 @@ export async function DELETE(request: Request, context: Context) {
     checkOrigin(request);
     const user = await apiUser();
     const workflowId = await workflowKey(context);
+    /*
+     * 软件自带的预设**不给删**（2026-10-02 徐先）：删了它下一次开库又会被补回来，
+     * 与其让人删一次回一次，不如一开始就说清楚。界面上也不摆删除按钮 —— 但那条路
+     * 只挡得住界面，MCP / 手工请求还是要在这里拦。
+     */
+    if (isBuiltinWorkflowId(workflowId)) {
+      throw new ApiError(400, '这是软件自带的工作流，删不掉。不用的话别管它就行。');
+    }
     /* 同样用 `deleteMany` 而不是 `delete`：userId 进条件，别人的草稿删不掉。 */
     const result = await db.workflowDraft.deleteMany({ where: { userId: user.id, workflowId } });
     if (!result.count) throw new ApiError(404, '这份工作流还没有保存过配置。');

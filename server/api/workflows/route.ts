@@ -1,4 +1,5 @@
 import { api, apiUser, ApiError } from '@/lib/api';
+import { ensureBuiltinWorkflows } from '@/lib/workflows/builtin';
 import { listWorkflowDrafts } from '@/lib/workflows/drafts';
 import { defaultWorkflowId } from '@/lib/workflows/defaults';
 import { isWorkflowCategory } from '@/lib/workflows/category';
@@ -56,6 +57,14 @@ export async function GET(request: Request) {
     if (rawProvider !== null && !isWorkflowProvider(rawProvider)) {
       throw new ApiError(400, `不支持的工作流来源「${rawProvider}」，只能是 local 或 runninghub。`);
     }
+    /*
+     * 先把软件自带的预设补进这个用户的库（**只补他还没有的**，见 `ensureBuiltinWorkflows`）。
+     *
+     * 放在列表这一支而不是启动时：① 新装第一次打开画布就会走到这里（画布一进来就要拉
+     * 工作流下拉），不必另找「初始化」的时机；② 所有要用工作流的地方都得先过这一支，
+     * 于是「打开软件就有」只需要守这一个口子，不用在每个读接口上各补一次。
+     */
+    await ensureBuiltinWorkflows(user.id);
     return Response.json({
       defaultWorkflowId,
       workflows: await listWorkflowDrafts(user.id, {

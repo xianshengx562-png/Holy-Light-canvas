@@ -325,6 +325,16 @@
   border-radius: var(--r-full);
 }
 
+/*
+ * 「内置」小标（2026-10-02 徐先：两条自带的工作流）：跟「超清」同一个形状、换一套更淡的
+ * 配色 —— 两个都用强调色的话，一眼看过去分不清哪个说的是工序、哪个说的是从哪儿来的。
+ */
+.workflow-tag.op-builtin {
+  color: var(--text-mute);
+  background: transparent;
+  border-color: var(--line);
+}
+
 .workflow-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .workflow-chip {
   padding: 6px 12px;
