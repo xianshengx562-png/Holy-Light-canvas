@@ -53,6 +53,28 @@
 :root {
   color-scheme: dark;
 
+  /* ============================================================
+     界面大小（`--ui`）—— 2026-10-02 徐先："可以设置改变这些选项卡的大小，在外观中设置"
+     ============================================================
+     _一个乘数管全站_：用户在「外观」里拉的那根滑杆最终就落在这个变量上
+     （`lib/appearance.ts` 的 `applyAppearance` 写在 `<html>` 上，全站继承）。
+     1 = 原始尺寸；滑杆范围 80%~130%（`UI_SCALE`）。
+
+     ⚠️ 规矩只有两条：
+       ① 想让某个尺寸跟着滑杆走，就写成 `calc(<原值>px * var(--ui))` ——
+          **写死 px 的地方不会跟着变**，用户拉滑杆时那一处纹丝不动，看着就是坏了；
+       ② **边框（1px）与圆角不乘** —— 发丝级描边是这套设计语言的立身之本，
+          乘到 1.3px 会糊，圆角放大也会从"直角感"变成"圆润"。
+          只有极少数本来就是大圆角的地方（50% 的圆形）不需要管。
+
+     跟着走的地方（改这份列表时记得两边一起看）：
+       · 这里：body 字号、`button/.button`、`input/select/textarea` 内距、`.topbar`、`.brand`
+       · canvas.css：顶栏 / 左轨 / 视口条 / 右上圆钮 / 底栏控件（`--cv-dock-ctl`）/
+         画布那一套 `.cv-btn`
+     不跟着走的：**画布上的节点卡片**（那是内容，有自己的缩放，不属于"界面控件"）。
+     ============================================================ */
+  --ui: 1;
+
   /* 表面：纯黑那一档（2026-09-29 二次改：雪蓝 → 黑白）。三级仍靠**明度**分开，
      只是这次整支色**不带任何色相** —— 中性灰阶，黑白配色的立身之本。 */
   --bg: #0a0a0a;
@@ -603,7 +625,10 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-sans);
-  font-size: 14px;
+  /* 正文字号跟着「界面大小」走 —— 控件上那些**没写死字号**的字（`.muted`、正文段落、
+     继承下来的输入框文字，因为下面有 `button, input, … { font: inherit }`）全靠它。
+     控件自己的字号（`.cv-btn`、全局 button）各自乘，不叠这层。 */
+  font-size: calc(14px * var(--ui));
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -641,11 +666,16 @@ button, .button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  height: 36px;
-  padding: 0 14px;
+  /* 这四个跟着「界面大小」走（见 `:root` 上 `--ui` 那段说明）。
+     ⚠️ 这一条就是"整个软件所有界面"的杠杆点：全库每个 `<button>` 都吃这条规则，
+        改一处，首页 / 设置 / 资产库 / 工作流库 / 生图工作台的按钮一起变大变小。
+     ⚠️ `height` 与 `padding` 必须**都乘**：只写 height 的话，字号涨了、
+        横向内距没涨，一颗长按钮的文字会顶到边框上。 */
+  gap: calc(8px * var(--ui));
+  height: calc(36px * var(--ui));
+  padding: 0 calc(14px * var(--ui));
   font-family: var(--font-sans);
-  font-size: 13px;
+  font-size: calc(13px * var(--ui));
   font-weight: 500;
   line-height: 1;
   white-space: nowrap;
@@ -689,8 +719,8 @@ button:disabled:hover { background: var(--accent-fill); }
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
-  font-size: 15px;
+  gap: calc(9px * var(--ui));
+  font-size: calc(15px * var(--ui));
   font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--text);
@@ -763,11 +793,12 @@ button:disabled:hover { background: var(--accent-fill); }
 }
 
 /* 表单 */
-.field { display: grid; gap: 7px; font-size: 13px; color: var(--text-dim); }
+.field { display: grid; gap: calc(7px * var(--ui)); font-size: calc(13px * var(--ui)); color: var(--text-dim); }
 
 input, select, textarea {
   width: 100%;
-  padding: 9px 12px;
+  /* 同上：全库每个输入框 / 下拉都吃这条 —— 内距跟着「界面大小」走，高度由它自己撑。 */
+  padding: calc(9px * var(--ui)) calc(12px * var(--ui));
   color: var(--text);
   background: var(--field);
   border: 1px solid var(--line);
@@ -786,17 +817,17 @@ input:focus, select:focus, textarea:focus {
 .landing { max-width: 1280px; margin: 0 auto; padding: 0 24px; }
 
 .topbar {
-  height: 64px;
+  height: calc(64px * var(--ui));
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
+  gap: calc(20px * var(--ui));
   border-bottom: 1px solid var(--line);
 }
-.topbar nav { display: flex; align-items: center; gap: 8px; }
+.topbar nav { display: flex; align-items: center; gap: calc(8px * var(--ui)); }
 .topbar nav a {
-  padding: 8px 12px;
-  font-size: 13px;
+  padding: calc(8px * var(--ui)) calc(12px * var(--ui));
+  font-size: calc(13px * var(--ui));
   color: var(--text-dim);
   border-radius: var(--r-sm);
   transition: color var(--t-fast), background var(--t-fast);
@@ -1156,9 +1187,9 @@ html[data-nav='collapsed'] .shell:not(.home-shell) .sidebar { transform: transla
    * 改成 `flex-start` + 第二个孩子 `margin-left: auto`（见下面那条），标题留左、其余全挤右。
    */
   justify-content: flex-start;
-  gap: 20px;
-  height: 72px;
-  padding: 0 32px;
+  gap: calc(20px * var(--ui));
+  height: calc(72px * var(--ui));
+  padding: 0 calc(32px * var(--ui));
   border-bottom: 1px solid var(--line);
 }
 /*
@@ -1174,8 +1205,8 @@ html[data-nav='collapsed'] .shell:not(.home-shell) .sidebar { transform: transla
  *    上面那句写 `flex-start` 只是为了让意图直白，不是它生效。
  */
 .workspace-header > :nth-child(2) { margin-left: auto; }
-.workspace-header strong { font-size: 15px; font-weight: 600; }
-.workspace-header small { font-size: 12px; color: var(--text-mute); }
+.workspace-header strong { font-size: calc(15px * var(--ui)); font-weight: 600; }
+.workspace-header small { font-size: calc(12px * var(--ui)); color: var(--text-mute); }
 
 /*
  * 站点余额（2026-09-25）：`SiteBalance` 用 portal 挂进**当前页**的 `.workspace-header`，
@@ -1183,12 +1214,12 @@ html[data-nav='collapsed'] .shell:not(.home-shell) .sidebar { transform: transla
  * 没登录中转站时这个元素根本不渲染（不是留个空壳）。
  */
 .site-balance {
-  display: inline-flex; align-items: baseline; gap: 7px;
-  padding: 4px 11px;
+  display: inline-flex; align-items: baseline; gap: calc(7px * var(--ui));
+  padding: calc(4px * var(--ui)) calc(11px * var(--ui));
   border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--surface-2);
-  font-size: 12px; color: var(--text-mute);
+  font-size: calc(12px * var(--ui)); color: var(--text-mute);
   white-space: nowrap;
   line-height: 1.6;
 }
@@ -2146,6 +2177,8 @@ input[type='color']::-webkit-color-swatch { border: 0; border-radius: 5px; }
 .appearance-slider > span { display: flex; align-items: baseline; justify-content: space-between; }
 .appearance-slider output { font-family: var(--font-mono); font-size: 11px; color: var(--text-mute); }
 .appearance-slider input[type='range'] { width: 100%; accent-color: var(--accent); }
+/* 「回到标准」只在偏离 100% 时才渲染，它上面要留一格 —— 否则贴着滑杆底沿。 */
+[data-ui-scale-reset] { margin-top: 12px; }
 .appearance-sub .custom-color { margin-top: 14px; }
 
 /* 一张卡里指向「另一层那几张卡」的说明（2026-09-22 隐藏画布颜色之后的 `hint`）。

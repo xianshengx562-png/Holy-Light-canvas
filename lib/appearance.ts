@@ -71,6 +71,36 @@ export const PALETTE_OPTIONS: {
  *    存两张就写不进去了，而且每次读写都要解析这一大坨字符串。
  *    `name` 为空表示没有背景图。
  */
+/**
+ * 界面大小（2026-10-02 徐先："可以设置改变这些选项卡的大小，在外观中设置"）。
+ *
+ * 一个**百分比**：100 = 现在这个样子，往小拉到 80、往大拉到 130。
+ * 它不是"字号"也不是"缩放窗口"，是**控件尺寸的乘数** —— 顶栏高度、按钮高度、
+ * 输入框内距、左轨 / 视口条那些圆钮，全都乘同一个数。
+ *
+ * ⚠️ 落在 CSS 上就是一个变量 `--ui`（写在 `<html>` 上，全站继承）：
+ *    所有跟着变的尺寸都写成 `calc(36px * var(--ui))` 这种形状。
+ *    **写死 px 的地方不会跟着变** —— 这是一条约定，加新控件尺寸时请照抄这个形状，
+ *    别再写死一个数（写死 = 用户拉滑杆时那一处纹丝不动，看着像坏了）。
+ *
+ * ⚠️ 边框一律 1px、**不乘**：发丝级描边是这个设计系统的立身之本，
+ *    拉到 130% 变成 1.3px 就糊了。圆角同理，只有少数几处跟着走。
+ */
+export const UI_SCALE = {
+  min: 80,
+  max: 130,
+  /** 100 = 原始尺寸。往下拉是"紧凑"，往上拉是"放大"。 */
+  default: 100,
+} as const;
+
+/** 百分比 → CSS 乘数。坏值（NaN / 越界）一律夹回范围，绝不让界面算出个 0 高度。 */
+export function uiScaleFactor(uiScale: unknown): number {
+  const n = typeof uiScale === 'number' ? uiScale : Number(uiScale);
+  if (!Number.isFinite(n)) return UI_SCALE.default / 100;
+  const clamped = Math.min(UI_SCALE.max, Math.max(UI_SCALE.min, Math.round(n)));
+  return clamped / 100;
+}
+
 export type Wallpaper = {
   /** 数据目录里的文件名，空 = 没有背景图 */
   name: string;
@@ -121,6 +151,11 @@ export type Appearance = {
   siteAccent: string | null;
   /** 左侧导航是否收起。和主题一样是**设备级**偏好，不进库。 */
   navCollapsed: boolean;
+  /**
+   * 界面大小，百分比（见 `UI_SCALE`）。100 = 原始尺寸。
+   * 老偏好里没有这个字段 → parseAppearance 兜回 100，不判成坏数据。
+   */
+  uiScale: number;
   /** 画布背景图 */
   wallpaper: Wallpaper;
   /** 全站背景图：垫在首页 / 设置 / 列表这些页面最底下那一层 */
@@ -184,6 +219,7 @@ export const DEFAULT_APPEARANCE: Appearance = {
   siteBg: null,
   siteAccent: null,
   navCollapsed: false,
+  uiScale: UI_SCALE.default,
   wallpaper: { ...DEFAULT_WALLPAPER },
   siteWallpaper: { ...DEFAULT_SITE_WALLPAPER },
 };
@@ -376,6 +412,7 @@ export function parseAppearance(raw: string | null): Appearance {
       siteBg,
       siteAccent,
       navCollapsed,
+      uiScale: clampInt(data.uiScale, UI_SCALE.min, UI_SCALE.max, UI_SCALE.default),
       wallpaper: parseWallpaper(data.wallpaper),
       siteWallpaper: parseWallpaper(data.siteWallpaper),
     };
@@ -415,6 +452,16 @@ export function applyAppearance(appearance: Appearance, prefersDark: boolean): v
   root.dataset.theme = theme;
   root.dataset.themeMode = appearance.theme;
   root.dataset.palette = appearance.palette;
+
+  /*
+   * 界面大小。
+   *
+   * 写成 `<html>` 上的 `--ui`：它是**全站继承**的，各页面（首页 / 设置 / 画布）与
+   * 各个组件都不必各拿一份 state。默认值（1）由 globals.css 的 `:root` 提供，
+   * 所以防闪脚本还没跑、或者偏好里没有这个字段时，界面就是原始尺寸。
+   * ⚠️ 改的是**乘数**不是字号 —— 见 `UI_SCALE` 上那条说明。
+   */
+  root.style.setProperty('--ui', String(uiScaleFactor(appearance.uiScale)));
 
   /* 桌面版：窗口右上角那三个系统按钮现在是**浮在页头上**的，符号颜色得跟着日/夜换 ——
      浅色页头配浅色符号等于没有按钮。web 版里这是一个空操作。 */
@@ -569,6 +616,9 @@ export const APPEARANCE_INIT_SCRIPT = [
   '    root.dataset.themeMode = mode;',
   '    root.dataset.palette = (data && /^(mono|amber|indigo|graphite|aurora|sunset|ocean)$/.test(data.palette)) ? data.palette : "mono";',
   '    root.dataset.nav = (data && data.navCollapsed === true) ? "collapsed" : "expanded";',
+  /* 界面大小：必须和 applyAppearance 同一套夹取规则，否则首帧会先画成 100% 再跳一下。 */
+  '    var s = Math.round(Number(data && data.uiScale));',
+  '    root.style.setProperty("--ui", String((isFinite(s) ? Math.min(130, Math.max(80, s)) : 100) / 100));',
   '    if (bg) {',
   '      if (/^#[0-9a-f]{3}$/i.test(bg)) bg = "#" + bg[1]+bg[1]+bg[2]+bg[2]+bg[3]+bg[3];',
   '      var n = bg.toLowerCase();',

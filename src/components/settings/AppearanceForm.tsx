@@ -6,7 +6,7 @@ import { useAppearance } from '@/components/theme/ThemeProvider';
 import {
   isHexColor, isLightColor, NODE_ACCENT_PRESETS, NODE_BG_PRESETS,
   NODE_LINE_PRESETS, normalizeHex, PALETTE_OPTIONS,
-  SITE_ACCENT_PRESETS, SITE_BG_PRESETS, THEME_OPTIONS,
+  SITE_ACCENT_PRESETS, SITE_BG_PRESETS, THEME_OPTIONS, UI_SCALE,
   type ThemeMode,
 } from '@/lib/appearance';
 import { canSetWallpaper } from '@/lib/wallpaper';
@@ -54,7 +54,8 @@ export default function AppearanceForm() {
   const {
     appearance, themeMode, setTheme, setPalette, setCanvasBg,
     setNodeBg, setNodeLine, setNodeAccent,
-    setSiteBg, setSiteAccent, setSiteWallpaper, uploadSiteWallpaper, clearSiteWallpaper, reset,
+    setSiteBg, setSiteAccent, setSiteWallpaper, uploadSiteWallpaper, clearSiteWallpaper,
+    setUiScale, reset,
   } = useAppearance();
   const [wallBusy, setWallBusy] = useState(false);
   const [wallNotice, setWallNotice] = useState('');
@@ -235,6 +236,47 @@ export default function AppearanceForm() {
             {custom && <Check className="theme-check" size={15} strokeWidth={2.4} aria-hidden />}
           </button>
         </div>
+      </div>
+
+      {/* 界面大小（2026-10-02 徐先："可以设置改变这些选项卡的大小，在外观中设置"）。
+          和画布右下角那个「画布外观」里的是**同一份偏好**，改哪边都一样。
+          ⚠️ 刻意**不收进「自定义」后面**：那张卡装的是颜色这类细活，
+             而界面大小是"屏幕 / 视力 / 习惯"层面天天可能动一下的东西。
+             `step={1}` = 无级：能拖到任意一格，不是三档跳。 */}
+      <div className="appearance-sub" data-ui-scale-block>
+        <div className="appearance-sub-head">
+          <span className="appearance-sub-label">界面大小</span>
+          <span className="muted">按钮 / 输入框 / 顶栏一起变</span>
+        </div>
+        <label
+          className="appearance-slider"
+          data-ui-scale
+          title="整个软件的按钮、输入框、顶栏跟着一起变大变小"
+        >
+          <span>
+            <output data-ui-scale-value>{appearance.uiScale}%</output>
+          </span>
+          <input
+            type="range"
+            min={UI_SCALE.min}
+            max={UI_SCALE.max}
+            step={1}
+            value={appearance.uiScale}
+            aria-label="界面大小"
+            data-ui-scale-range
+            onChange={event => setUiScale(Number(event.target.value))}
+          />
+        </label>
+        {appearance.uiScale !== UI_SCALE.default && (
+          <button
+            type="button"
+            className="button subtle"
+            data-ui-scale-reset
+            onClick={() => setUiScale(UI_SCALE.default)}
+          >
+            回到标准（100%）
+          </button>
+        )}
       </div>
 
       {custom && <div className="custom-panel" data-custom-panel>

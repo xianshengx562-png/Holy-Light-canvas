@@ -5,7 +5,7 @@ import { Check, Info, Palette, RotateCcw, Trash2, Upload, X } from 'lucide-react
 import { useAppearance } from '@/components/theme/ThemeProvider';
 import {
   CANVAS_BG_PRESETS, isHexColor, NODE_ACCENT_PRESETS, NODE_BG_PRESETS, NODE_LINE_PRESETS,
-  normalizeHex, WALLPAPER_LIMITS,
+  normalizeHex, UI_SCALE, WALLPAPER_LIMITS,
 } from '@/lib/appearance';
 import { canSetWallpaper } from '@/lib/wallpaper';
 import { CANVAS_THEME_MODES } from '@/lib/themeModes';
@@ -47,7 +47,7 @@ export default function CanvasAppearancePanel({ open, onClose }: { open: boolean
   const {
     appearance, resolved, themeMode, setThemeMode,
     setCanvasBg, setNodeBg, setNodeLine, setNodeAccent,
-    setWallpaper, uploadWallpaper, clearWallpaper, reset,
+    setWallpaper, uploadWallpaper, clearWallpaper, setUiScale, reset,
   } = useAppearance();
   const boxRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
@@ -259,6 +259,49 @@ export default function CanvasAppearancePanel({ open, onClose }: { open: boolean
             右栏底下于是拖着一整片空白（截图里最大那处空）。
             搬进右栏之后，左右两栏的底边终于对得齐。 */}
         <div className="cv-ap-col-main">
+        {/* 界面大小（2026-10-02 徐先："可以设置改变这些选项卡的大小，在外观中设置"）。
+            一整根滑杆就是全部内容 —— 说明进 title，正文里不留字。
+            放在右栏第一组：它是这一屏里唯一一个"改了立刻全站都动"的东西，
+            比起挑颜色那类细活，找它的人更多。
+            ⚠️ `step={1}` 是"无级"：他要的是能拖到任意一格，不是三档跳。
+               代价是拖回准确的 100 有点费劲 —— 所以数值旁边那颗「回到标准」只在
+               偏离 100 时才出现（和「跟随主题」同一个规矩：默认态不必天天念）。 */}
+        <div className="cv-ap-group">
+          <span className="cv-ap-label">界面大小</span>
+          <div className="cv-ap-main">
+            <label
+              className="cv-ap-slider"
+              data-ap-ui-scale
+              title="整个软件的按钮、输入框、顶栏跟着一起变大变小"
+            >
+              <span>
+                <output data-ap-ui-scale-out>{appearance.uiScale}%</output>
+                {appearance.uiScale !== UI_SCALE.default && (
+                  <button
+                    type="button"
+                    className="cv-ap-follow"
+                    data-ap-ui-scale-reset
+                    aria-label="界面大小回到标准"
+                    onClick={() => setUiScale(UI_SCALE.default)}
+                  >
+                    回到标准
+                  </button>
+                )}
+              </span>
+              <input
+                type="range"
+                min={UI_SCALE.min}
+                max={UI_SCALE.max}
+                step={1}
+                value={appearance.uiScale}
+                aria-label="界面大小"
+                data-ap-ui-scale-range
+                onChange={event => setUiScale(Number(event.target.value))}
+              />
+            </label>
+          </div>
+        </div>{/* /cv-ap-group 界面大小 */}
+
         {/* 颜色那一组：跟左栏两组同一个样子（标签在上、一行控件在下），
             所以「主题 / 背景 / 颜色 / 背景图」四个标签的左边缘是同一条线。
             「跟随主题」时下面必须还是**一条横线**（一行灰字），不能塌成一段正文 ——

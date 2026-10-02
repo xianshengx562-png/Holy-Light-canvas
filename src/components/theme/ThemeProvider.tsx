@@ -36,6 +36,13 @@ type AppearanceContextValue = {
   clearSiteWallpaper: () => Promise<{ ok: boolean; message?: string }>;
   /** 收 / 展左侧导航。 */
   setNavCollapsed: (collapsed: boolean) => void;
+  /**
+   * 界面大小（百分比，见 `UI_SCALE`）。100 = 原始尺寸。
+   * ⚠️ 这个值**不从 `<html>` 上反读**（`readFromDom` 里没有它）：DOM 上的 `--ui`
+   *    是本次会话早先写上去的，而 localStorage 可能刚被别人改过 —— 反读会让旧值赢，
+   *    正是 `readFromDom` 那条注释里记的那个坑。整份偏好里只有它走"永远以盘为准"。
+   */
+  setUiScale: (uiScale: number) => void;
   /** 背景图的淡化 / 模糊 / 启停。图片本体由 uploadWallpaper / clearWallpaper 管。 */
   setWallpaper: (patch: Partial<Omit<Wallpaper, 'name'>>) => void;
   /** 选一张本机图片当背景。会做格式 / 体积 / 像素校验并把字节交给主进程落盘。 */
@@ -140,6 +147,9 @@ export default function ThemeProvider({ children }: { children: React.ReactNode 
       navCollapsed: initial.nav ?? stored.navCollapsed,
       siteBg: initial.siteBg ?? stored.siteBg,
       siteAccent: initial.siteAccent ?? stored.siteAccent,
+      /* 界面大小不从 DOM 反读（见 `setUiScale` 注释），两边取的都是盘上那份 ——
+         所以它**不影响**上面这个"对不对得上"的判断。 */
+      uiScale: stored.uiScale,
       wallpaper: stored.wallpaper,
       siteWallpaper: stored.siteWallpaper,
     }) === normalized(stored);
@@ -155,6 +165,9 @@ export default function ThemeProvider({ children }: { children: React.ReactNode 
       nodeAccent: dom?.nodeAccent ?? stored.nodeAccent,
       /* 防闪脚本会把 dataset.nav 写好，对得上时优先信它。 */
       navCollapsed: dom?.nav ?? stored.navCollapsed,
+      /* 界面大小**只从盘上读**（见 `setUiScale` 那条注释）：DOM 上的 `--ui` 是本会话
+         早先写上去的，拿它跟盘比会让旧值赢。 */
+      uiScale: stored.uiScale,
       /* 背景图不需要从 <html> 上反读：它的变量是整体写在 dataset.wallpaper 上的，
          而这一层本来就保存着 image 的全部参数。 */
       siteBg: dom?.siteBg ?? stored.siteBg,
@@ -238,6 +251,7 @@ export default function ThemeProvider({ children }: { children: React.ReactNode 
         return removed.ok ? { ok: true } : { ok: true, message: removed.message };
       },
       setNavCollapsed: (navCollapsed: boolean) => commit({ ...base(), navCollapsed }),
+      setUiScale: (uiScale: number) => commit({ ...base(), uiScale }),
       setWallpaper: (patch) => commit({ ...base(), wallpaper: { ...base().wallpaper, ...patch } }),
       async uploadWallpaper() {
         const picked = await pickWallpaperFile();
