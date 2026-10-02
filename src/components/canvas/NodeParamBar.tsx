@@ -4,7 +4,7 @@ import { Download, ImagePlus } from 'lucide-react';
 import type { LatentPickOption, NodeData, ParamRow } from './types';
 import {
   LATENT_ACCEPT, LATENT_SLOTS, NODE_META,
-  groupWorkflowsByProvider, isLatentKind, isVideoUrl, latentAssetPrefix,
+  groupWorkflowsByProvider, isAudioUrl, isLatentKind, isVideoUrl, latentAssetPrefix,
   latentBrokenHint, latentLabel, latentSlotHint, workflowLabel, displayLabelOf,
 } from './nodeMeta';
 import type { NodeKind } from './nodeMeta';
@@ -41,7 +41,7 @@ export default function NodeParamBar({ data }: { data: NodeData }) {
   const latentValue = String(data.remoteFile || '');
   const selectedLatent = archived.find(item => `${latentAssetPrefix}${item.id}` === latentValue);
   const imageSource = data.imageUrl || data.previewUrl;
-  const resultImage = data.resultUrl && !isVideoUrl(data.resultUrl) ? String(data.resultUrl) : '';
+  const resultImage = data.resultUrl && !isVideoUrl(data.resultUrl) && !isAudioUrl(data.resultUrl) ? String(data.resultUrl) : '';
   const outputImage = resultImage || String(data.passthroughImage || '');
   const latentOn = data.latentEnabled !== 'off';
   const running = data.status === 'running';

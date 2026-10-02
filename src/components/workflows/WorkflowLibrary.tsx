@@ -3,7 +3,7 @@
 import { useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { AppWindow, Check, Cpu, Download, FileJson, Film, ImageIcon, Pencil, Plus, Search, SlidersHorizontal, Stethoscope, Tag, Trash2, Upload, X } from 'lucide-react';
+import { AppWindow, AudioLines, Check, Cpu, Download, FileJson, Film, ImageIcon, Pencil, Plus, Search, SlidersHorizontal, Stethoscope, Tag, Trash2, Upload, X } from 'lucide-react';
 /* 只能 `import type`：`WorkflowSummary` 所在的模块引了数据库，值导入会把 Prisma 拖进浏览器包。 */
 import type { WorkflowSummary } from '@/lib/workflows/drafts';
 import { normalizeWorkflowName, WORKFLOW_NAME_MAX, workflowDisplayName } from '@/lib/workflows/label';
@@ -26,7 +26,9 @@ import {
 } from '@/lib/workflows/operation';
 import WorkflowCategoryDialog from './WorkflowCategoryDialog';
 
-const kindIcon = (kind: GeneratorKind) => kind === 'image' ? <ImageIcon size={17} /> : <Film size={17} />;
+/* 三种用途三种图标：音频沿用工作流配置页里那个（`AudioLines`），别让人在两处认两套图。 */
+const kindIcon = (kind: GeneratorKind) =>
+  kind === 'image' ? <ImageIcon size={17} /> : kind === 'audio' ? <AudioLines size={17} /> : <Film size={17} />;
 
 /**
  * 来源切换。三档，因为它们**不是一个东西的三种存法**，而是三种不同的远端对象：

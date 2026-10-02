@@ -61,6 +61,10 @@ function classify(item: { url?: string; outputType?: string }) {
   // 真正落盘时还会用响应的 content-type 校正一次。
   const hint = String(item.outputType || '').toLowerCase();
   if (/video|mp4|webm|mov/.test(hint)) return { ext: 'mp4', ...MIME.mp4 };
+  /* 音频（2026-10-02）：`outputType: 'audio'` 这个词本身不含任何扩展名，
+     少了这一支的话「URL 上没有扩展名的音频」会被判成「不是媒体」—— 于是**根本不落盘**，
+     任务成功、资产库里却什么都没有（音频工作流最典型的形状就是这个）。 */
+  if (/audio|mp3|wav|m4a|aac|ogg|flac/.test(hint)) return { ext: 'mp3', ...MIME.mp3 };
   if (/image|png|jpe?g|webp|gif|avif/.test(hint)) return { ext: 'png', ...MIME.png };
   return null;
 }
@@ -158,7 +162,9 @@ export async function archiveTaskMedia(input: {
   if (!items.length) return [];
 
   const stored = await db.asset.findMany({
-    where: { projectId: input.projectId, sourceTaskId: input.taskId, type: { in: ['video', 'image'] } },
+    /* 音频也要在里面：漏了它的话「同一任务重复调用不重复下载」对音频不成立 ——
+       缓存查不到，于是每调一次就重下一遍、多插一条资产。 */
+    where: { projectId: input.projectId, sourceTaskId: input.taskId, type: { in: ['video', 'image', 'audio'] } },
     select: { url: true, type: true, metadata: true },
   });
   const cache = new Map<string, ArchivedMedia>();
@@ -168,7 +174,7 @@ export async function archiveTaskMedia(input: {
       cache.set(meta.originalUrl, {
         originalUrl: meta.originalUrl,
         url: row.url,
-        kind: row.type === 'video' ? 'video' : 'image',
+        kind: row.type === 'audio' ? 'audio' : row.type === 'video' ? 'video' : 'image',
         size: Number(meta.size || 0),
       });
     }

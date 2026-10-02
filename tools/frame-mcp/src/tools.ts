@@ -461,11 +461,11 @@ export const TOOLS: Tool[] = [
 
   {
     name: 'frame_list_workflows',
-    description: '列出 Holy Light画布里配过的工作流（含用途 video/image、工序 generate/upscale、来源 local/runninghub、启用字段数）。给生成节点选工作流时用这个拿 workflowId，别自己猜。',
+    description: '列出 Holy Light画布里配过的工作流（含用途 video/image/audio、工序 generate/upscale、来源 local/runninghub、启用字段数）。给生成节点选工作流时用这个拿 workflowId，别自己猜。',
     inputSchema: {
       type: 'object',
       properties: {
-        kind: { type: 'string', enum: ['video', 'image'], description: '按用途过滤。' },
+        kind: { type: 'string', enum: ['video', 'image', 'audio'], description: '按用途过滤。' },
         provider: { type: 'string', enum: ['local', 'runninghub'] },
         operation: { type: 'string', enum: ['generate', 'upscale'] },
       },
@@ -535,7 +535,7 @@ export const TOOLS: Tool[] = [
         /* 超清工作流不在「生成下拉」里（它的工序是 upscale），得按「同用途 + 超清工序」单独找一份。 */
         const listed = (await callApi('GET', `/api/workflows?kind=${purpose}`)).body as { workflows: unknown[] } | null;
         const target = upscaleWorkflowFor(listed?.workflows as never[], purpose as never) as { workflowId?: string } | undefined;
-        if (!target?.workflowId) throw new BadInput(`还没有配${purpose === 'video' ? '视频' : '图片'}超清工作流 —— 到「设置 · 工作流」建一份并把工序改成「超清」。`);
+        if (!target?.workflowId) throw new BadInput(`还没有配${purpose === 'image' ? '图片' : '视频'}超清工作流 —— 到「设置 · 工作流」建一份并把工序改成「超清」。`);
         workflowId = String(target.workflowId);
       }
       if (!workflowId) throw new BadInput('这个节点上没选工作流，也没有传 workflowId —— 先用 frame_list_workflows 选一个。');
@@ -588,7 +588,7 @@ export const TOOLS: Tool[] = [
  * 不需要 Codex 再复述一遍。凡是推理不出来的（比如 latent 到底用哪一次生成的那份）**不猜**，
  * 留给服务端报错，也比默默用一个错的强。
  */
-function deriveBindingValues(node: CanvasNode, upstream: CanvasNode[], purpose: 'video' | 'image' | null): Record<string, unknown> {
+function deriveBindingValues(node: CanvasNode, upstream: CanvasNode[], purpose: 'video' | 'image' | 'audio' | null): Record<string, unknown> {
   const data = node.data || {};
   const values: Record<string, unknown> = {};
 

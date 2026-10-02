@@ -1,5 +1,5 @@
 import type { Node } from '@xyflow/react';
-import { NODE_META, isVideoUrl, type NodeKind } from './nodeMeta';
+import { NODE_META, isAudioUrl, isVideoUrl, type NodeKind } from './nodeMeta';
 import { defaultWorkflowId } from '@/lib/workflows/defaults';
 import type { GenerationRun, NodeData } from './types';
 
@@ -33,7 +33,7 @@ export function collectRuns(nodes: Node<NodeData>[]): GenerationRun[] {
       at: '',
       ts: 0,
       status: 'success',
-      results: [{ url, kind: isVideoUrl(url) ? 'video' : 'image' }],
+      results: [{ url, kind: isVideoUrl(url) ? 'video' : isAudioUrl(url) ? 'audio' : 'image' }],
       nodeLabel: label,
       nodeId: node.id,
     });

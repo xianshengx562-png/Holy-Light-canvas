@@ -1,5 +1,5 @@
 /**
- * 生成器的「用途」—— 工作流是给视频生成用的，还是给图片生成用的。
+ * 生成器的「用途」—— 这份工作流是出视频的、出图的，还是出音频的。
  *
  * 这个区分必须存在，因为出图和出视频用的是**两套完全不同的工作流**：
  * 视频工作流里有 `Yuan_H3MotionContextLoadLatent`（节点 210 / 278）这类接续节点、
@@ -16,7 +16,7 @@
  */
 
 /** 值域。加第三个用途（比如音频）时改这里，`readGeneratorKind` 与接口校验会一起跟上。 */
-export const GENERATOR_KINDS = ['video', 'image'] as const;
+export const GENERATOR_KINDS = ['video', 'image', 'audio'] as const;
 
 export type GeneratorKind = (typeof GENERATOR_KINDS)[number];
 
@@ -37,12 +37,16 @@ export function readGeneratorKind(value: unknown): GeneratorKind {
 }
 
 export function generatorKindLabel(value: unknown) {
-  return readGeneratorKind(value) === 'image' ? '图片' : '视频';
+  const kind = readGeneratorKind(value);
+  if (kind === 'image') return '图片';
+  if (kind === 'audio') return '音频';
+  return '视频';
 }
 
 /** 给下拉/分段控件用。放在这里是为了「有哪些用途」只有一处定义。 */
 export const GENERATOR_KIND_OPTIONS: { value: GeneratorKind; label: string; hint: string }[] = [
   { value: 'video', label: '视频生成', hint: '含接续 latent、时长与帧率参数' },
+  { value: 'audio', label: '音频生成', hint: '出音频文件；不吃 latent，也没有时长与比例' },
   { value: 'image', label: '图片生成', hint: '含步数 / CFG / 种子 / 采样器参数' },
 ];
 

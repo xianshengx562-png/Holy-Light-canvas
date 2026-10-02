@@ -38,11 +38,11 @@ import {
   IMAGE_DEFAULTS, IMAGE_SIZE_MODES, INSTANCE_TYPE_OPTIONS, MAX_BATCH, MAX_CFG, MAX_CUSTOM_SIDE,
   MAX_MEGAPIXELS, MAX_STEPS, MIN_CUSTOM_SIDE, MIN_MEGAPIXELS, SAMPLERS, VIDEO_API_RATIOS,
   VIDEO_API_RESOLUTIONS, deriveImageSize, generatorKindLabel, imageEngineOptions, instanceTypeHint, videoEngineOptions,
-  groupWorkflowsByProvider, imageEngineLabel, imageEngineProvider, isVideoUrl, readImage2Params,
+  groupWorkflowsByProvider, imageEngineLabel, imageEngineProvider, isAudioUrl, isVideoUrl, readImage2Params,
   readImageEngine, readImageSizeMode, readInstanceType, readVideoApiParams, readVideoEngine, resolveImageSize,
   validateCustomSize, videoEngineLabel,
   videoEngineProvider, workflowDisplayName, workflowLabel, workflowMismatchHint,
-  workflowsForApp, workflowsForGeneration, workflowsForProvider,
+  workflowsForApp, workflowsForGeneration, workflowsForProvider, purposeForNode, purposesOfNode,
 } from './nodeMeta';
 import type { ParamRow } from '@/lib/workflows/configuration';
 
@@ -239,9 +239,22 @@ export default function GenerateDock({ data, nodeId, anchor }: {
    */
   const workflowOptions = data.workflows || [];
   const chosenWorkflow = workflowOptions.find(item => item.workflowId === String(data.workflowId || ''));
-  const purpose: 'image' | 'video' = isApp
+  /*
+   * 2026-10-02：视频 / 音频生成节点出什么，**跟着选中的那份工作流走**（应用节点那支同一套路）。
+   * 写死成 'video' 的话，挑了音频工作流之后用途还报「视频」：提交会带上时长 / 比例 /
+   * latent 这些音频工作流根本没有的参数，界面上还会弹「这份工作流不是视频用的」——
+   * 而它明明是下拉里列出来让人选的。
+   */
+  const purpose: 'image' | 'video' | 'audio' = isApp
     ? (chosenWorkflow?.kind === 'video' ? 'video' : 'image')
-    : (isImage ? 'image' : 'video');
+    : (purposeForNode(data.kind, workflowOptions, data.workflowId) ?? (isImage ? 'image' : 'video'));
+  /*
+   * 音频那一档：**画面那几组参数全都不成立**（2026-10-02）。
+   * 比例、分辨率（MP）、时长说的都是画面，latent 接续更是只属于视频（音频工作流没有 latent 位）。
+   * 摆着它们的后果和「应用节点上摆比例 / 时长」一模一样 —— 改了看着生效，
+   * 提交时这几个字段根本进不去 `nodeInfoList`。所以整组不渲染，不是置灰。
+   */
+  const audioOnly = purpose === 'audio';
   const isImageParams = isImage || (isApp && purpose === 'image');
   const engine = isImageParams ? readImageEngine(data.engine) : readVideoEngine(data.engine);
   const engineOptions = isImage ? imageEngineOptions(showCustomEngine) : videoEngineOptions(showCustomEngine);
@@ -265,13 +278,15 @@ export default function GenerateDock({ data, nodeId, anchor }: {
    */
   const engineProvider = isApp ? 'runninghub' : (isImageParams ? imageEngineProvider(data.engine) : videoEngineProvider(data.engine));
   const workflows = workflowOptions;
-  const listedBase = isApp ? workflowsForApp(workflowOptions) : workflowsForGeneration(workflows, purpose);
+  const listedBase = isApp
+    ? workflowsForApp(workflowOptions)
+    : workflowsForGeneration(workflows, purposesOfNode(data.kind));
   const listedWorkflows = workflowsForProvider(listedBase, engineProvider);
   const listedGroups = groupWorkflowsByProvider(listedWorkflows);
 
   const slots = [...(data.inputs || [])].sort((a, b) => (SLOT_ORDER[a.kind] ?? 9) - (SLOT_ORDER[b.kind] ?? 9));
   const resultUrl = String(data.resultUrl || '');
-  const resultImage = resultUrl && !isVideoUrl(resultUrl) ? resultUrl : '';
+  const resultImage = resultUrl && !isVideoUrl(resultUrl) && !isAudioUrl(resultUrl) ? resultUrl : '';
 
   /* ---------------- 图片：尺寸那一档 ---------------- */
   const image2 = readImage2Params({
@@ -676,7 +691,7 @@ export default function GenerateDock({ data, nodeId, anchor }: {
     engine === 'videoapi' ? 'videoApiDuration' : 'duration',
     value,
   );
-  const durationGroup = !isImage ? (
+  const durationGroup = !isImage && !audioOnly ? (
     <div className="cv-dock-group" data-dock-duration="">
       <span className="cv-dock-grouplabel">生成时长</span>
       <div className="cv-dock-duration">
@@ -866,7 +881,10 @@ export default function GenerateDock({ data, nodeId, anchor }: {
         ]
       : engine === 'videoapi'
         ? [videoApi?.resolution, `${videoApi?.duration}秒`, videoApi?.aspectRatio]
-        : [`${durationValue}秒`, String(data.aspectRatio || DEFAULT_RATIO).split(' ')[0]]
+        : audioOnly
+          /* 音频没有画面可言：报「6 秒 · 16:9」等于在预告两个它根本不会带的参数。 */
+          ? [generatorKindLabel('audio')]
+          : [`${durationValue}秒`, String(data.aspectRatio || DEFAULT_RATIO).split(' ')[0]]
   ).filter(Boolean).join(' · ');
 
   /* ---------------- 自定义参数（展开区） ---------------- */
@@ -1074,7 +1092,7 @@ export default function GenerateDock({ data, nodeId, anchor }: {
             后者顺带收掉一个死控件 —— `custom`（自定义接口）以前也画这颗开关，
             可 `CanvasEditor` 的 custom 分支压根不读 `continuationEnabled`，点了没用。
           */}
-          {!isImage && (
+          {!isImage && !audioOnly && (
             <button
               type="button"
               className={`cv-dock-chip cv-dock-cont${continuationOn ? ' on' : ''}`}
@@ -1211,8 +1229,8 @@ export default function GenerateDock({ data, nodeId, anchor }: {
   const settingsPop = !pop ? null : (
     <div className="cv-dock-pop" data-dock-pop="">
       {isApp && appPanel}
-      {!isApp && ratioGroup}
-      {!isApp && resolutionGroup}
+      {!isApp && !audioOnly && ratioGroup}
+      {!isApp && !audioOnly && resolutionGroup}
       {!isApp && sizeGroup}
       {!isApp && durationGroup}
       {/*

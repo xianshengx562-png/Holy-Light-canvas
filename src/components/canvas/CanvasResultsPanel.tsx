@@ -182,10 +182,15 @@ export default function CanvasResultsPanel({
                      HTML 的 `download` 属性只在**同源**时生效，跨域那一类点下去根本不下载
                      （要么没反应、要么直接跳去那个地址）—— 一半结果上是坏的，
                      留着比没有更糟。结果文件本来就落在产出目录、资产库里也查得到。 */
-                  <div key={item.url} className="cv-results-media">
+                  <div key={item.url} className="cv-results-media" data-result-kind={item.kind}>
                     {item.kind === 'image'
                       ? <img className="cv-video" src={item.url} alt={`第 ${run.index} 次生成的图片`} />
-                      : <video className="cv-video" src={item.url} controls preload="metadata" />}
+                      /* 音频那一档：`<video>` 也能放 mp3，但拿一整块 16:9 黑框装一段只有波形的声音
+                         很难看，也看不出进度。用原生 `<audio>` —— 一条窄条，带播放与进度。 */
+                      /* `.cv-audio` 是那层带底色的壳，里面才是 `<audio>`（见 canvas.css）。 */
+                      : item.kind === 'audio'
+                        ? <span className="cv-audio"><audio src={item.url} controls preload="metadata" /></span>
+                        : <video className="cv-video" src={item.url} controls preload="metadata" />}
                   </div>
                 ))}
           </div>

@@ -13,11 +13,14 @@
  * 1. **节点名要快照**（`nodeLabel`）。节点删掉之后就没人能回答「这条是谁跑的」了，
  *    所以建任务那一刻把名字写进 Task，不靠事后回画布去查。
  * 2. **这份文件在 `lib/`，别 import `src/components/canvas/*`** —— 它要被服务端跑。
- *    所以判定「图片还是视频」那段是照 `CanvasEditor` 里那段原样搬过来的，
- *    改了一边另一边要跟着改（两边不一致的表现是：同一条历史在两个面板里图标不同）。
+ *    所以判定「视频 / 图片 / 音频」那三个正则放在 `lib/result-kind.ts`，
+ *    与 `CanvasEditor` 里那段**共用同一份**（以前是照抄一份，改一边忘另一边的症状是
+ *    同一条结果在历史里是音频、回到节点上却画成图片）。
  */
 
-export type RunResultItem = { url: string; kind: 'image' | 'video' };
+import { AUDIO_RESULT_RE, IMAGE_RESULT_RE, VIDEO_RESULT_RE, resultKindOf, type ResultKind } from './result-kind';
+
+export type RunResultItem = { url: string; kind: ResultKind };
 
 export type RunRecord = {
   /** 就是 Task 的 id —— 前端内存里那一份用的是同一个 id，两边靠它去重。 */
@@ -50,10 +53,7 @@ export type TaskRunRow = {
   completedAt?: Date | string | number | null;
 };
 
-const VIDEO_RE = /mp4|webm|mov/i;
-const IMAGE_RE = /png|jpe?g|webp|gif|avif/i;
-
-/** `Task.result` 到「可展示的结果列表」。与 `CanvasEditor` 里那段判定规则一致。 */
+/** `Task.result` 到「可展示的结果列表」。与 `CanvasEditor` 里那段共用同一套判定。 */
 export function resultsOfTask(result: unknown): RunResultItem[] {
   const list = Array.isArray(result)
     ? result
@@ -64,15 +64,18 @@ export function resultsOfTask(result: unknown): RunResultItem[] {
     !!item && typeof item === 'object' && typeof (item as { url?: unknown }).url === 'string');
   const pick = (pattern: RegExp) =>
     items.find(item => pattern.test(`${item.outputType || ''} ${item.url}`));
-  const videoItem = pick(VIDEO_RE);
-  const imageItem = pick(IMAGE_RE);
+  const videoItem = pick(VIDEO_RESULT_RE);
+  const imageItem = pick(IMAGE_RESULT_RE);
+  const audioItem = pick(AUDIO_RESULT_RE);
   /** 既认不出 outputType 也没有扩展名时退回第一个结果 —— 保持旧行为。 */
-  const ambiguous = !videoItem && !imageItem ? items[0] : undefined;
+  const ambiguous = !videoItem && !imageItem && !audioItem ? items[0] : undefined;
   const out: RunResultItem[] = [];
   if (videoItem?.url) out.push({ url: String(videoItem.url), kind: 'video' });
   if (imageItem?.url && imageItem.url !== videoItem?.url) out.push({ url: String(imageItem.url), kind: 'image' });
+  if (audioItem?.url && audioItem.url !== videoItem?.url && audioItem.url !== imageItem?.url)
+    out.push({ url: String(audioItem.url), kind: 'audio' });
   if (!out.length && ambiguous?.url)
-    out.push({ url: String(ambiguous.url), kind: VIDEO_RE.test(ambiguous.url) ? 'video' : 'image' });
+    out.push({ url: String(ambiguous.url), kind: resultKindOf(`${ambiguous.outputType || ''} ${ambiguous.url}`) ?? 'image' });
   return out;
 }
 

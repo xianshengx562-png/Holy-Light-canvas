@@ -41,9 +41,14 @@ export type WorkflowCategoryOption = {
  * 配置页、列表页、服务端校验都从这里取，谁也不许自己列一份。
  */
 export const WORKFLOW_CATEGORY_OPTIONS: WorkflowCategoryOption[] = [
-  { value: 'none', label: '无参考', hint: '只有提示词，不喂任何参考素材', kinds: ['video', 'image'] },
-  { value: 'single', label: '单图参考', hint: '一张参考图（角色 / 场景）', kinds: ['video', 'image'] },
-  { value: 'multi', label: '多图参考', hint: '多张参考图，画布上最多九张', kinds: ['video', 'image'] },
+  /*
+   * 音频（2026-10-02）也列进前三档：不列的话 `categoriesFor('audio')` 是**空数组**，
+   * 配置页那个分类下拉一个选项都没有 —— 一份音频工作流根本存不下来。
+   * 后两档（视频参考 / 音频 + 多图）仍然只属于视频。
+   */
+  { value: 'none', label: '无参考', hint: '只有提示词，不喂任何参考素材', kinds: ['video', 'image', 'audio'] },
+  { value: 'single', label: '单图参考', hint: '一张参考图（角色 / 场景）', kinds: ['video', 'image', 'audio'] },
+  { value: 'multi', label: '多图参考', hint: '多张参考图，画布上最多九张', kinds: ['video', 'image', 'audio'] },
   { value: 'video-ref', label: '视频参考', hint: '拿一段视频当参考', kinds: ['video'] },
   { value: 'audio-multi', label: '音频 + 多图参考', hint: '一条音频配上多张参考图', kinds: ['video'] },
 ];

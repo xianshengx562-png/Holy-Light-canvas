@@ -6,7 +6,7 @@ import type { NodeData, ParamRow } from './types';
 import { nodeTintVars } from '@/lib/appearance';
 import {
   LATENT_SLOTS, NODE_META, NODE_SIZE,
-  isGeneratorKind, isLatentKind, isVideoUrl, latentAssetPrefix, latentBrokenHint, latentLabel, paramRowLabel,
+  isAudioUrl, isGeneratorKind, isLatentKind, isVideoUrl, latentAssetPrefix, latentBrokenHint, latentLabel, paramRowLabel,
   purposeOfNode, upscaleWorkflowFor, usesGenerateDock, workflowDisplayName, workflowIdNote, displayLabelOf,
 } from './nodeMeta';
 import type { NodeKind } from './nodeMeta';
@@ -75,7 +75,8 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
   /** Generated video urls must not be rendered as an image. */
   const resultValue = String(data.resultUrl || '');
   const resultIsVideo = !!resultValue && isVideoUrl(resultValue);
-  const resultImage = resultValue && !resultIsVideo ? resultValue : '';
+  /** 音频同样不能当图片画 —— 见 `nodeMeta.ts` 里 `isAudioUrl` 那条注释。 */
+  const resultImage = resultValue && !resultIsVideo && !isAudioUrl(resultValue) ? resultValue : '';
   const outputImage = resultImage || String(data.passthroughImage || '');
   const text = String(data.text || '').trim();
   const paramRows = (data.paramRows || []) as ParamRow[];

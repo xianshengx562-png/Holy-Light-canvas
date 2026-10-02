@@ -58,12 +58,13 @@ import { extractEdgeFrames, firstFrameBlob } from './videoFrames';
 import { isDocumentFile, readDocumentText } from './docText';
 import { browserSupported, grabBrowserImage, onBrowserImage, onBrowserImageDrop, onBrowserImageError } from '@/lib/desktop-browser';
 import { codexSupported } from '@/lib/desktop-codex';
+import { AUDIO_RESULT_RE, IMAGE_RESULT_RE, VIDEO_RESULT_RE, resultKindOf } from '@/lib/result-kind';
 import {
   appPurposeOf, CREATE_KINDS, DEFAULT_RATIO, IMAGE_DEFAULTS, LATENT_SLOTS, NODE_META, resolveImageSize,
   usesGenerateDock, workflowsForApp,
-  canConnect, connectionHint, isGeneratorKind, isLatentKind, isLatentSourceKind, isVideoUrl, latentAssetPrefix,
+  canConnect, connectionHint, isAudioUrl, isGeneratorKind, isLatentKind, isLatentSourceKind, isVideoUrl, latentAssetPrefix,
   isRunnableKind, isTextValueKind, displayLabelOf, normalizeNodeLabels,
-  latentBrokenHint, latentBrokenLabel, latentLabel, purposeOfNode, workflowMismatchHint, upscaleWorkflowFor,
+  latentBrokenHint, latentBrokenLabel, latentLabel, purposeOfNode, purposeForNode, workflowMismatchHint, upscaleWorkflowFor,
   isRelayLatentSource, resolvePickedLatent,
   workflowDisplayName, generatorKindLabel, newNodeData, isReferenceSource, referenceUrlsOf, latentNodeIdOf,
   mediaReadyForRun, isResolvableUrl, workflowsForProvider, engineSwitchPatch, readInstanceType,
@@ -467,12 +468,12 @@ function inputSlots(
      */
     if (isGeneratorKind(kind)) {
       const url = String(node.data.resultUrl || '').trim();
-      const asImage = url && !isVideoUrl(url) ? url : '';
+      const asImage = url && !isVideoUrl(url) && !isAudioUrl(url) ? url : '';
       return {
         id: node.id, kind, title, thumb: asImage, previewable: !!asImage,
         ready: !!url,
         note: url
-          ? (asImage ? '已出图 · 当参考图传下去' : '已出片 · 整段交下去')
+          ? (asImage ? '已出图 · 当参考图传下去' : isAudioUrl(url) ? '已出音频 · 整段交下去' : '已出片 · 整段交下去')
           : node.data.status === 'running' ? '生成中…' : '还没跑过',
       };
     }
@@ -1206,14 +1207,23 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         const list: { url?: string; outputType?: string }[] = Array.isArray(task.result) ? task.result : [];
         const urls = list.filter(item => item?.url);
         const pick = (pattern: RegExp) => urls.find(item => pattern.test(`${item.outputType || ''} ${item.url}`));
-        const videoItem = pick(/mp4|webm|mov/i);
-        const imageItem = pick(/png|jpe?g|webp|gif|avif/i);
+        /* 三个正则与 `lib/runs.ts` 共用同一份（见 `lib/result-kind.ts`）：
+           两边判得不一样的话，同一条结果在历史里是音频、回到节点上却画成了图片。 */
+        const videoItem = pick(VIDEO_RESULT_RE);
+        const imageItem = pick(IMAGE_RESULT_RE);
+        const audioItem = pick(AUDIO_RESULT_RE);
         /** 既认不出 outputType 也没有扩展名时退回第一个结果，保持旧行为。 */
-        const ambiguous = !videoItem && !imageItem ? urls[0] : undefined;
+        const ambiguous = !videoItem && !imageItem && !audioItem ? urls[0] : undefined;
         const results: RunResult[] = [];
         if (videoItem?.url) results.push({ url: String(videoItem.url), kind: 'video' });
         if (imageItem?.url && imageItem.url !== videoItem?.url) results.push({ url: String(imageItem.url), kind: 'image' });
-        if (!results.length && ambiguous?.url) results.push({ url: String(ambiguous.url), kind: isVideoUrl(ambiguous.url) ? 'video' : 'image' });
+        if (audioItem?.url && audioItem.url !== videoItem?.url && audioItem.url !== imageItem?.url)
+          results.push({ url: String(audioItem.url), kind: 'audio' });
+        if (!results.length && ambiguous?.url)
+          results.push({
+            url: String(ambiguous.url),
+            kind: resultKindOf(`${ambiguous.outputType || ''} ${ambiguous.url}`) ?? 'image',
+          });
         pushRun(id, {
           id: taskId,
           taskId: meta.externalTaskId,
@@ -1233,12 +1243,12 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         const runKind = nodes.find(item => item.id === id)?.data.kind;
         const imageOnly = runKind === 'image-generate'
           || (runKind === 'app-generate' && !videoItem && Boolean(imageItem));
-        const primary = imageOnly ? (imageItem || ambiguous) : (videoItem || ambiguous || imageItem);
+        const primary = imageOnly ? (imageItem || ambiguous) : (videoItem || audioItem || ambiguous || imageItem);
         patch(id, {
           status: 'success',
           result: imageOnly
             ? (primary ? '生成完成' : '本次结果没有图片输出')
-            : videoItem ? '生成完成' : imageItem ? '只返回了图片' : '生成完成',
+            : videoItem || audioItem ? '生成完成' : imageItem ? '只返回了图片' : '生成完成',
           resultUrl: primary?.url,
         });
         /** Push the media each downstream node can actually show: image output takes the image, video output takes the video. */
@@ -1253,10 +1263,12 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
            */
           if (!target || isGeneratorKind(target.data.kind)) return;
           const wantsImage = target.data.kind === 'image-out';
-          const media = wantsImage ? (imageItem || ambiguous) : (videoItem || ambiguous);
+          const media = wantsImage ? (imageItem || ambiguous) : (videoItem || audioItem || ambiguous);
           patch(edge.target, {
             resultUrl: media?.url,
-            result: media?.url ? (wantsImage ? '图片已就绪' : '视频生成完成') : '本次结果没有对应的输出',
+            result: media?.url
+              ? (wantsImage ? '图片已就绪' : !videoItem && audioItem ? '音频已就绪' : '视频生成完成')
+              : '本次结果没有对应的输出',
           });
         });
         return;
@@ -1569,7 +1581,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
      */
     const purpose = isApp
       ? appPurposeOf(workflows, String(node.data.workflowId || ''))
-      : (purposeOfNode(node.data.kind) ?? 'video');
+      : (purposeForNode(node.data.kind, workflows, node.data.workflowId) ?? 'video');
     /** 图片生成节点走同一条提交链路，但不吃 latent、不提交时长与接续，参数换成出图那一套。 */
     const isImage = node.data.kind === 'image-generate' || (isApp && purpose === 'image');
     /**

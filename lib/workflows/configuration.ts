@@ -57,13 +57,16 @@ type BindingSeries = {
   prefix: string;
   max: number;
   label: string;
-  /** 哪些用途下会出现：视频 / 音频输入只有视频工作流用得上。 */
-  contexts: ('image' | 'video')[];
+  /**
+   * 哪些用途下会出现。参考图三种用途都有；视频 / 音频输入是**喂一段素材进去**，
+   * 出图工作流吃不消，音频工作流吃得下音频（改音色、续写这类），所以音频那两个都开。
+   */
+  contexts: ('image' | 'video' | 'audio')[];
 };
 const SERIES: BindingSeries[] = [
-  { key: 'reference', first: 'reference_image_1', prefix: 'reference_image_', max: MAX_REFERENCE_IMAGES, label: '参考图', contexts: ['image', 'video'] },
+  { key: 'reference', first: 'reference_image_1', prefix: 'reference_image_', max: MAX_REFERENCE_IMAGES, label: '参考图', contexts: ['image', 'video', 'audio'] },
   { key: 'video', first: 'video_input', prefix: 'video_input_', max: MAX_VIDEO_INPUTS, label: '视频输入', contexts: ['video'] },
-  { key: 'audio', first: 'audio_input', prefix: 'audio_input_', max: MAX_AUDIO_INPUTS, label: '音频输入', contexts: ['video'] },
+  { key: 'audio', first: 'audio_input', prefix: 'audio_input_', max: MAX_AUDIO_INPUTS, label: '音频输入', contexts: ['video', 'audio'] },
 ];
 
 /**
@@ -121,6 +124,9 @@ export const canvasBindingLabels: Record<CanvasBinding, string> = {
  * 配置页「画布参数绑定」下拉的可选项，**按工作流用途 / 工序过滤**，避免把不相关的绑定混进来：
  * - 图片生成：提示词、比例、分辨率、参考图，加上出图专属的步数 / CFG / 种子 / 负向提示词 / 采样器 / 张数。
  * - 视频生成：提示词、比例、分辨率、参考图，加上视频专属的时长 / 接续 latent / 开启接续。
+ * - 音频生成：只留提示词与参考图数量（2026-10-02）。**刻意不列时长与比例** ——
+ *   画布上音频那一档把「生成时长 / 比例 / 分辨率」整组收掉了，这里再给个「画布 · 视频时长」
+ *   绑上去，提交时那个值是空的，症状又是「任务成功、参数被静默丢掉」。
  * - 超清：只有「超清」这一个绑定（待加工的那一份媒体），与生成配置彻底独立。
  *
  * **不含序列项**（参考图 N / 视频 N / 音频 N）—— 那些由 `bindingsForFields` 按「已用到第几个」
@@ -134,11 +140,17 @@ const VIDEO_GENERATION_BINDINGS: CanvasBinding[] = [
   'prompt', 'aspect_ratio', 'megapixels', 'reference_count',
   'duration', 'latent_1', 'latent_2', 'continuation',
 ];
+/** 音频：只有提示词与参考图数量（理由见上面「按用途过滤」那条注释）。 */
+const AUDIO_GENERATION_BINDINGS: CanvasBinding[] = ['prompt', 'reference_count'];
 const UPSCALE_BINDINGS: CanvasBinding[] = ['upscale_input'];
 
-export function bindingsForContext(kind: 'image' | 'video', operation: 'generate' | 'upscale'): CanvasBinding[] {
+export function bindingsForContext(
+  kind: 'image' | 'video' | 'audio',
+  operation: 'generate' | 'upscale',
+): CanvasBinding[] {
   if (operation === 'upscale') return UPSCALE_BINDINGS;
-  return kind === 'image' ? IMAGE_GENERATION_BINDINGS : VIDEO_GENERATION_BINDINGS;
+  if (kind === 'image') return IMAGE_GENERATION_BINDINGS;
+  return kind === 'audio' ? AUDIO_GENERATION_BINDINGS : VIDEO_GENERATION_BINDINGS;
 }
 
 /**
@@ -151,7 +163,7 @@ export function bindingsForContext(kind: 'image' | 'video', operation: 'generate
  */
 export function bindingsForFields(
   fields: { binding?: string }[],
-  kind: 'image' | 'video',
+  kind: 'image' | 'video' | 'audio',
   operation: 'generate' | 'upscale',
 ): CanvasBinding[] {
   const base = bindingsForContext(kind, operation);

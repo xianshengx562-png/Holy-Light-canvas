@@ -10,7 +10,7 @@ import { isWorkflowProvider } from '@/lib/workflows/local';
 /**
  * 列出当前账号保存过配置的工作流，供「设置 · 工作流列表」管理、也供画布选一个用，不用手打 ID。
  *
- * **`?kind=video|image` 按用途过滤**，画布上视频生成节点只拿视频的、图片生成节点只拿图片的。
+ * **`?kind=video|image|audio` 按用途过滤**，画布上视频生成节点只拿视频的、图片生成节点只拿图片的。
  * 过滤与字段计数都在 `lib/workflows/drafts.ts`（与设置页共用同一份，免得两处数出不同的启用数量）。
  *
  * 传了不认识的 kind 直接 400，不忽略也不回退到「返回全部」——「过滤器悄悄不生效」
@@ -21,7 +21,7 @@ export async function GET(request: Request) {
     const user = await apiUser();
     const rawKind = new URL(request.url).searchParams.get('kind');
     if (rawKind !== null && !isGeneratorKind(rawKind)) {
-      throw new ApiError(400, `不支持的工作流用途「${rawKind}」，只能是 video 或 image。`);
+      throw new ApiError(400, `不支持的工作流用途「${rawKind}」，只能是 video、image 或 audio。`);
     }
     /*
      * 分类同理：认不出来就 400，不忽略也不回退到「返回全部」——「过滤器悄悄不生效」

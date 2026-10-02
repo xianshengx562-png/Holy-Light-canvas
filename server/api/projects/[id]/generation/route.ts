@@ -485,9 +485,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       initialStatus = remote.status || 'RUNNING';
       initialResults = remote.results ? remote.results as Prisma.InputJsonValue : undefined;
     }
-    const workflowType = operation === 'upscale'
-      ? `${input.kind}-upscale`
-      : input.kind === 'image' ? 'image-generation' : 'video-generation';
+    /* 音频也走这一条（2026-10-02）：写成三元只会把 audio 落进 video 那一格。 */
+    const workflowType = operation === 'upscale' ? `${input.kind}-upscale` : `${input.kind}-generation`;
     /*
      * 登记表（`Workflow`）按「谁跑的 + 跑的哪一份」建键：
      *   - 本地工作流：键就是它自己的 ID（`local-…`），一次一份，名字与来源都对得上；

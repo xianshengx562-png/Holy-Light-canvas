@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { ImageOff } from 'lucide-react';
+import { ImageOff, Music2 } from 'lucide-react';
 import CanvasOverlay from './CanvasOverlay';
 import { useApi } from '@/lib/client';
 import type { RunRecord } from '@/lib/runs';
@@ -92,6 +92,8 @@ export default function CanvasHistoryPanel({
                   <span className="cv-hist-thumb">
                     {first?.kind === 'video' && <video src={first.url} preload="metadata" muted playsInline />}
                     {first?.kind === 'image' && <img src={first.url} alt="" loading="lazy" />}
+                    {/* 音频没有缩略图可画：给一个音符占位，别去喂 `<img>`（会得到一张坏图）。 */}
+                    {first?.kind === 'audio' && <span className="cv-hist-glyph"><Music2 size={16} strokeWidth={1.6} aria-hidden /></span>}
                     {!first && <span className="cv-hist-glyph"><ImageOff size={16} strokeWidth={1.6} aria-hidden /></span>}
                   </span>
                   <span className="cv-hist-meta">

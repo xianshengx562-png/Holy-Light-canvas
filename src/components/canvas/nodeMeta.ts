@@ -28,9 +28,14 @@ import { isTextValueKind } from './textChain';
  *
  * 老 `workflow` 节点没有用途（传 null），仍然列全部 —— 它是历史遗留节点，列全部才有意义。
  */
-export function workflowsForGeneration<T extends WorkflowOption>(workflows: T[], purpose: GeneratorKind | null): T[] {
+export function workflowsForGeneration<T extends WorkflowOption>(
+  workflows: T[], purpose: GeneratorKind | GeneratorKind[] | null,
+): T[] {
   if (!purpose) return workflows;
-  return workflows.filter(item => item.kind === purpose && item.operation === 'generate');
+  /* 「视频 / 音频生成」节点两种都列 —— 出什么由选中的那份工作流决定。 */
+  const allowed = Array.isArray(purpose) ? purpose : [purpose];
+  if (!allowed.length) return workflows;
+  return workflows.filter(item => allowed.includes(item.kind) && item.operation === 'generate');
 }
 
 /**
@@ -113,7 +118,7 @@ export const NODE_META: Record<NodeKind, {
   workflow: { label: '工作流配置', tag: 'WORKFLOW', color: '#f472b6', output: 'workflow' },
   /** 自定义参数块：直接写工作流节点 id + 字段名，像搭积木一样往生成里叠参数。 */
   params: { label: '自定义参数', tag: 'PARAMS', color: '#fb923c', input: '自定义参数', output: 'params' },
-  'video-generate': { label: '视频生成', tag: 'GENERATE', color: '#4ade80', input: 'prompt / 图 / 视频 / 音频 / latent / 工作流 / 自定义参数', output: 'video / image' },
+  'video-generate': { label: '视频/音频生成', tag: 'GENERATE', color: '#4ade80', input: 'prompt / 图 / 视频 / 音频 / latent / 工作流 / 自定义参数', output: 'video / audio / image' },
   /** 图片生成：结构与视频生成一致，但不吃 latent、不提交时长与接续，参数换成出图那一套。 */
   'image-generate': { label: '图片生成', tag: 'IMG-GEN', color: '#a3e635', input: '提示词 / 参考图 / 工作流 / 自定义参数', output: 'image' },
   /**
@@ -338,6 +343,8 @@ export { isTextValueKind };
 const LEGACY_NODE_LABELS: Record<string, { kind: NodeKind; label: string }> = {
   文本提示词: { kind: 'text', label: NODE_META.text.label },
   续接上一段: { kind: 'latent', label: NODE_META.latent.label },
+  /* 2026-10-02：这个节点开始吃音频工作流，名字改成「视频/音频生成」。 */
+  视频生成: { kind: 'video-generate', label: NODE_META['video-generate'].label },
 };
 
 /** 老名字 → 新名字；不是旧默认名（或种类对不上）就原样返回，空值也原样返回。 */
@@ -502,6 +509,40 @@ export function purposeOfNode(kind: unknown): GeneratorKind | null {
   if (kind === 'video-generate') return 'video';
   if (kind === 'image-generate') return 'image';
   return null;
+}
+
+/**
+ * 这个节点**允许**哪些用途（2026-10-02）。
+ *
+ * 视频节点现在也吃音频工作流 —— 它出视频还是出音频，取决于此刻选中的那份工作流，
+ * 而不是节点自己的种类。所以「筛选下拉」问的是这里（一组），
+ * 而「提交 / 参数显示」问的是下面那个 `purposeForNode`（一个）。
+ */
+export function purposesOfNode(kind: unknown): GeneratorKind[] {
+  if (kind === 'video-generate') return ['video', 'audio'];
+  if (kind === 'image-generate') return ['image'];
+  return [];
+}
+
+/**
+ * 这个节点**此刻**实际要用哪个用途：跟着它选中的那份工作流走。
+ *
+ * 为什么不继续用 `purposeOfNode`：同一个节点上挑了音频工作流，用途却还报「视频」的话，
+ * 提交会带上时长 / 比例 / latent 这些音频工作流根本没有的参数，
+ * 界面上还会弹「这份工作流不是视频用的」—— 明明是它自己列出来让人选的。
+ * 没选工作流时退回节点自己的默认用途。
+ */
+export function purposeForNode(
+  kind: unknown, workflows: WorkflowOption[], workflowId: unknown,
+): GeneratorKind | null {
+  const allowed = purposesOfNode(kind);
+  if (!allowed.length) return purposeOfNode(kind);
+  const chosen = String(workflowId || '').trim();
+  if (chosen) {
+    const hit = workflows.find(item => String(item.workflowId || '') === chosen);
+    if (hit && allowed.includes(hit.kind)) return hit.kind;
+  }
+  return allowed[0];
 }
 
 /**
@@ -674,6 +715,18 @@ export function isVideoUrl(value: unknown) {
 
 export function isImageUrl(value: unknown) {
   return /\.(png|jpe?g|webp|gif|avif)(\?|#|$)/i.test(String(value ?? ''));
+}
+
+/**
+ * 音频地址（2026-10-02）。
+ *
+ * 为什么非得有它：好几处「这个结果该画成什么」的判定写的是
+ * **`isVideoUrl()` 为假就当图片**。音频既不落在视频那一支、也不该当图片画
+ * —— 拿 `xxx.mp3` 去喂 `<img>` 得到的是一张打不开的坏图，而 node 卡片 /
+ * 参数条 / 底栏的「预览」都在走这条判定。三个地方一律改成「不是视频也不是音频才当图片」。
+ */
+export function isAudioUrl(value: unknown) {
+  return /\.(mp3|wav|m4a|aac|ogg|flac)(\?|#|$)/i.test(String(value ?? ''));
 }
 
 export function formatSize(bytes: number) {

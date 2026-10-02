@@ -4,6 +4,7 @@ import type { WorkflowCategory } from '@/lib/workflows/category';
 import type { WorkflowOperation } from '@/lib/workflows/operation';
 import type { DirectorScene } from '@/lib/director';
 import type { RelayLatentItem } from '@/lib/asset-kinds';
+import type { ResultKind } from '@/lib/result-kind';
 
 export type LatentRecord = {
   id: string;
@@ -91,8 +92,12 @@ export type ParamRow = {
   kind?: 'text' | 'number' | 'boolean' | 'image' | 'video' | 'audio' | 'latent';
 };
 
-/** 一次生成的一个输出（同一轮可能既出视频又出图）。 */
-export type RunResult = { url: string; kind: 'video' | 'image' };
+/**
+ * 一次生成的一个输出（同一轮可能既出视频又出图）。
+ *
+ * 2026-10-02 起也可能是 `'audio'` —— 「视频/音频生成」节点挑了音频工作流就出这个。
+ */
+export type RunResult = { url: string; kind: ResultKind };
 
 /**
  * 一次生成记录。挂在生成节点的 `runs` 上，随画布一起保存，

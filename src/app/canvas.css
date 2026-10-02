@@ -1453,6 +1453,8 @@ html[data-theme='light'] .cv-skill-mask {
 .cv-results-at { font-size: 10.5px; color: var(--cv-mute); }
 .cv-results-media { display: grid; gap: 6px; justify-items: start; }
 .cv-results-media .cv-video { width: 100%; border-radius: 8px; border: 1px solid var(--cv-line); }
+/* 音频：一条窄条就够了 —— 用 16:9 的黑框装一段只有波形的声音，既难看也看不出进度。 */
+.cv-results-media .cv-audio { width: 100%; border-radius: 8px; border: 1px solid var(--cv-line); }
 
 /* ---------- 画布右侧抽屉（内置浏览器 / Codex 共用外壳） ----------
    两个侧栏的形状完全一样（一条头 + 一块内容区，从右边滑出来），
