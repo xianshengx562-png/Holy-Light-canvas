@@ -199,9 +199,53 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
    * 而这件事在卡片正面本来就该看得见（此前只有标题行上那个 13px 的小图标）。
    * 文本节点例外：它的正面是能直接打字的框，压一个图标只会挡视线。
    */
+  /*
+   * 生成中的等待动画（2026-10-02 徐先：「节点生成等待界面为星星汇聚的效果」）。
+   * 追问定下来的两件事：**画在卡片正面这个框里**，形态是**持续向内流动**。
+   *
+   * 🔴 星位写成一张**固定种子表**，不用 `Math.random()`：
+   *    随机值每次 render 都不一样 → 节点一重渲染（选中、改参数、轮询刷新状态），
+   *    满天星的位置就集体跳一下，看着像卡了一帧。固定表保证动画是连续的。
+   * 🔴 角度 / 半径 / 延迟三个值都错开，是为了让"流"看起来是散的 ——
+   *    均匀分布的话会变成几条规整的射线，那叫"放射"，不叫"汇聚"。
+   * 🔴 **纯 CSS 动画**（只动 transform + opacity），不引入 JS 定时器 / canvas：
+   *    画布上同时跑的节点可能有十几个，每个都起 rAF 的话光调度就够卡了，
+   *    而 transform/opacity 走合成层，不触发布局与重绘。
+   */
+  const STAR_SEEDS = [
+    { a: 8, r: 1.00, d: 0.00 }, { a: 47, r: 0.86, d: 0.42 }, { a: 82, r: 1.08, d: 0.88 },
+    { a: 118, r: 0.92, d: 0.21 }, { a: 155, r: 1.04, d: 0.66 }, { a: 196, r: 0.82, d: 1.04 },
+    { a: 233, r: 1.10, d: 0.33 }, { a: 271, r: 0.96, d: 0.75 }, { a: 309, r: 0.88, d: 0.12 },
+    { a: 344, r: 1.02, d: 0.95 }, { a: 27, r: 0.94, d: 0.55 }, { a: 176, r: 1.06, d: 0.48 },
+  ] as const;
+
+  /** 星星汇聚那一层（只在等待时出现，位置和数据都在 CSS 里，这里只负责铺 DOM）。 */
+  const starFrame = (
+    <div className="cv-node-empty stars" aria-hidden>
+      {STAR_SEEDS.map((seed, i) => (
+        <i
+          key={i}
+          className="cv-star"
+          style={{
+            '--cv-star-a': `${seed.a}deg`,
+            '--cv-star-r': seed.r,
+            animationDelay: `${seed.d}s`,
+          } as CSSProperties}
+        />
+      ))}
+      {/* 中心这颗不动的"靶心"：星星都朝它流，没有它只是一团往中间飘的点，读不出"汇聚"。 */}
+      <i className="cv-star-core" />
+    </div>
+  );
+
+  /** 等待中 = 生成 / 上传。完事（或失败）之后这一层自动消失，回落到静态图标。 */
+  const awaiting = statusValue === 'running' || statusValue === 'uploading';
+
   const emptyFrame = kind === 'text'
     ? <div className="cv-node-empty" aria-hidden />
-    : <div className="cv-node-empty glyph" aria-hidden><NodeGlyph kind={kind} size={44} /></div>;
+    : awaiting
+      ? starFrame
+      : <div className="cv-node-empty glyph" aria-hidden><NodeGlyph kind={kind} size={44} /></div>;
 
   /**
    * 画框里只放**状态**：「正在上传 / 等待上游 / 失败」这类真的说明正在发生什么的话。

@@ -1065,6 +1065,88 @@ html[data-theme='light'] .cv-skill-mask {
  */
 .cv-node-empty.glyph { display: grid; place-items: center; color: var(--cv-icon-dim); }
 
+/*
+ * 生成中的等待动画：**星星持续向内流**（2026-10-02 徐先：「节点生成等待界面为星星汇聚的
+ * 效果」；追问后定的落点与形态 —— 画在卡片正面这个框里、形态是"持续向内流动"）。
+ *
+ * 它跟上面那个静态图标是**互斥的两态**（`NodeCard` 里 `awaiting` 二选一），
+ * 不叠加：一个动态一个静态叠在一起，谁也看不清。跑完 / 失败之后自动回落到图标。
+ *
+ * 🔴 运动只用 `transform` + `opacity`（走合成层，不触发布局与重绘）——
+ *    画布上同时跑十几个节点时，这是唯一不卡的做法（别改成 rAF 逐帧算位置）。
+ * 🔴 每颗星的**角度 / 半径 / 延迟**由行内样式喂进来（见 `NodeCard` 的 `STAR_SEEDS`），
+ *    所以这里只写"怎么动"，不写"第几颗在哪"。
+ * ⚠️ 半径是**固定 px**：框的宽度本来就随节点尺寸变，星星从框外飞入、
+ *    多出来的那一段被 `overflow: hidden` 切掉 —— 观感上就是"从边缘流进来"。
+ */
+.cv-node-empty.stars {
+  position: relative;
+  overflow: hidden;
+  /* 别让这层吃掉鼠标事件：框上的双击 / 右键菜单还得照常开。 */
+  pointer-events: none;
+}
+
+/* 四角星（sparkle）用一行 `clip-path` 画出来 —— 不引 SVG、不引图标字体。 */
+.cv-star {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 11px;
+  height: 11px;
+  margin: -5.5px 0 0 -5.5px;
+  background: var(--cv-accent);
+  clip-path: polygon(50% 0, 58% 42%, 100% 50%, 58% 58%, 50% 100%, 42% 58%, 0 50%, 42% 42%);
+  animation: cv-star-flow 1.7s linear infinite;
+  will-change: transform, opacity;
+}
+
+/*
+ * `rotate(a) → translateX(r) → rotate(-a)`：先把坐标系转到那个角度、再把星推到半径上、
+ * 最后把星自己转正（不转正的话四角星会跟着转，看着像在翻跟头）。
+ * 于是一颗星就是一条**朝中心的直线**，而 12 条直线的角度各不相同。
+ */
+@keyframes cv-star-flow {
+  0% {
+    transform: rotate(var(--cv-star-a)) translateX(calc(var(--cv-star-r) * 118px)) rotate(calc(var(--cv-star-a) * -1)) scale(0.4);
+    opacity: 0;
+  }
+  22% { opacity: 0.95; }
+  78% { opacity: 0.7; }
+  100% {
+    transform: rotate(var(--cv-star-a)) translateX(4px) rotate(calc(var(--cv-star-a) * -1)) scale(0.95);
+    opacity: 0;
+  }
+}
+
+/* 中心这颗不动的"靶心"：星星都朝它流 —— 没有它，只是一团往中间飘的点，读不出"汇聚"。 */
+.cv-star-core {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  margin: -3.5px 0 0 -3.5px;
+  border-radius: 50%;
+  background: var(--cv-accent);
+  opacity: 0.3;
+  animation: cv-star-core 1.7s ease-in-out infinite;
+}
+@keyframes cv-star-core {
+  0%, 100% { opacity: 0.2; transform: scale(0.85); }
+  50% { opacity: 0.5; transform: scale(1.15); }
+}
+
+/* 系统开了「减少动效」就不转了：星星**铺成一个静态的星环**（不是消失 ——
+   完全不画的话，开了这个设置的人就不知道节点在跑；状态文字下面那条还在）。 */
+@media (prefers-reduced-motion: reduce) {
+  .cv-star {
+    animation: none;
+    transform: rotate(var(--cv-star-a)) translateX(calc(var(--cv-star-r) * 34px)) rotate(calc(var(--cv-star-a) * -1)) scale(0.7);
+    opacity: 0.5;
+  }
+  .cv-star-core { animation: none; opacity: 0.4; }
+}
+
 .cv-node-status {
   margin-top: 6px;
   padding: 5px 9px;
