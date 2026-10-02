@@ -1226,13 +1226,19 @@ html[data-nav='collapsed'] .shell:not(.home-shell) .sidebar { transform: transla
 .workspace-header small { font-size: calc(12px * var(--ui)); color: var(--text-mute); }
 
 /*
- * 站点余额（2026-09-25）：`SiteBalance` 用 portal 挂进**当前页**的 `.workspace-header`，
- * 成为它 flex 的最后一个孩子 —— 位置由浏览器排，不会压到已有的「返回项目」那类按钮上。
- * 没登录中转站时这个元素根本不渲染（不是留个空壳）。
+ * 站点账号卡（2026-09-25 建，2026-10-02 改成「头像 + 名称 + 余额」）。
+ * `SiteBalance` 用 portal 挂进**当前页**的页头（或画布顶栏的卡槽），
+ * 成为 flex 的最后一个孩子 —— 位置由浏览器排，不会压到已有的「返回项目」那类按钮上。
+ * 没有身份也没有余额时这个元素根本不渲染（不是留个空壳）。
+ *
+ * 🔴 左内距比右内距小（3 vs 11）：左边坐的是头像，它自己就是圆的，
+ *    再给 11px 会让头像离卡片边缘空一圈 —— 左内距其实是「头像离边的距离」。
+ * 🔴 `align-items: center`：头像和文字**没法共基线**（baseline 对图片无意义），
+ *    整条原来写的是 baseline，头像一进来就会往上飘。
  */
 .site-balance {
-  display: inline-flex; align-items: baseline; gap: calc(7px * var(--ui));
-  padding: calc(4px * var(--ui)) calc(11px * var(--ui));
+  display: inline-flex; align-items: center; gap: calc(7px * var(--ui));
+  padding: calc(3px * var(--ui)) calc(11px * var(--ui)) calc(3px * var(--ui)) calc(3px * var(--ui));
   border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--surface-2);
@@ -1240,10 +1246,27 @@ html[data-nav='collapsed'] .shell:not(.home-shell) .sidebar { transform: transla
   white-space: nowrap;
   line-height: 1.6;
 }
-.site-balance strong { font-size: 13px; color: var(--text); font-variant-numeric: tabular-nums; }
+/*
+ * 卡里那颗头像（`components/UserAvatar.tsx`，尺寸由这里给）。
+ * 底色取 `--surface-3` —— 卡片本身是 `--surface-2`，没有头像图时那个兜底首字
+ * 需要一个**跟卡片不一样**的圆才看得出来。
+ */
+.site-balance-avatar {
+  display: grid; place-items: center; flex: none;
+  width: calc(26px * var(--ui)); height: calc(26px * var(--ui));
+  overflow: hidden; border-radius: 50%;
+  background: var(--surface-3);
+}
+.site-balance-avatar img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.site-balance-avatar .avatar-initial { font-size: calc(12px * var(--ui)); }
 .site-balance-who {
-  max-width: 120px; overflow: hidden; text-overflow: ellipsis;
-  padding-left: 7px; border-left: 1px solid var(--line);
+  max-width: calc(120px * var(--ui)); overflow: hidden; text-overflow: ellipsis;
+}
+/* 余额只显示数值（「站点余额」四个字已撤，见 `SiteBalance.tsx`）。
+   竖分隔线跟着搬到这一段的左边 —— 它分的是「名称 | 余额」，不再是「余额 | 名称」。 */
+.site-balance strong {
+  padding-left: calc(7px * var(--ui)); border-left: 1px solid var(--line);
+  font-size: calc(13px * var(--ui)); color: var(--text); font-variant-numeric: tabular-nums;
 }
 
 .content { max-width: 1200px; margin: 0 auto; padding: 36px 32px 64px; }
@@ -2451,8 +2474,8 @@ input[type='color']::-webkit-color-swatch { border: 0; border-radius: 5px; }
 
 /* ---------- 头像的兜底首字（`components/UserAvatar.tsx`）----------
  * 组件内部只输出这一个类名；**字号由外层容器给**（设置页 `.user-avatar` 34px、
- * 首页 `.home-avatar` 14px）。这样同一个字在两处是不同大小，但排版规则只有一份 ——
- * 换个地方用头像不用把"加粗、不选中"再抄一遍。
+ * 页头那张账号卡里的 `.site-balance-avatar` 12px）。这样同一个字在两处是不同大小，
+ * 但排版规则只有一份 —— 换个地方用头像不用把"加粗、不选中"再抄一遍。
  */
 .avatar-initial {
   font-weight: 600;

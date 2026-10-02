@@ -14,7 +14,7 @@ type Props = {
   name: string;
   email?: string;
   className?: string;
-  /** 挂在最外层容器上的 `data-*`：验收探针靠它找节点（`{'data-avatar': 'home'}`）。 */
+  /** 挂在最外层容器上的 `data-*`：验收探针靠它找节点（`{'data-avatar': 'balance'}`）。 */
   attrs?: Record<string, string>;
 };
 

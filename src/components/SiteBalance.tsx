@@ -10,7 +10,9 @@
  * 挂在页头容器里（而不是 `position: fixed` 悬浮）还有个好处：它是 flex 的**最后一个**孩子，
  * 位置由浏览器排，永远不会压到已有的按钮上。
  *
- * 未登录时**整个不渲染**（不是显示一个空壳）—— 徐先要的就是「没有登录就不显示」。
+ * 既没有身份（本机用户 / 站点账号）又没有余额时**整个不渲染**（不是显示一个空壳）——
+ * 「没有登录就不显示」这条还在。⚠️ 2026-10-02 之后它是一张**账号卡**（头像 + 名称 + 余额），
+ * 所以判据成了「有身份或有余额」，不再单看站点登录状态（理由见下面那段注释）。
  *
  * 数据来自 `lib/site-account.ts` 那个共享 store：侧栏 / 用户页读的是同一份，
  * 全站只往站点打一趟（那边有 20 次 / 20 分钟的 IP 限流）。
@@ -18,6 +20,8 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { usePathname } from '@/shims/router';
+import { useSession } from '@/lib/client';
+import UserAvatar from '@/components/UserAvatar';
 import { formatYuan, refreshSiteAccount, siteCooldownUntil, useSiteAccount } from '@/lib/site-account';
 import { nextPollDelayMs } from '@/lib/providers/site-errors';
 
@@ -54,6 +58,13 @@ function balanceHost(): HTMLElement | null {
 export default function SiteBalance() {
   const pathname = usePathname();
   const { site } = useSiteAccount();
+  /*
+   * ⚠️ 这个 hook **必须**待在下面那些提前 `return null` 之前：
+   *    `host` 是先 null 后才有值的（portal 要等页头渲染出来），
+   *    把 hook 写在 early return 后面 = 同一个组件两次渲染的 hook 数量不一样，
+   *    React 会直接抛 "Rendered fewer hooks than expected"。
+   */
+  const { user } = useSession();
   const [host, setHost] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -119,23 +130,41 @@ export default function SiteBalance() {
     };
   }, []);
 
-  if (!host || !site?.loggedIn) return null;
+  if (!host) return null;
 
-  const who = site.username || site.loginName;
+  /*
+   * 2026-10-02 徐先：「这里的卡片结合，分为头像和名称和余额（余额只显示数值，
+   * 不用加上站点余额的文字）」。于是这块从「站点余额 ¥9.95 | xxs」变成**账号卡**：
+   * 头像 + 名称 + 余额，三段一张卡；「站点余额」四个字只留在 title 提示里。
+   *
+   * 🔴 渲染条件跟着放宽了：原来是「没登录站点就整个不渲染」——
+   *    现在卡里带着头像，不能因为「站点掉线 / 还没配站点」把**身份**也一起藏掉。
+   *    只要有身份就渲染；余额那一段取不到就**整段不出现**（不是显示 ¥—）。
+   *    桌面版 `useSession()` 永远给得出本机用户，所以头像不会再消失。
+   */
+  const who = site?.username || site?.loginName || user?.name || '';
+  const hasBalance = !!site?.loggedIn;
+  if (!who && !hasBalance) return null;
+
+  const title =
+    (hasBalance ? '站点余额' + (who ? ' · ' : '') : '') +
+    who +
+    (site ? ` · ${site.baseUrl}` : '') +
+    (site?.group ? ` · 分组 ${site.group}` : '') +
+    (site ? ` · 按 ${site.quotaPerYuan} quota = ¥1 换算` : '') +
+    (site?.error ? `\n${site.error}` : '');
+
   return createPortal(
-    <div
-      className="site-balance"
-      data-site-balance
-      title={
-        `${who ? `${who} · ` : ''}${site.baseUrl}` +
-        (site.group ? ` · 分组 ${site.group}` : '') +
-        ` · 按 ${site.quotaPerYuan} quota = ¥1 换算` +
-        (site.error ? `\n${site.error}` : '')
-      }
-    >
-      <span className="site-balance-label">站点余额</span>
-      <strong data-site-balance-value>{formatYuan(site.remainingYuan)}</strong>
+    <div className="site-balance" data-site-balance title={title}>
+      <UserAvatar
+        avatar={user?.avatar}
+        name={user?.name || who}
+        email={user?.email}
+        className="site-balance-avatar"
+        attrs={{ 'data-avatar': 'balance' }}
+      />
       {who && <span className="site-balance-who" data-site-balance-who>{who}</span>}
+      {hasBalance && <strong data-site-balance-value>{formatYuan(site.remainingYuan)}</strong>}
     </div>,
     host,
   );

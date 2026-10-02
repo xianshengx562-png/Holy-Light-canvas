@@ -266,8 +266,11 @@
 
 /* ---------- 右上角的账号 / 登录 ---------- */
 /*
- * 整页唯一一个和账号有关的位置。未登录时这颗「登录」就是进站的第一步，
- * 所以它排在 `.workspace-header` 的右半边（那个容器是 space-between）。
+ * 这一块现在**只放网页版那颗「退出登录」**（桌面版没有登录这一步，不显示）。
+ * 头像与昵称 2026-10-02 搬进了 `SiteBalance` 那张账号卡（`.site-balance`），
+ * 所以 `.home-avatar` / `.home-logo` 两条规则跟着撤了 —— 页头那颗 32px 头像
+ * 和卡片里那颗 26px 是同一个人的同一张照片，留在两处就是画两遍。
+ * ⚠️ `data-avatar="home"` 这个钩子也没了；卡里那颗是 `data-avatar="balance"`。
  */
 .home-account {
   display: flex;
@@ -275,22 +278,6 @@
   gap: 12px;
   text-align: right;
 }
-/* 右上角那颗小头像。**这一块现在只有它一个**（昵称/邮箱已撤，见 `app/page.tsx`），
-   所以尺寸不再需要跟旁边的文字对齐 —— 32px 是它自己的分量：够看清是谁，
-   又不至于比左边「创作空间」那行标题还重。 */
-.home-avatar {
-  display: grid;
-  place-items: center;
-  flex: none;
-  width: 32px;
-  height: 32px;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 50%;
-  background: var(--surface-2);
-}
-.home-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.home-avatar .avatar-initial { font-size: 14px; }
 /* 全局对 button 有铺满规则（width: 100%），这里必须显式收回，否则「退出登录」会撑满右半边。 */
 .home-account button { width: auto; }
 
@@ -577,15 +564,10 @@ main.content.home {
 /* 深底上那层光要更淡一点才不会"起雾"。 */
 html[data-theme='dark'] .home-shell .workspace::before { opacity: 0.06; }
 
-/* ---------- 页头右上角的软件 logo（2026-09-29） ---------- */
-.home-logo {
-  display: block;
-  flex: none;
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
-}
-html[data-theme='dark'] .home-logo { filter: invert(1); }
+/* 页头右上角的软件 logo（2026-09-29 加）**2026-10-02 撤掉了** ——
+   徐先：「这里的 logo 消除」。规则连同 JSX 一起删（`app/page.tsx` 那两处）。
+   ⚠️ 侧栏品牌那颗（`.brand-mark`，也在暗色下反相）**不是这一个**，别一起删：
+   走的是 `globals.css` 里的 `--logo`，跟这里没关系。 */
 
 /* 系统里勾了「减少动效」：上面三样一起关，尤其是背景那层 —— 它是 infinite。
    🔴 这一段**必须待在文件末尾**，不能并进上面 `home.css` 已有的那个 @media 块：

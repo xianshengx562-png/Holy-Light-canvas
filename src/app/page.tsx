@@ -25,10 +25,16 @@
 import Link from 'next/link';
 import { LogIn, Plus } from 'lucide-react';
 import SideNav from '@/components/start/SideNav';
-/* 软件 logo：`src/lib/logo.ts` 是从 `src/assets/logo.png` 生成的，别手改那个文件。 */
-import { LOGO_DATA_URI } from '@/lib/logo';
+/*
+ * ⚠️ 这里原来还 import 了 `LOGO_DATA_URI`（2026-09-29 加的页头 logo）与 `UserAvatar`。
+ * 2026-10-02 两样都撤了：logo 是徐先要消除的，头像搬进了 `SiteBalance` 那张账号卡。
+ * 那两个 import 必须跟着删 —— 留着只会白背几十 KB 的 data URI。
+ * ⚠️ 别因为「这里没人用了」就去删 `src/lib/logo.ts`：它是 `FRAME\_make-logo.py`
+ *    那套生成流程的产物，跟 `index.html`（启动画面内联）和 `globals.css` 里那条
+ *    `--logo`（侧栏品牌 `.brand-mark` 用）是同一批导出的三份。**页头这一份没了，
+ *    另外两份还在用**。要换 logo 仍然是「换 `src/assets/logo.png` 再跑一次脚本」。
+ */
 import LogoutButton from '@/components/LogoutButton';
-import UserAvatar from '@/components/UserAvatar';
 import SideNavToggle from '@/components/start/SideNavToggle';
 import StartEntries from '@/components/start/StartEntries';
 import ProjectGrid, { type ProjectCardItem } from '@/components/start/ProjectGrid';
@@ -113,30 +119,23 @@ export default function Home() {
           </div>
         </div>
         {/*
-          右上角的软件 logo（2026-09-29 徐先：「加载界面和右上角的图标可以用我的软件 logo」）。
-          放在头像**左边**：右侧最边上那块是系统按钮（WCO）的位置，而这一颗和头像一起
-          构成"品牌 + 我是谁"，logo 在外、人在里。
-        */}
-        {user ? <div className="home-account">
-          <img className="home-logo" src={LOGO_DATA_URI} alt="" aria-hidden />
-          {/*
-            ⚠️ 这里**只有一颗头像**（2026-09-25 徐先：「这里只显示一个头像就行」）。
-            原来它右边还有两行「昵称 / 邮箱」，但左下角侧栏那张用户卡片已经把这两样写全了，
-            页头再写一遍等于同一句话说两次，还占着右上角最值钱的那块位置。
-            改档案的入口仍然只有侧栏那张卡（`/user`），这一块只负责显示自己是谁。
+          2026-10-02 徐先两张图定了两件事：
+           ①「这里的 logo 消除」—— 右上角那颗软件 logo（`.home-logo`）**撤掉**。
+              它是 2026-09-29 加的（「加载界面和右上角的图标可以用我的软件 logo」），
+              加载界面那份还在，只撤页头这一颗。
+           ②「卡片结合，分为头像和名称和余额」—— 身份（头像 + 名称）搬进
+              `SiteBalance` 那张账号卡里（它对**所有页头**生效，见 `components/SiteBalance.tsx`），
+              所以这里原来那颗独立的 `.home-avatar` 也一并撤掉 —— 不撤就是同一个头像画两遍。
 
-            身份改成挂在 `title` 上：文字从视觉上撤了，但鼠标停一下还能看到是谁的账号 ——
-            头像本身是 `aria-hidden` 的（见 `UserAvatar`），撤掉文字后读屏也念不到这一块，
-            侧栏那张卡是它的可访问替身。
-          */}
-          <UserAvatar avatar={user.avatar} name={user.name} email={user.email}
-            className="home-avatar"
-            attrs={{ 'data-avatar': 'home', title: `${user.name} · ${user.email}` }} />
-          {!isDesktop && <LogoutButton />}
-        </div> : <div className="home-account">
-          <img className="home-logo" src={LOGO_DATA_URI} alt="" aria-hidden />
-          <Link className="button" href="/login"><LogIn size={14} aria-hidden />登录</Link>
-        </div>}
+          于是登录态下这一页的页头只剩两样：左边标题块、右边那张账号卡。
+          `.home-account` 这个容器只在**还要放东西**的时候才渲染：
+          网页版那颗「退出登录」（桌面版没有登录这一步，不显示）。
+        */}
+        {user ? (!isDesktop && <div className="home-account"><LogoutButton /></div>) : (
+          <div className="home-account">
+            <Link className="button" href="/login"><LogIn size={14} aria-hidden />登录</Link>
+          </div>
+        )}
       </header>
       <main className="content home">
         {/*
