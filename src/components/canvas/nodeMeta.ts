@@ -452,6 +452,30 @@ export function displayLabelOf(data: { label?: unknown; kind?: unknown }): strin
  * 顺带的：用户下次随便动一下画布，新名字就跟着自动保存落库了，不必专门做一次迁移。
  * 名字没变的节点**原对象返回**，省得平白多一轮渲染。
  */
+/**
+ * 载入时把「**不可能还在进行**」的状态复位（2026-10-02 徐先报的那个现象）。
+ *
+ * 🔴 `uploading` 必须复位，理由是它**根本不可能是真的**：上传是本机进程里的动作
+ *    （把文件塞给上游那一秒），应用一重启它必然已经中断。可它被写进了画布数据，
+ *    于是下次打开这张画布，节点永远停在「上传中」—— 卡片上那句「正在上传…」不会变，
+ *    等待动效（光点）也一直在流。**「没点生成却在跑动画」就是这么来的**：
+ *    不是动效的触发条件写宽了，是画布里存着一个永远为真的假状态。
+ * 🔴 `running` **不复位**：那是上游的任务，真的可能还在跑，由「恢复未跑完的任务」
+ *    那一支去问上游 —— 我们不许按等待时长自己下结论（项目那条业务口径）。
+ *
+ * 名字没变的节点**原对象返回**（和 `normalizeNodeLabels` 一个道理，省一轮渲染）。
+ */
+export function resetTransientStatus<T extends { data: { status?: unknown; result?: unknown } }>(nodes: T[]): T[] {
+  return nodes.map(node => {
+    if (String(node.data.status ?? '') !== 'uploading') return node;
+    const data = { ...node.data, status: '' };
+    /* 那句「正在上传…」是跟着状态一起写的（上传路径里 `result: undefined`），
+       个别老数据把它写进了 `result`，一起清掉才不会剩半句没人收的话。 */
+    if (String(node.data.result ?? '').trim() === '正在上传…') data.result = '';
+    return { ...node, data };
+  });
+}
+
 export function normalizeNodeLabels<T extends { data: { label?: unknown; kind?: unknown } }>(nodes: T[]): T[] {
   return nodes.map(node => {
     const next = readNodeLabel(node.data.label, node.data.kind);

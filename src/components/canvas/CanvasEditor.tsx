@@ -63,7 +63,7 @@ import {
   appPurposeOf, CREATE_KINDS, DEFAULT_RATIO, IMAGE_DEFAULTS, LATENT_SLOTS, NODE_META, resolveImageSize,
   usesGenerateDock, workflowsForApp,
   canConnect, connectionHint, isAudioUrl, isGeneratorKind, isLatentKind, isLatentSourceKind, isVideoUrl, latentAssetPrefix,
-  isRunnableKind, isTextValueKind, displayLabelOf, normalizeNodeLabels,
+  isRunnableKind, isTextValueKind, displayLabelOf, normalizeNodeLabels, resetTransientStatus,
   latentBrokenHint, latentBrokenLabel, latentLabel, purposeOfNode, purposeForNode, workflowMismatchHint, upscaleWorkflowFor,
   nodeEngineProvider, readUpscaleMode, readUpscaleSource, UPSCALE_SOURCE_LABELS,
   isRelayLatentSource, resolvePickedLatent,
@@ -654,7 +654,10 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
   /* 名字归一化放在这一个口（见 `nodeMeta.normalizeNodeLabels` 的注释）：
      下游十几处直接读 `node.data.label`，在这里过一遍就等于全修好。 */
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<NodeData>>(
-    starter ? defaults : normalizeNodeLabels(initial.nodes),
+    /* 两个归一化都在**这一个口**做（名字 / 假状态），下游十几处直接读 `data` 的地方
+       就都跟着对了。⚠️ 只在这一处做复位，**不加到 MCP 那条刷新路径上** ——
+       那条路随时可能在我们正上传的那一刻把画布整份换掉，复位会把**真的在传**的状态抹掉。 */
+    starter ? defaults : resetTransientStatus(normalizeNodeLabels(initial.nodes)),
   );
   /*
    * 泛型要写 `Edge` 而不是靠推断：不写的话类型会缩成持久化用的那三个字段

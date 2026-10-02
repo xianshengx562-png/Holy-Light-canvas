@@ -1442,16 +1442,25 @@ html[data-theme='light'] .cv-skill-mask {
  * 连线上的星星（2026-10-01）：**只有两端有节点在跑时**才进 DOM（见 StarEdge），
  * 平时一个元素都没有 —— 所以这里不必写「隐藏」那一档，只需要管它们长什么样。
  *
- * 🔴 颜色必须**两档都立得住**，所以是琥珀而不是暖白：
- *    第一版按「夜里发光的星」做成了暖白 (#fff7e0)，深色地板上很好看 ——
- *    可浅色那档的画布地板是纯白，实测星星（255,247,224）压在白底上
- *    亮度只差 8~31 级，等于没画（这正是当时截图里「一个亮点都找不到」的原因）。
- *    琥珀 #ffc235 在白底与深底上跟地板都差着 60 级以上，一档搞定，不必再去分主题。
- *    外面那圈深棕描边是给浅色档准备的轮廓 —— 深色档上用不到，但也不碍事。
+ * 🔴 颜色**不能写死成一支**：第一版按「夜里发光的星」做成暖白 (#fff7e0)，深色地板上好看，
+ *    可浅色那档的画布地板是纯白，星星（255,247,224）压上去亮度只差 8~31 级 —— 等于没画
+ *    （那张截图里「一个亮点都找不到」就是这么来的）。第二版改琥珀 #ffc235，两档都立得住，
+ *    但它在深色地板上会被读成"警告"，而且和画布强调色不是一套语言。
+ *    于是 2026-10-02 徐先说「请把颜色改为白色」—— 走 `var(--cv-accent)`：
+ *    深色主题是近白、浅色主题自动落成深色，两档都看得见，也不再自己另起一支色。
  */
-.cv-star-flow { pointer-events: none; filter: drop-shadow(0 0 2.5px rgba(255, 176, 32, 0.75)); }
-.cv-star-spark { fill: #ffc235; stroke: rgba(80, 45, 0, 0.9); stroke-width: 0.7; stroke-linejoin: round; }
-.cv-star-halo { fill: rgba(255, 194, 53, 0.3); }
+.cv-star-flow { pointer-events: none; }
+/*
+ * 那几颗流动的星本身（2026-10-02 按上面那条口径改成 `--cv-accent`）。
+ *
+ * ⚠️ 原来那圈深褐描边（`rgba(80,45,0,.9)`）是给**金填充**做分离用的；
+ *    白色填充在深底上本来就分得开，浅底上靠光晕那点色差也够，所以描边去掉。
+ * 🔴 **光晕那圈 `drop-shadow` 必须一起改**：它原来写死的是琥珀 `rgba(255,176,32,.75)`，
+ *    只把填充改成白的话，白点外面还裹着一层金光 —— 看上去仍然是个金点，等于没改。
+ */
+.cv-star-spark { fill: var(--cv-accent); stroke: none; stroke-linejoin: round; }
+.cv-star-halo { fill: color-mix(in srgb, var(--cv-accent) 26%, transparent); }
+.cv-star-flow { filter: drop-shadow(0 0 2.5px color-mix(in srgb, var(--cv-accent) 60%, transparent)); }
 .flow-shell .react-flow__connection-path { stroke: var(--cv-accent); stroke-width: 2; }
 .flow-shell .react-flow__edge.animated path { animation-duration: 0.6s; }
 
