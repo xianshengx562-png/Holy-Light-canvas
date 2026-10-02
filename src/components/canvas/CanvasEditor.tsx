@@ -4104,7 +4104,9 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       <span className={`cv-save ${saveState}`}><i />{saveText}</span>
       <button className="cv-btn primary sm" onClick={() => void save()}>保存</button>
       <div className="cv-divider" />
-      <Link className="cv-btn ghost sm" href="/">项目</Link>
+      {/* 回项目列表。用 `.secondary` 不用 `.ghost`：ghost 那道 7% 的描边在顶栏上几乎看不见，
+          它会被读成一句飘着的文字（2026-10-02 徐先：「边界和颜色明显一些」）。 */}
+      <Link className="cv-btn secondary sm" href="/">项目</Link>
       {/*
         一键运行（2026-09-27）。这一格原来是「工作流」链接 —— 那个入口在节点参数条
         （「打开工作流配置」）和左侧设置面板里都有，而这里是**手最常放的地方**，

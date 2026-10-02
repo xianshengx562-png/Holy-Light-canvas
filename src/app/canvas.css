@@ -519,6 +519,27 @@ html[data-theme='light'] .cv-skill-mask {
   font-weight: 600;
 }
 .cv-btn.primary:hover { background: var(--cv-accent-hover); border-color: var(--cv-accent-hover); }
+/*
+ * 次要按钮（2026-10-02 N+96，为顶栏那颗「项目」加的）。
+ *
+ * 它原来用 `.ghost`（透明底 + `--cv-line` 那道 **7%** 的白描边）。7% 压在 #141414 的顶栏上，
+ * 描边跟地板几乎一个色 —— 三颗并排时它读起来不像一颗按钮，而像一句飘在那儿的文字。
+ * ⚠️ 「和旁边两颗没对齐」是错觉：实测三颗**几何完全一致**（同为 26 高、同一条基线、
+ *    间距都是 10px、宽也一样），差的只有"看不看得见"（底色 + 描边 + 字重）。
+ * 于是这一档：底色抬到 `--cv-panel-2`（比顶栏底亮一格 → 有"块"的存在感）、
+ * 描边用 `--cv-line-strong`（7% → 14%，两档主题各自跟着走，日间走 `--app-line-strong`）、
+ * 字重对齐成 600（和旁边两颗一样粗）。
+ * 🔴 **别把 `.ghost` 本身改亮**：全库 20 处 `.cv-btn.ghost` 都在面板 / 冲突条里，
+ *    那儿要的就是"没有块"的那一档（`grep -rn "cv-btn ghost" src/` 能数出来）。
+ * 主次仍然分明：它是"次要动作"，不跟「保存 / 启动」那两颗实心白抢。
+ */
+.cv-btn.secondary {
+  color: var(--cv-text);
+  background: var(--cv-panel-2);
+  border-color: var(--cv-line-strong);
+  font-weight: 600;
+}
+.cv-btn.secondary:hover { background: var(--cv-elev); border-color: var(--cv-accent-line); }
 .cv-btn.danger { color: var(--cv-danger); border-color: var(--cv-danger-line); }
 .cv-btn.icon { width: calc(28px * var(--ui)); padding: 0; }
 .cv-btn:disabled { opacity: 0.45; cursor: not-allowed; }
