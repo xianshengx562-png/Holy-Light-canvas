@@ -43,6 +43,8 @@ import { ConfirmDialog } from '@/components/ui/ContextMenu';
 import { collectRuns } from './collectRuns';
 import { optimizeInputOf as optimizeInputIn, promptTextOf as promptTextIn, resolveTextChain } from './textChain';
 import type { TextChainEdge, TextChainNode } from './textChain';
+import { pickImageInput as pickImageInputIn } from './imageChain';
+import type { ImageChain, ImageChainEdge, ImageChainNode } from './imageChain';
 import { compositionPrompt, describeShot, readDirectorScene, type DirectorScene } from '@/lib/director';
 import { buildArchiveForm } from '@/lib/image-tools';
 import { NODE_CARD_COLORS } from '@/lib/appearance';
@@ -1536,6 +1538,17 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
   ), [edges, nameOfNode, nodes]);
 
   /**
+   * 优化节点左边**此刻连着的那张图**（2026-10-03：看图反推提示词）。
+   *
+   * 与 `optimizeInputOf` 是一对：一个给「把一句话扩写」，一个给「看着图写」。
+   * 返回 `null` = 左边没有可用的图 —— 那种情况照旧走改写那条路，
+   * 于是**只接了文本的老画布一个字都不会变**。
+   */
+  const describeInputOf = useCallback((id: string): ImageChain | null => pickImageInputIn(
+    nodes as ImageChainNode[], edges as ImageChainEdge[], id, nameOfNode,
+  ), [edges, nameOfNode, nodes]);
+
+  /**
    * 这一轮真正要提交的那句提示词（2026-09-29）。
    *
    * 上游可能是「文本 → 优化提示词 → 生成」：优化节点交的是**改写后**那份，
@@ -1587,6 +1600,95 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       patch(id, { status: 'failed', result: error instanceof Error ? error.message : '提示词改写失败' });
     }
   }, [nodesRef, optimizeInputOf, patch]);
+
+  /**
+   * 跑一次「看图反推提示词」（2026-10-03 徐先）。
+   *
+   * 与上面那条是一对：它交出去的是**一句话**（要被扩写），这条交出去的是**一张图**
+   * （要让模型看着它写出一句）。结果同样落在 `optimizedText` —— 下游取提示词的
+   * 那一层（`textChain.resolveTextChain`）一个字都不用改。
+   */
+  const describePromptNode = useCallback(async (id: string) => {
+    const node = nodesRef.current.find(item => item.id === id);
+    if (!node || node.data.kind !== 'prompt-optimize') return;
+    const img = pickImageInputIn(
+      nodesRef.current as ImageChainNode[], edgesRef.current as ImageChainEdge[], id, nameOfNode,
+    );
+    if (!img) {
+      patch(id, { status: 'failed', result: '左边还没有一张能用的图 —— 先把一个图片节点连到它左边，并让那张图出来' });
+      return;
+    }
+    const model = String(node.data.promptModel || '').trim();
+    const skill = String(node.data.promptSkill || '').trim();
+    const note = String(node.data.promptNote || '').trim();
+    /*
+     * 🔴 **先**把「这一张已经在反推了」写进节点，再去发请求。
+     *
+     * 自动反推（下面那个 effect）的判据是「现在的图 ≠ `describedFrom`」：
+     * 等到成功再写的话，请求在飞的那几十秒里 `nodes` 会重渲染好几次，
+     * effect 每次都会「发现」这张图还没反推过 —— 于是同一张图被反复提交。
+     * 手动点按钮也走这一句，于是「刚点过」同样不会被自动那一路再撞一次。
+     */
+    patch(id, { status: 'running', result: '正在看图反推提示词…', describedFrom: img.url, describedLabel: img.from });
+    try {
+      const result = await apiPost<{ optimizedPrompt: string }>('/api/prompt/describe', {
+        image: img.url,
+        ...(model ? { provider: model } : {}),
+        ...(skill ? { skillId: skill } : {}),
+        ...(note ? { note } : {}),
+      });
+      const described = String(result.optimizedPrompt || '').trim();
+      if (!described) {
+        patch(id, { status: 'failed', result: '文本模型没为这张图写出提示词 —— 换一家再试' });
+        return;
+      }
+      patch(id, { status: 'success', result: '已反推', optimizedText: described });
+    } catch (error) {
+      patch(id, { status: 'failed', result: error instanceof Error ? error.message : '反推提示词失败' });
+    }
+  }, [edgesRef, nameOfNode, nodesRef, patch]);
+
+  /**
+   * 优化节点跑一次：**左边有图就反推，没图才改写**。
+   *
+   * 🔴 两条入口（卡片上那颗按钮、一键运行）必须都走这里 —— 各判一次的话，
+   * 「点按钮是反推、一键运行却是改写」这种差异没有任何界面会说，
+   * 用户只会发现「两种跑法出来的东西不一样」。
+   */
+  const runPromptNode = useCallback(async (id: string) => {
+    const node = nodesRef.current.find(item => item.id === id);
+    if (!node || node.data.kind !== 'prompt-optimize') return;
+    const img = pickImageInputIn(
+      nodesRef.current as ImageChainNode[], edgesRef.current as ImageChainEdge[], id, nameOfNode,
+    );
+    if (img) await describePromptNode(id);
+    else await optimizePromptNode(id);
+  }, [describePromptNode, edgesRef, nameOfNode, nodesRef, optimizePromptNode]);
+
+  /**
+   * 「左边一接上图片就自动反推一次」（2026-10-03 徐先）。
+   *
+   * 判据是**图本身**，不是「有没有连线」：上游重新生成一次之后地址就变了，
+   * 那时必须**再反推一遍**（拿上一张图的描述去喂下游是静默的坏结果）。
+   * 反过来说，地址没变就**一次都不跑** —— 这才是这条 effect 不会空转的原因。
+   *
+   * 🔴 第二道闸是 `autoDescribeSeen`（一张图只认一次）：`patch` 排进 state 队列之后
+   * 到下一次重渲染之间，`nodes` 还没变，effect 可能带着同一份旧数据再进一遍。
+   * 只靠 `describedFrom` 挡，那一遍会重复提交一次。
+   */
+  const autoDescribeSeen = useRef<Map<string, string>>(new Map());
+  useEffect(() => {
+    for (const node of nodes) {
+      if (node.data.kind !== 'prompt-optimize' || node.data.bypassed) continue;
+      const img = pickImageInputIn(nodes as ImageChainNode[], edges as ImageChainEdge[], node.id, nameOfNode);
+      if (!img) continue;
+      if (String(node.data.describedFrom || '').trim() === img.url) continue;
+      if (node.data.status === 'running' || node.data.status === 'uploading') continue;
+      if (autoDescribeSeen.current.get(node.id) === img.url) continue;
+      autoDescribeSeen.current.set(node.id, img.url);
+      void describePromptNode(node.id);
+    }
+  }, [describePromptNode, edges, nameOfNode, nodes]);
 
   const generate = useCallback(async (id: string) => {
     const node = nodes.find(item => item.id === id);
@@ -2111,9 +2213,10 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       setNotice('这个节点被绕过了 —— 按 B（或右键 · 取消绕过）才跑得起来');
       return;
     }
-    if (node.data.kind === 'prompt-optimize') { await optimizePromptNode(id); return; }
+    /* 优化节点：左边有图走反推、没图走改写 —— 两条入口共用 `runPromptNode`。 */
+    if (node.data.kind === 'prompt-optimize') { await runPromptNode(id); return; }
     await generate(id);
-  }, [generate, nodesRef, optimizePromptNode]);
+  }, [generate, nodesRef, runPromptNode]);
 
 
   /*
@@ -2304,7 +2407,13 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
        * 接着往下查会指着一句它身上不存在的东西让用户去改。
        */
       if (node.data.kind === 'prompt-optimize') {
-        if (!optimizeInputOf(node.id)) problems.push({ id: node.id, label, why: '还没接上游文本节点' });
+        /*
+         * 左边有图就**不报**「还没接上游文本节点」—— 那种情况下它走的是反推那条路，
+         * 本来就不需要文本。报了等于让他去补一个用不上的文本节点。
+         */
+        if (!optimizeInputOf(node.id) && !describeInputOf(node.id)) {
+          problems.push({ id: node.id, label, why: '还没接上游文本节点（或图片节点）' });
+        }
         continue;
       }
       const workflowId = String(node.data.workflowId || '').trim()
@@ -2339,7 +2448,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       }
     }
     return problems;
-  }, [optimizeInputOf, promptTextOf, sources, workflows]);
+  }, [describeInputOf, optimizeInputOf, promptTextOf, sources, workflows]);
 
   /**
    * 「启动」：把画布上所有生成节点按依赖顺序跑一遍，跑几遍由「遍」数决定。
@@ -3481,6 +3590,8 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     const chain = isLatentKind(node.data.kind) ? latentChainOf(node.id) : null;
     /** 文本 / 优化节点这一刻要交给下游的那段文字（不写库）。 */
     const textChain = isTextValue ? textChainOf(node.id) : null;
+    /* 只有优化节点挑「左边那张图」—— 别的节点收图有 `imageUrls` 那条路（按数量收，不按一张）。 */
+    const imageChain = node.data.kind === 'prompt-optimize' ? describeInputOf(node.id) : null;
 
     /** 参数块自己不存工作流：往下游找它喂到的那个生成节点，问后者选的是哪一份。 */
     const paramWorkflow = node.data.kind === 'params' ? paramWorkflowOf(node.id) : null;
@@ -3513,6 +3624,12 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         textValue: textChain?.value || undefined,
         textFrom: textChain?.from || undefined,
         textBroken: textChain?.broken || undefined,
+        /**
+         * 左边那张图（看图反推用）：地址 + 来自哪个上游。
+         * 卡片据此显示缩略图、把「运行」按钮的措辞切成「按图反推」。
+         */
+        imageValue: imageChain?.url || undefined,
+        imageFrom: imageChain?.from || undefined,
         /** 只有中转节点有：上游视频节点产出过的 latent，供「取自哪次生成」下拉用。 */
         latentPickOptions: node.data.kind === 'latent-relay' ? latentPickOptionsOf(node.id) : undefined,
         latentCount: isVideoGenerator
@@ -3611,7 +3728,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         onFrameExtract: isFrameExtract ? () => void extractFrames(node.id) : undefined,
         onGenerate: isRunnableKind(node.data.kind) ? () => void runOne(node.id) : undefined,
         /** 优化节点：就地跑一次改写（参数条那个按钮与「启动」走的是同一条）。 */
-        onOptimize: node.data.kind === 'prompt-optimize' ? () => void optimizePromptNode(node.id) : undefined,
+        onOptimize: node.data.kind === 'prompt-optimize' ? () => void runPromptNode(node.id) : undefined,
 
         /** 超清：拿本节点已生成的结果再加工一道（按钮在卡片右上角，悬停才显形）。 */
         onUpscale: isGenerator ? () => void upscale(node.id) : undefined,
@@ -3629,8 +3746,8 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         onNotice: setNotice,
       },
     };
-  }), [collectParamRows, edges, extractFrames, frameSourceOf, generate, latentChainOf, latentPickOptionsOf,
-    openWorkflowConfig, openWorkflowPicker, optimizePromptNode, runOne, textChainOf,
+  }), [collectParamRows, describeInputOf, edges, extractFrames, frameSourceOf, generate, latentChainOf,
+    latentPickOptionsOf, openWorkflowConfig, openWorkflowPicker, runPromptNode, runOne, textChainOf,
     archiveMedia, latents, nodes, paramWorkflowOf, patch, sources, uploadFrameVideo, uploadLatentFile, workflows]);
 
   /*

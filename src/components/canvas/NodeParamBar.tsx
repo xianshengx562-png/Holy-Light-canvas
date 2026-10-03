@@ -183,21 +183,34 @@ export default function NodeParamBar({ data }: { data: NodeData }) {
     const linked = String(data.textFrom || '').trim();
     const out = String(data.optimizedText || '').trim();
     const incoming = String(data.textValue || '').trim();
+    /*
+     * 左边接了**图** = 走「看图反推」那条路（2026-10-03）：缩略图、文案、按钮名
+     * 三处都要跟着换。只换按钮不换文案的话，用户点完看到「已改写」会以为这句是
+     * 从自己那句话改出来的 —— 而它其实是看着图写的。
+     */
+    const img = String(data.imageValue || '').trim();
+    const imgFrom = String(data.imageFrom || '').trim();
     return shell(
       <div className="cv-param-desc">
         <OptimizeOptions data={data} />
+        {img && <div className="cv-param-thumb static">
+          <img src={img} alt="待反推的图" />
+        </div>}
         <span className="cv-param-hint">{running
-          ? '正在改写提示词…'
+          ? (img ? '正在看图反推…' : '正在改写提示词…')
           : out
-            ? '已改写 —— 下游拿到的是改写后这句'
-            : incoming
-              ? '还没改写 —— 现在交出去的还是上游原句'
-              : '还没接上游文本节点'}</span>
+            ? (img ? '已反推 —— 下游拿到的是按这张图写的那句' : '已改写 —— 下游拿到的是改写后这句')
+            : img
+              ? '接上图片后会自动反推一次'
+              : incoming
+                ? '还没改写 —— 现在交出去的还是上游原句'
+                : '还没接上游文本节点或图片节点'}</span>
+        {imgFrom && <span className="cv-param-hint">{`图片来自「${imgFrom}」`}</span>}
         {linked && <span className="cv-param-hint">{`输入来自「${linked}」`}</span>}
       </div>,
       <>
         <button className="cv-btn sm" type="button" disabled={running} onClick={() => data.onOptimize?.()}>
-          {out ? '再改写一次' : '改写提示词'}
+          {out ? (img ? '重新反推' : '再改写一次') : (img ? '反推提示词' : '改写提示词')}
         </button>
       </>,
     );

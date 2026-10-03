@@ -197,20 +197,34 @@ export function chatEndpoint(baseUrl: string) {
 export type ChatResult = { text: string; latencyMs: number };
 
 /**
+ * 一张要交给模型的图（2026-10-03：看图反推提示词）。
+ *
+ * 只带**字节本身**，不带地址：模型那头拿不到我们本机的文件，也未必能访问那个链接，
+ * 所以必须是 `data:` 内联的那一串 —— 这也是各家（含本机 llama.cpp 的 VLM）唯一都认的形状。
+ */
+export type ChatImage = { mime: string; base64: string };
+
+/**
  * 一次 chat 调用。
  *
  * 只传 `messages` 这几个各家都认的字段（`temperature` / `max_tokens` 各家默认值不同，
  * 显式给是为了同一句话在不同厂商下结果稳定些）。**不传** `response_format` 之类
  * 只有部分家支持的字段 —— 不支持的那家会直接 400。
+ *
+ * 🔴 `input.images` 为空时，发出的 body 与加这个功能之前**逐字节一致**
+ * （`content` 仍是纯字符串）—— 不支持图的模型 / 老调用方一个字都不受影响。
+ * 非空时才换成 OpenAI 那套多模态数组（`text` 段 + 若干 `image_url` 段）。
  */
 export async function chatText(
   creds: TextCredentials,
-  input: { system: string; user: string; temperature?: number; maxTokens?: number },
+  input: { system: string; user: string; temperature?: number; maxTokens?: number; images?: ChatImage[] },
 ): Promise<ChatResult> {
   const urls = chatEndpointCandidates(creds.baseUrl);
   if (!urls.length) throw new Error(`${creds.label} 的接口地址是空的，请到「设置 · 模型服务」里补上。`);
   if (!creds.model) throw new Error(`${creds.label} 的模型名是空的，请到「设置 · 模型服务」里补上。`);
   const started = Date.now();
+  /** 空图 / 空 base64 一律当「没有图」：带着空串出去只会换来一句看不懂的 400。 */
+  const images = (input.images || []).filter(item => item && String(item.base64 || '').trim());
   const attempt = await requestFirstJson(
     urls,
     url => fetch(url, {
@@ -220,7 +234,18 @@ export async function chatText(
         model: creds.model,
         messages: [
           { role: 'system', content: input.system },
-          { role: 'user', content: input.user },
+          {
+            role: 'user',
+            content: images.length
+              ? [
+                { type: 'text', text: input.user },
+                ...images.map(item => ({
+                  type: 'image_url',
+                  image_url: { url: `data:${item.mime || 'image/png'};base64,${item.base64}` },
+                })),
+              ]
+              : input.user,
+          },
         ],
         temperature: input.temperature ?? 0.7,
         ...(input.maxTokens ? { max_tokens: input.maxTokens } : {}),

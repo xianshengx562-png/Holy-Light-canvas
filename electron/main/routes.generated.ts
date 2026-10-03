@@ -91,6 +91,8 @@ import * as m76 from '@/server/api/tasks/scan/route';
 import * as m77 from '@/server/api/workflows/categories/route';
 import * as m78 from '@/server/api/workflows/categories/[id]/route';
 import * as m79 from '@/server/api/projects/[id]/runs/route';
+/* 2026-10-03 手工补的一条（看图反推提示词）。生成器下次重跑时要确认它没被冲掉。 */
+import * as m80 from '@/server/api/prompt/describe/route';
 
 export type RouteEntry = {
   /** `/api/projects/[id]/canvas` 这样的原始模式，报错信息里要用 */
@@ -412,6 +414,12 @@ export const ROUTES: RouteEntry[] = [
     regex: /^\/api\/projects\/quick$/,
     keys: [],
     mod: m50 as unknown as ApiModule,
+  },
+  {
+    pattern: '/api/prompt/describe',
+    regex: /^\/api\/prompt\/describe$/,
+    keys: [],
+    mod: m80 as unknown as ApiModule,
   },
   {
     pattern: '/api/prompt/models',

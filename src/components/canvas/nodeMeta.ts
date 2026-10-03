@@ -18,6 +18,14 @@ import { initialDirectorScene } from '@/lib/director';
 import { isRunningHubAppWorkflowId } from '@/lib/workflows/runninghubApp';
 /* 文本链那条取值规则在 `./textChain`（纯函数层），「哪些节点算文本」是它的一部分。 */
 import { isTextValueKind } from './textChain';
+/*
+ * 图片链同理：哪些节点能给图、给的是哪几个地址、哪个地址服务端取得到字节 ——
+ * **全部在 `./imageChain` 里定**（纯函数层，能单独跑断言）。
+ *
+ * 🔴 这里一律**转出、不重写**：提交时收参考图与「看图反推提示词」必须用同一把尺子量，
+ * 两处各写一份的后果是「卡片上看得到图，点反推却说没有图」，而全程不报错。
+ */
+import { imageUrlsOf as referenceUrlsIn, isImageSourceKind, isResolvableUrl as isResolvableUrlIn } from './imageChain';
 
 /**
  * 生成下拉里能选的工作流：**同用途，且工序是普通生成**。
@@ -368,8 +376,15 @@ export const ACCEPTS: Record<NodeKind, NodeKind[]> = {
   'image-generate': ['text', 'prompt-optimize', 'image', 'video-input', 'frame-extract', 'workflow', 'params', 'director', 'image-generate', 'image-out'],
   /* 应用节点：吃提示词与参考图（它的参数位由应用自己公开），但不吃 latent —— 接续是视频链路的概念。 */
   'app-generate': ['text', 'prompt-optimize', 'image', 'video-input', 'frame-extract', 'workflow', 'params', 'director'],
-  /* 优化节点接的是**文本**：上游文本节点，或者串在前面的另一个优化节点。 */
-  'prompt-optimize': ['text', 'prompt-optimize'],
+  /*
+   * 优化节点原来只接**文本**：上游文本节点，或者串在前面的另一个优化节点。
+   *
+   * 2026-10-03 徐先：「优化提示词节点也支持反推提示词，如果左边的接口输入了图片，
+   * 那么自动反推提示词」→ 于是**图片来源也能连进来**（就是 `isImageSourceKind` 那六种）。
+   * 接上之后的取值规则在 `./imageChain` 的 `pickImageInput()`：
+   * 左边有图就走「看图写提示词」，没图才走原来那条「把一句话扩写」的路。
+   */
+  'prompt-optimize': ['text', 'prompt-optimize', 'image', 'image-generate', 'image-out', 'video-input', 'frame-extract', 'director', 'app-generate'],
   video: ['video-generate'],
   'video-input': [],
   'audio-input': [],
@@ -486,73 +501,28 @@ export function normalizeNodeLabels<T extends { data: { label?: unknown; kind?: 
 /**
  * 这个节点能不能当**参考图来源**。
  *
- * 提交时收参考图、参数条上数「几张图」、输入槽算不算就绪，三处必须用同一个判断 ——
- * 各写一份的后果是参数条写着 2 图、实际只提交 1 张，而界面上一句话都没有。
+ * 提交时收参考图、参数条上数「几张图」、输入槽算不算就绪、反推时挑「左边那张」，
+ * 四处必须用同一个判断 —— 各写一份的后果是参数条写着 2 图、实际只提交 1 张，
+ * 而界面上一句话都没有。所以正文在 `./imageChain`，这里只转出。
  */
 export function isReferenceSource(kind: unknown) {
-  /* 导演台存下来的构图参考图就是一张图，下游拿它当参考图用，与「图片输入」同一条路。 */
-  return kind === 'image' || kind === 'image-generate' || kind === 'image-out'
-    || kind === 'video-input' || kind === 'frame-extract' || kind === 'director'
-    /* 应用节点跑出来的东西（图或片）同样能当下游的参考图。 */
-    || kind === 'app-generate';
+  return isImageSourceKind(kind);
 }
 
-/** 已落盘媒体的地址形状。三处判断（能不能取字节、能不能提交、要不要补上传）必须认同一个前缀。 */
-const LOCAL_ASSET_PREFIX = '/api/assets/';
-
 /**
- * 一个上游节点这次能给下游贡献**哪几张**参考图。
+ * 一个上游节点这次能给下游贡献**哪几张**参考图。正文在 `./imageChain`。
  *
- * 首尾帧节点特殊：它一个节点出两张（首帧 / 尾帧），给哪张由它自己的「取用」开关决定。
- * 其余节点一律一张（已上传的文件名优先，没有再退回结果地址）。
- *
- * `mode` 是给同步出图那条路准备的：那边要的是**服务端能取到字节的地址**
- * （上传后的 http 地址），而工作流那条路认的是 RunningHub 的文件名。
+ * `mode` 是给同步出图与反推那条路准备的：那边要的是**服务端能取到字节的地址**
+ * （上传后的 http 地址或本站资产路径），而工作流那条路认的是 RunningHub 的文件名。
  * 同一个节点在两条路上交出去的值不一样，这是它们各自的协议决定的，不是写错了。
  */
 export function referenceUrlsOf(data: NodeData, mode: 'submit' | 'bytes' = 'submit'): string[] {
-  const bytes = mode === 'bytes';
-  if (data.kind === 'frame-extract') {
-    const pick: FramePick = data.framePick === 'first' || data.framePick === 'last' ? data.framePick : 'both';
-    const first = String(bytes ? (data.firstFrameUrl || data.firstFrameFile) : (data.firstFrameFile || data.firstFrameUrl) || '').trim();
-    const last = String(bytes ? (data.lastFrameUrl || data.lastFrameFile) : (data.lastFrameFile || data.lastFrameUrl) || '').trim();
-    if (pick === 'first') return first ? [first] : [];
-    if (pick === 'last') return last ? [last] : [];
-    return [first, last].filter(Boolean);
-  }
-  if (bytes) {
-    const preview = String(data.previewUrl || '').trim();
-    if (preview) return [preview];
-    /** 只有落盘的资产地址能读盘取字节；本地 blob 服务端取不到。 */
-    const local = String(data.imageUrl || '').trim();
-    return local.startsWith(LOCAL_ASSET_PREFIX) ? [local] : [];
-  }
-  const one = String(data.remoteFile || data.resultUrl || '').trim();
-  if (one) return [one];
-  /*
-   * 从**资产库导入**的节点（以及首页带过来的预设）身上只有本站资产地址，没有远端文件名：
-   * 导入时故意不上传 —— 那样才能当场预览，而重传留到提交那一刻由服务端读盘做
-   * （`lib/referenceImages.ts` 的 `resolveReferenceImages`）。
-   *
-   * 这里必须把它算进来。漏掉它的症状是「卡片上看得到图、连好了线，点运行却说没有参考图」，
-   * 而且用户没有任何办法修好它 —— 因为界面上根本没说缺的是什么。
-   *
-   * `blob:` 那种本地预览**不算**：那是上传中间态，服务端取不到它的字节。
-   */
-  const local = String(data.imageUrl || data.previewUrl || '').trim();
-  return local.startsWith(LOCAL_ASSET_PREFIX) ? [local] : [];
+  return referenceUrlsIn(data, mode);
 }
 
-/**
- * 这个值**服务端能取到字节**吗。
- *
- * 两种能：落盘资产（读盘）与 http(s) 链接（下载）。
- * 一种不能：`blob:` —— 它只活在渲染进程的内存里，提交给服务端必然 400。
- * 「提交前先看一眼地址的形态」省掉的是一次必然失败的任务，以及一句指向错误方向的报错。
- */
+/** 这个值**服务端能取到字节**吗（正文在 `./imageChain`）。 */
 export function isResolvableUrl(value: unknown) {
-  const text = String(value ?? '').trim();
-  return text.startsWith(LOCAL_ASSET_PREFIX) || /^https?:\/\//i.test(text);
+  return isResolvableUrlIn(value);
 }
 
 /**

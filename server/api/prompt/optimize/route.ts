@@ -1,11 +1,10 @@
 import { z } from 'zod';
 import { api, apiUser, ApiError, checkOrigin, jsonBody } from '@/lib/api';
 import {
-  PromptAssistantError, PROMPT_ASSISTANT_MAX, optimizePrompt,
+  PromptAssistantError, PROMPT_ASSISTANT_MAX, loadSkillForPrompt, optimizePrompt,
 } from '@/lib/promptAssistant';
 import { buildOptimizeInstruction } from '@/lib/optimizeOptions';
 import { recordCall } from '@/lib/providers/keys';
-import { readSkill, readSkillBody } from '@/lib/skills';
 
 /**
  * 提示词优化（2026-09-21）。
@@ -51,19 +50,6 @@ const schema = z.object({
     .optional(),
 });
 
-/** 技能 id → 技能本体。找不到就当没选（不要因为一个技能没了就让优化失败）。 */
-function loadSkill(skillId: string | undefined) {
-  const slug = String(skillId ?? '').trim();
-  if (!slug) return null;
-  try {
-    const skill = readSkill(slug);
-    if (!skill) return null;
-    return { title: skill.title, body: readSkillBody(slug) };
-  } catch {
-    return null;
-  }
-}
-
 export async function POST(request: Request) {
   return api(async () => {
     checkOrigin(request);
@@ -76,7 +62,7 @@ export async function POST(request: Request) {
         user.id,
         parsed.data.prompt,
         parsed.data.provider,
-        loadSkill(parsed.data.skillId),
+        loadSkillForPrompt(parsed.data.skillId),
         {
           keepAliveSeconds: parsed.data.keepAlive,
           /* 拼成一段指令在这里做：**只写一份**（`lib/optimizeOptions.ts`），

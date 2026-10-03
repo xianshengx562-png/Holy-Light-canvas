@@ -13,9 +13,11 @@
  * - 一家文本模型都没配 → `AI_CONFIGURATION_REQUIRED`（503）
  */
 import 'server-only';
+import { readSkill, readSkillBody } from '@/lib/skills';
 import { providerLabel } from '@/lib/providers/registry';
 import { chatText, isLocalTextProvider, resolveTextCredentials, type TextCredentials } from '@/lib/providers/text';
 import { withLocalModel } from '@/lib/local-llm';
+import type { PromptImage } from '@/lib/promptImage';
 
 /** 优化提示词（AIFISHER 的 `gWe`）。 */
 export const PROMPT_OPTIMIZE_SYSTEM = [
@@ -154,6 +156,107 @@ export async function optimizePrompt(
   }
   return {
     optimizedPrompt,
+    provider: creds.providerId,
+    model: creds.model,
+    latencyMs: result.latencyMs,
+  };
+}
+
+/**
+ * 技能 id → 技能本体。找不到就当没选（不要因为一个技能没了就让优化失败）。
+ *
+ * 🔴 改写与反推两条路共用这一份：各写一份的话，「反推不认这个技能、改写认」
+ * 这种差异不会报错，只是用户选了技能却没生效 —— 最难查的那一类。
+ */
+export function loadSkillForPrompt(skillId: string | undefined) {
+  const slug = String(skillId ?? '').trim();
+  if (!slug) return null;
+  try {
+    const skill = readSkill(slug);
+    if (!skill) return null;
+    return { title: skill.title, body: readSkillBody(slug) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 「看图反推提示词」（2026-10-03 徐先：「左边的接口输入了图片，就自动反推提示词」）。
+ *
+ * 与 `optimizePrompt` 是同一件事的两个方向：那边把一句话**扩写**成一段提示词，
+ * 这边看着一张图**写出**那段提示词。所以除了 system（`PROMPT_DESCRIBE_SYSTEM`）
+ * 与「多带一张图」之外，走的完全是同一条路 —— 凭据解析、技能规范、本地模型装卸、
+ * 结果清理，一处都不另写。
+ *
+ * 🔴 用户那句（`note`）在这里是**补充**，不是改写对象：反推的输入是图，
+ * 把它当成「待优化的话」会让模型两头为难（既看图又顾着原话）。
+ */
+export async function describePrompt(
+  userId: string,
+  image: PromptImage,
+  preferred?: string,
+  skill?: { title: string; body: string } | null,
+  /** `keepAliveSeconds` 与优化那条同一套语义（只有本地模型用得上）。 */
+  options?: { keepAliveSeconds?: number; note?: string },
+): Promise<OptimizeResult> {
+  if (!image?.base64) throw new PromptAssistantError('没有拿到这张图的字节，反推不了。');
+  const creds = await resolveTextCredentials(userId, preferred);
+  if (!creds) {
+    throw new PromptAssistantError(
+      missingTextModelMessage(preferred),
+      PROMPT_ASSISTANT_ERROR.status,
+      PROMPT_ASSISTANT_ERROR.code,
+    );
+  }
+  const note = String(options?.note || '').trim();
+  const system = PROMPT_DESCRIBE_SYSTEM + skillInstruction(skill);
+  const ask = ['就看这张图，输出一段可以直接用于图片或视频生成的中文提示词。']
+    .concat(note ? [`补充要求：${note}`] : [])
+    .join('\n');
+  const call = () => chatText(creds, {
+    system,
+    user: ask,
+    temperature: 0.7,
+    images: [{ mime: image.mime, base64: image.base64 }],
+  });
+  /*
+   * 「这个模型看不了图」必须单独说一句（2026-10-03）。
+   *
+   * 绝大多数文本模型收到带图的请求会直接 400，报的却是「messages 格式不对」/「不支持 image」
+   * 这种只有写接口的人才看得懂的话 —— 而用户此刻的认知是「我连了一张图，它该看图」。
+   * 翻译成「换一个支持图片的多模态模型」，他才知道下一步是去改模型，不是去改这张图。
+   */
+  const guarded = async () => {
+    try {
+      return await call();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      if (/image|vision|multimodal|图/i.test(detail)) {
+        throw new PromptAssistantError(
+          `${creds.label} 好像看不了图（${detail}）—— 换一个支持图片的多模态模型再来反推。`,
+          400,
+          'MODEL_NOT_VISION',
+        );
+      }
+      throw error;
+    }
+  };
+  const result = isLocalTextProvider(creds.providerId)
+    ? await withLocalModel(guarded, options?.keepAliveSeconds).catch((error: unknown) => {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new PromptAssistantError(
+        `本地模型没能用起来：${detail}（在「设置 · 模型服务 · 文本 · 本地模型」里选模型或换一个运行时试试）`,
+        503,
+        'LOCAL_MODEL_UNAVAILABLE',
+      );
+    })
+    : await guarded();
+  const described = cleanOptimizedPrompt(result.text);
+  if (!described) {
+    throw new PromptAssistantError(`${creds.label} 没有为这张图写出提示词，换一家文本模型试试。`);
+  }
+  return {
+    optimizedPrompt: described,
     provider: creds.providerId,
     model: creds.model,
     latencyMs: result.latencyMs,

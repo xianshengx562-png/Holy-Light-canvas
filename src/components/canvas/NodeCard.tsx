@@ -165,12 +165,20 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
    * 被绕过了也一样：那一轮根本不跑它。
    */
   const optimizeInput = String(data.textValue || data.optimizedText || '').trim();
-  const canOptimize = kind === 'prompt-optimize' && !!optimizeInput && !bypassed;
+  /*
+   * 左边接了**图**就走「看图反推」（2026-10-03）—— 那种情况下它不需要一句待改写的文本，
+   * 所以「有图」也算「有得跑」；少这一档的话，接了图片的优化节点上那颗按钮是灰的，
+   * 而用户看着卡片上明明有张图。
+   */
+  const hasImageInput = !!String(data.imageValue || '').trim();
+  const canOptimize = kind === 'prompt-optimize' && (hasImageInput || !!optimizeInput) && !bypassed;
   const optimizeHint = bypassed
     ? '这个节点被绕过了 —— 按 B 取消绕过才跑得起来'
-    : optimizeInput
-      ? '运行：把上游这句改写成能直接喂给生成模型的提示词'
-      : '先接一个文本节点到它左边 —— 它改写的就是那句';
+    : hasImageInput
+      ? '运行：看着左边这张图，写出一段能直接喂给生成模型的提示词'
+      : optimizeInput
+        ? '运行：把上游这句改写成能直接喂给生成模型的提示词'
+        : '先接一个文本节点（改写）或图片节点（反推）到它左边';
 
   /**
    * 节点标题重命名（2026-09-27，徐先）：双击标题进入编辑态，写回 `data.label`。
@@ -407,8 +415,17 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
                   />
                 </div>
                 : data.status === 'running'
-                  ? placeholder('正在改写提示词…')
-                  : emptyFrame)
+                  ? placeholder(hasImageInput ? '正在看图反推…' : '正在改写提示词…')
+                  /* 左边接了图、还没反推过：画框里就放**那张图** —— 空框说明不了「这次看的是哪一张」。 */
+                  : hasImageInput
+                    ? <div className="cv-thumb plain media">
+                      <img
+                        src={String(data.imageValue)}
+                        alt="待反推的图"
+                        onClick={previewIfSelected(String(data.imageValue))}
+                      />
+                    </div>
+                    : emptyFrame)
                 : null;
 
   /**
