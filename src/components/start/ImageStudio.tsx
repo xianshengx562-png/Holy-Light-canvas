@@ -370,7 +370,10 @@ export default function ImageStudio() {
       {/* 大区只负责「出结果之后的样子」—— 空态不在它里面，见下面那段说明。 */}
       <div className="studio-stage">
         {results.length > 0 && (
-          <div className="studio-stage-results">
+          /* `multi` 与 `data-studio-results` 只给 CSS 排格子用（一张铺满 / 多张两张一行），
+             也顺手给探针当判据的钩子。 */
+          <div className={`studio-stage-results${results.length > 1 ? ' multi' : ''}`}
+            data-studio-results={results.length}>
             {results.map(url => (
               <a key={url} href={url} target="_blank" rel="noreferrer" title="点开看原图">
                 {/* eslint-disable-next-line @next/next/no-img-element */}

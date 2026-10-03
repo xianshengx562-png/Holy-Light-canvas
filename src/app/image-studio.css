@@ -54,11 +54,16 @@
 .studio-rail-empty { font-size: 11px; color: var(--text-mute); writing-mode: vertical-rl; margin: auto; }
 
 /* ---------- 中间大区 ---------- */
+/*
+ * `place-items: stretch`（原来是 center）：出图之后那张图要**镶嵌进大区**、
+ * 铺满整块地方，而不是缩成一张卡片浮在中间。空态那块牌子不在这一格里
+ * （它是 `.studio-main` 的绝对定位子元素），所以这条改了它不受影响。
+ */
 .studio-stage {
   flex: 1;
   min-width: 0;
   display: grid;
-  place-items: center;
+  place-items: stretch;
 }
 /*
  * 空态 / 出图中那块牌子：**铺满整个 `.studio-main` 再在自己的格子里居中**。
@@ -83,25 +88,57 @@
 .studio-empty h3 { margin: 0 0 8px; font-size: 19px; color: var(--text); }
 .studio-empty p { margin: 0; font-size: 12.5px; }
 
+/*
+ * 出结果之后：**图直接镶嵌在画面里**（2026-10-03，N-100，照徐先给的参考图）。
+ *
+ * 原来是「一张带 1px 描边 + 圆角的卡片浮在大区中间」（`max-height: 56vh`、`padding: 8px`、
+ * `gap: 14px`）—— 出完图画面还是空的，图缩在中间像一张贴纸。参考图里不是这样：
+ * 图贴满内容区、没有描边没有圆角、上下都顶到边，`1/1` 那种页码压在图上，生成条仍在下面。
+ *
+ * 做法：结果区**铺满**大区（`height: 100%`），每张图占一格并铺满那一格，
+ * 图本身用 `object-fit: contain` —— **缩到能显示全、绝不裁切**（放大的是"能看见"，
+ * 不是把用户刚出的图切掉两条边；要看原图仍然点一下开新标签）。
+ *
+ * ⚠️ 图片那一层用**绝对定位铺满 `<a>`**，不是给它写 `max-height: 100%`：
+ *    百分比的解析要求父级有**确定高度**，而 `<a>` 的高度又是由内容撑的 ——
+ *    写成百分比在这条链上会被当成 `auto` 直接失效（这个坑在画布节点缩略图上踩过）。
+ *    `<a>` 自己则由 flex / grid 拉伸成确定高度，`inset: 0` 才是可靠的。
+ */
 .studio-stage-results {
   display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
+  gap: 6px;
+  align-content: center;
   justify-content: center;
-  align-items: center;
-  max-height: 100%;
-  overflow-y: auto;
-  padding: 8px;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
-.studio-stage-results img {
+.studio-stage-results > a {
+  position: relative;
   display: block;
-  max-width: 100%;
-  max-height: 56vh;
-  border-radius: var(--r-lg);
-  border: 1px solid var(--line);
-  transition: border-color var(--t-fast);
+  flex: 1 1 0;
+  min-width: 0;
 }
-.studio-stage-results a:hover img { border-color: var(--accent-line); }
+.studio-stage-results > a > img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border: 0;
+  border-radius: 0;
+}
+/*
+ * 一次出好几张（自定义接口可以回多张）：**两张一行**，行高按行数均分 ——
+ * 4 张就是 2×2，全都贴着边。列数用 `minmax(min(46%, 460px), 1fr)` 定：
+ * 大区再宽也只排两列（46% 是上限），窄窗口下也不会挤成细条。
+ */
+.studio-stage-results.multi {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(46%, 460px), 1fr));
+  grid-auto-rows: minmax(0, 1fr);
+}
+.studio-stage-results.multi > a { flex: none; }
 
 /* ---------- 底部生成条 ----------
  *
