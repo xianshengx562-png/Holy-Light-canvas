@@ -1,98 +1,89 @@
-# Holy Light画布
+# Holy Light Canvas
 
-> 一个无限画布，我参考了 AIFISHER 的功能，融合了一些自己的想法。
+> An infinite canvas — I took AIFISHER as a reference and mixed in ideas of my own.
 
-画布式的 AI 创作工作流桌面应用：把「文本 → 出图 → 出视频」串成一张可以反复跑的图。
-数据全部在你自己的机器上（`%APPDATA%\holy-light-canvas`），没有账号体系之外的任何云端依赖。
+A canvas-style desktop app for AI creation workflows: it turns "text → image → video" into a graph you can re-run over and over. All data stays on your own machine (`%APPDATA%\holy-light-canvas`); there is no cloud dependency beyond the account system.
 
 ---
 
-## 它能做什么
+## What it does
 
-**画布与节点。** 在无限画布上拖节点、连线，组成一条生成流水线。节点类型包括文本、
-图片生成、视频生成、优化提示词、首尾帧、视频拼接、资产与素材等；每个节点都能单独
-「绕过」（右键菜单或按 `B`），绕过时只把上游的值传下去，不执行自己那一步 ——
-调试长链时不用反复拆线。
+**Canvas and nodes.** Drag nodes onto an infinite canvas, connect them, and compose a generation pipeline. Node types include text, image generation, video generation, prompt optimization, first/last frame, video joining, assets and references. Every node can be individually **bypassed** (context menu, or press `B`) — a bypassed node just passes the upstream value through without running its own step, so debugging a long chain does not mean unplugging wires over and over.
 
-**四种出图来源。**
+**Four image sources.**
 
-| 来源 | 说明 |
+| Source | Notes |
 | --- | --- |
-| 本机 ComfyUI | 走你自己跑着的 ComfyUI（含随包扩展），把工作流里的字段绑到画布节点上 |
-| RunningHub | 云端工作流应用，异步提交 + 轮询 |
-| 自定义接口 | 任意 OpenAI 兼容的网关（`/v1/images/generations` 与 `/v1/images/edits`），比例 + 分辨率算成像素串发出去 |
-| 视频 | 视频生成节点，同样支持本机 / RunningHub / 自定义接口 |
+| Local ComfyUI | Talks to the ComfyUI you already run (bundled extensions included) and binds workflow fields onto canvas nodes |
+| RunningHub | Cloud workflow apps, submitted asynchronously and polled |
+| Custom endpoint | Any OpenAI-compatible gateway (`/v1/images/generations` and `/v1/images/edits`); aspect ratio + resolution are turned into a pixel string |
+| Video | Video generation nodes, again local / RunningHub / custom endpoint |
 
-**内置技能（skills）。** 把你的方法论固化成可复用的提示词改写规则：一个技能就是一个
-目录（`skill.json` + 若干提示词文件），「优化提示词」节点按技能改写上游那句文本。
+**Built-in skills.** Freeze your methodology into reusable prompt-rewrite rules: a skill is a directory (`skill.json` plus a few prompt files), and the prompt-optimize node rewrites the upstream text according to the selected skill.
 
-**其它。** 资产库（分类 / 批量操作 / 孤儿清理）、工作流库、导演台（批量分镜）、
-工具页（视频拼接、视频分割）、站点账号与额度、软件内更新。
+**The rest.** Asset library (categories / batch actions / orphan cleanup), workflow library, director stage (batch storyboards), tool pages (video join, video split), site account and quota, in-app updates.
 
-**Codex 集成。** `tools/frame-mcp` 是一个 MCP 服务：让 Codex 直接读写画布里的
-项目 / 节点 / 连线 / 工作流 / 任务（默认不允许触发生成，要显式打开开关）。
+**Codex integration.** `tools/frame-mcp` is an MCP server that lets Codex read and write the projects / nodes / edges / workflows / tasks on the canvas (triggering a generation is denied by default and has to be switched on explicitly).
 
-## 技术栈
+## Stack
 
-- **Electron 44** + **electron-vite**（单进程结构，后端跑在 utility process 里）
-- **React 19** + **TypeScript 5** + **@xyflow/react**（画布）+ **zustand**（状态）
-- **zod** 做接口层校验、**Tailwind 4** 与一套自写的 CSS 令牌做主题
-- 数据层：本机 **SQLite**（`node:sqlite`），可用 `HOLYLIGHT_DB_ENGINE=json` 退回 JSON 引擎
-- **electron-updater** 做软件内更新
+- **Electron 44** + **electron-vite** (single-process layout, the backend runs in a utility process)
+- **React 19** + **TypeScript 5** + **@xyflow/react** (canvas) + **zustand** (state)
+- **zod** for the API layer, **Tailwind 4** plus a hand-written set of CSS tokens for theming
+- Data layer: local **SQLite** (`node:sqlite`), with `HOLYLIGHT_DB_ENGINE=json` falling back to a JSON engine
+- **electron-updater** for in-app updates
 
-## 目录结构
+## Layout
 
 ```
-src/            渲染进程：页面（app/）、画布与各种组件（components/）
-electron/       主进程：窗口 / 托盘 / 后端进程管理 / 更新 / 随包扩展
-server/api/     路由层（被主进程直接 dispatch，不是真的 HTTP 服务）
-lib/            前后端共用的领域代码：工作流、提供商、数据库、技能、媒体……
-tools/frame-mcp 给 Codex 用的 MCP 工具包
-builtin-skills/ 随包的内置技能
-integrations/   随包的 ComfyUI 扩展
-resources/      随包的原生运行时（llama.cpp，二进制未入库）
+src/            renderer: pages (app/), canvas and components (components/)
+electron/       main process: window / tray / backend process management / updates / bundled extensions
+server/api/     route layer (dispatched directly by the main process, not a real HTTP server)
+lib/            domain code shared by both sides: workflows, providers, database, skills, media…
+tools/frame-mcp MCP toolkit for Codex
+builtin-skills/ skills shipped with the app
+integrations/   ComfyUI extensions shipped with the app
+resources/      bundled native runtime (llama.cpp; binaries are not in the repo)
 ```
 
-## 开发
+## Development
 
 ```bash
 npm install
-npm run dev          # 起开发模式
-npm run typecheck    # tsc 两套
+npm run dev          # start in dev mode
+npm run typecheck    # tsc, both projects
 ```
 
-## 出包
+## Packaging
 
 ```bash
-npm run dist         # 免安装目录 dist/win-unpacked
-npm run installer    # NSIS 安装包
+npm run dist         # portable directory dist/win-unpacked
+npm run installer    # NSIS installer
 ```
 
-产物在 `dist/`。安装包与便携版的文件名由 `package.json` 的 `build.nsis.artifactName`
-与 `build.portable.artifactName` 决定。
+Output lands in `dist/`. Installer and portable file names come from `build.nsis.artifactName` and `build.portable.artifactName` in `package.json`.
 
-## 数据放在哪
+## Where data lives
 
-默认在 `%APPDATA%\holy-light-canvas`：
+By default under `%APPDATA%\holy-light-canvas`:
 
 ```
-data/       SQLite 库（项目、画布、任务、资产元数据、用户与密钥）
-storage/    媒体文件（生成的图 / 视频 / 上传的参考图）
-skills/     自己导入的技能
-logs/       运行日志
+data/       SQLite database (projects, canvases, tasks, asset metadata, users and keys)
+storage/    media files (generated images / videos, uploaded references)
+skills/     skills you imported
+logs/       runtime logs
 ```
 
-三种改位置的途径：**便携模式**（在程序目录同级建 `data/portable.json` 标记）、
-环境变量 `HOLYLIGHT_DATA_DIR`、或者在设置页里改产出目录。
+Three ways to move it: **portable mode** (drop a `data/portable.json` marker next to the program directory), the `HOLYLIGHT_DATA_DIR` environment variable, or changing the output directory in Settings.
 
-## 软件内更新
+Latents are stored under `storage/latents/` as plain `.safetensors` files (before 1.0.87 they were gzipped `.latent.gz`; old archives are still read fine) — the file on disk is a standard safetensors file you can hand to a local ComfyUI or to the upstream node as-is.
 
-走 GitHub Releases（`generic` provider 指到本仓库的
-`releases/latest/download/`）。发版时把安装包与 `latest.yml` 一起传到 Release 即可；
-地址也能在「设置 · 更新」里改成别的。
+## In-app updates
 
-## 许可
+Through GitHub Releases (a `generic` provider pointing at this repo's `releases/latest/download/`). When releasing, upload the installer together with `latest.yml`; the URL can be pointed somewhere else in Settings · Updates.
 
-MIT，见 [LICENSE](LICENSE)。用、改、再发布都行，署名就够。
+## License
 
-`builtin-skills/` 里的技能内容（提示词方法论、参考库）同样按 MIT 走。
+MIT, see [LICENSE](LICENSE). Use it, change it, redistribute it — attribution is enough.
+
+Skill contents under `builtin-skills/` (prompt methodologies, reference libraries) are MIT as well.

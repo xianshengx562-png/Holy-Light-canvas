@@ -683,7 +683,8 @@ export type OrphanScan = { files: string[]; count: number; bytes: number; recent
  * 找出磁盘上已经没有记录的文件。
  *
  * 两个根目录都要扫：`storage/media/<projectId>/<assetId>.<ext>` 的文件名**就是资产 id**，
- * 而 `storage/latents/<projectId>/<taskId>-<编号>-<粗/精>.latent.gz` **不含 id**，
+ * 而 `storage/latents/<projectId>/<taskId>-<编号>-<粗/精>.safetensors` **不含 id**
+ * （2026-10-03 之前落的是 `<taskId>-<编号>-<粗/精>.latent.gz`，老档案照样对得上），
  * 只能拿库里的 `metadata.path` 全量对账。所以判定是「命中 id 或命中 path 就算有主」：
  *  - 命中 id   → media 的记录还在（哪怕 `metadata.path` 那次更新没成功，也说明是刚落盘的那一步）
  *  - 命中 path → 任何类型的记录都还在
