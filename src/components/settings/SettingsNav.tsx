@@ -30,7 +30,8 @@ const DESKTOP_TABS = [
   /* 「服务连接」这一项 2026-09-22 撤了。
      它整页只有一个 RunningHub，而 RunningHub 的选站 / Key / 测试在这之前就已经在「模型服务」里
      —— 同一件事摆两页，用户不知道该信哪一页（徐先就是看到这个才提的）。
-     填 Key 与清除密钥现在落在模型服务页的 RunningHub 段里；`/settings/providers` 仍能访问，
+     填 Key 与清除密钥现在落在模型服务页「站点账号」下面的「RunningHub 密钥」段里
+     （2026-10-03 从「图片」段搬出来）；`/settings/providers` 仍能访问，
      会直接换到模型服务（老书签不落空，桌面版也不会再多出第二份设置界面）。 */
   { href: '/settings/providers/workflows', label: '工作流配置' },
   /* 这一页同时是**配置页和仪表盘**：填地址 / 找目录 → 看连没连上 → 没起来就一键启动 → 看模型清单。

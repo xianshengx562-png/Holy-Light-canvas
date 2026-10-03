@@ -40,6 +40,12 @@ import {
 /** 用途三段。与 `CustomModelKind` 同值 —— 节点引擎只看 image / video。 */
 type Kind = 'text' | 'image' | 'video';
 
+/**
+ * 页面上能「跳过去」的段。`runninghub` 是 2026-10-03 从「图片」段搬出来的那一节 ——
+ * 它**不参与收纳**（与「站点账号」同级），所以跳它没有「先展开」那一步。
+ */
+type Section = Kind | 'runninghub';
+
 export type SiteView = {
   id: 'cn' | 'ai';
   label: string;
@@ -925,11 +931,16 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
    * 段落之间跳转（共用凭证 / 别段入口用）。页面与画布浮层里都靠 `id` 定位。
    *
    * 🔴 跳之前**必须先把那一段展开**：收起状态下 `#ms-section-image` 只剩一条标题栏，
-   * 视频段那颗「去「图片」段管密钥」点下去会落在一个空壳上，看着像没反应。
+   * 点下去会落在一个空壳上，看着像没反应。
    * 展开要等 React 重渲染，所以滚动放进 `requestAnimationFrame`。
+   *
+   * ⚠️ `runninghub` 那一节**不参与收纳**（它跟「站点账号」一样常驻）——
+   * 对它调 `setOpenSections` 只会往那个表里塞一个永远用不到的键。
    */
-  function jumpTo(kind: Kind) {
-    setOpenSections(prev => (prev[kind] ? prev : { ...prev, [kind]: true }));
+  function jumpTo(kind: Section) {
+    if (kind !== 'runninghub') {
+      setOpenSections(prev => (prev[kind] ? prev : { ...prev, [kind]: true }));
+    }
     requestAnimationFrame(() => {
       const node = document.getElementById('ms-section-' + kind);
       if (node) node.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1535,6 +1546,96 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
       )}
     </section>
 
+    {/* ── RunningHub 密钥 ──────────────────────────────────── */}
+    {/*
+     * RunningHub 从「图片」段搬到这里（2026-10-03 徐先：「runninghub 的密钥配置独立出来，
+     * 放到站点账号的下方」）。
+     *
+     * 🔴 **整块搬，不只是填 Key 那半**：站卡（切站 / 测试 / 加海外站 Key）与填 Key 本来就是
+     * 一件事的两半，拆开摆两处 → 「海外站的 Key 还在图片段里填」，等于没独立。
+     *
+     * 与「站点账号」同级、**不参与收纳**：没配这把 Key 就出不了图，藏起来只会让人找不到
+     * （原先放在图片段里时，也是展开那一段就看得见）。
+     */}
+    <section className="provider" id="ms-section-runninghub" data-ms-section="runninghub">
+      <div className="provider-head">
+        <div>
+          <h2>RunningHub 密钥</h2>
+          <p className="muted">图片节点与视频节点共用这一把 —— 只在这一处填。</p>
+        </div>
+        <span className="badge" data-ms-rh-active={rh.active}>{rh.active === 'ai' ? '海外站' : '国内站'}</span>
+      </div>
+
+      {/* RunningHub 两个站 —— 完整区块放在这里（图片 / 视频两段各留一句指路）。 */}
+      <div className="ms-sites">
+        {[rh.cn, rh.ai].map(site => <div
+          key={site.id}
+          className={`ms-site${site.id === rh.active ? ' active' : ''}`}
+          data-ms-site={site.id}
+        >
+          <div className="ms-site-head">
+            <strong>{site.label}</strong>
+            <span className="badge">{site.hasKey ? '已配置' : '未配置'}</span>
+          </div>
+          <div className="ms-site-host">{site.host}</div>
+          <div className="ms-site-meta">
+            <div><span>接口地址</span> <code>{site.baseUrl}</code></div>
+            <div><span>密钥</span> <span className={site.hasKey ? 'ok' : 'off'}>{site.masked ?? '未填写'}</span></div>
+            <div><span>状态</span> <span className={statusTone(site.status, site.hasKey) === 'ok' ? 'ok' : ''}>
+              {site.status === 'verified' ? '连接正常' : site.status === 'failed' ? '连接失败' : '未验证'}
+            </span></div>
+          </div>
+          <div className="key-actions">
+            <button className="button secondary" disabled={busy !== '' || site.id === rh.active}
+              data-ms-use-site={site.id} onClick={() => useSite(site.id)}>
+              {site.id === rh.active ? '当前使用中' : `切到${site.id === 'ai' ? '海外站' : '国内站'}`}
+            </button>
+            <button className="button secondary" disabled={busy !== '' || !site.hasKey}
+              data-ms-test-site={site.id} onClick={() => testSite(site.id)}>
+              {busy === 'test:' + site.id ? '测试中…' : '测试连接'}
+            </button>
+            {site.id === 'ai' && site.supportsMultiple && (
+              <button className="button secondary" data-ms-add-site-key
+                onClick={() => { setKeyForm('runninghub-ai'); setKeyDraft({ baseUrl: rh.ai.baseUrl, model: '', apiKey: '' }); }}>
+                添加海外站 Key
+              </button>
+            )}
+          </div>
+          {site.keys.length > 0 && <div className="ms-site-meta">
+            {site.keys.map(key => <div key={key.id} data-ms-site-key={key.id}>
+              <span>{key.label || '（未命名）'}</span> <code>{key.masked}</code> <span>{key.enabled ? '启用' : '停用'}</span>
+            </div>)}
+          </div>}
+        </div>)}
+      </div>
+      {
+        /*
+         * 直接填「国内站」密钥 —— 这一块原来整页叫「设置 · 服务连接」（2026-09-22 并进来）。
+         *
+         * **常驻，不跟着「当前用哪个站」走**：国内站走历史连接表（每个账号一把），
+         * 海外站走密钥池（可以多把，在上面那张卡里加）。填国内站的 key 与现在用哪个站是两件事 ——
+         * 不能因为当前正用海外站就把这个入口藏起来（原来那一页随时能填，藏了就是把能力收回去）。
+         * 第一版就是按「只在当前站是国内站时才出现」写的，探针当场抓到：用户的当前站是海外站，
+         * 于是这一块整个不存在。
+         */
+        <div className="ms-key-box" data-ms-key-box="cn">
+          <div className="ms-key-box-head">
+            <strong>国内站密钥</strong>
+            <span className="muted">国内站与海外站是两个独立账号：这一把只作用于国内站；海外站的 Key 在上面那张卡里单独添加。</span>
+          </div>
+          {/* 桌面版没有钱包，`credits` 传 null（余额与扣费两行整行不渲染，见那个组件）。 */}
+          <RunningHubKeyForm initial={initial.connection} credits={null} compact onChanged={reload} />
+        </div>
+      }
+      {
+        /*
+         * 填 Key 的表单复用在「海外站 Key」上：两处要填的东西一模一样（地址 / Key），
+         * 只是 provider 不同。单独写一份表单等于把「填 Key 留空=不改」这类规矩抄第二遍。
+         */
+        keyForm === 'runninghub-ai' && keyFields('runninghub-ai')
+      }
+    </section>
+
     {/* ── 文本 ─────────────────────────────────────────────── */}
     <section
       className={`provider ms-fold-sec${openSections.text ? ' open' : ''}`}
@@ -1613,77 +1714,8 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
 
       <div className="ms-sub" data-ms-sub="builtin">
         <strong>内置出图服务</strong>
-        <span className="muted">RunningHub 工作流的密钥在下面这一段里管。</span>
+        <span className="muted">RunningHub 工作流的密钥在上面「RunningHub 密钥」那一段里管（图片 / 视频共用一把）。</span>
       </div>
-
-      {/* RunningHub 两个站 —— 完整区块放在图片段（视频段给一张指路卡）。 */}
-      <div className="ms-sites">
-        {[rh.cn, rh.ai].map(site => <div
-          key={site.id}
-          className={`ms-site${site.id === rh.active ? ' active' : ''}`}
-          data-ms-site={site.id}
-        >
-          <div className="ms-site-head">
-            <strong>{site.label}</strong>
-            <span className="badge">{site.hasKey ? '已配置' : '未配置'}</span>
-          </div>
-          <div className="ms-site-host">{site.host}</div>
-          <div className="ms-site-meta">
-            <div><span>接口地址</span> <code>{site.baseUrl}</code></div>
-            <div><span>密钥</span> <span className={site.hasKey ? 'ok' : 'off'}>{site.masked ?? '未填写'}</span></div>
-            <div><span>状态</span> <span className={statusTone(site.status, site.hasKey) === 'ok' ? 'ok' : ''}>
-              {site.status === 'verified' ? '连接正常' : site.status === 'failed' ? '连接失败' : '未验证'}
-            </span></div>
-          </div>
-          <div className="key-actions">
-            <button className="button secondary" disabled={busy !== '' || site.id === rh.active}
-              data-ms-use-site={site.id} onClick={() => useSite(site.id)}>
-              {site.id === rh.active ? '当前使用中' : `切到${site.id === 'ai' ? '海外站' : '国内站'}`}
-            </button>
-            <button className="button secondary" disabled={busy !== '' || !site.hasKey}
-              data-ms-test-site={site.id} onClick={() => testSite(site.id)}>
-              {busy === 'test:' + site.id ? '测试中…' : '测试连接'}
-            </button>
-            {site.id === 'ai' && site.supportsMultiple && (
-              <button className="button secondary" data-ms-add-site-key
-                onClick={() => { setKeyForm('runninghub-ai'); setKeyDraft({ baseUrl: rh.ai.baseUrl, model: '', apiKey: '' }); }}>
-                添加海外站 Key
-              </button>
-            )}
-          </div>
-          {site.keys.length > 0 && <div className="ms-site-meta">
-            {site.keys.map(key => <div key={key.id} data-ms-site-key={key.id}>
-              <span>{key.label || '（未命名）'}</span> <code>{key.masked}</code> <span>{key.enabled ? '启用' : '停用'}</span>
-            </div>)}
-          </div>}
-        </div>)}
-      </div>
-      {
-        /*
-         * 直接填「国内站」密钥 —— 这一块原来整页叫「设置 · 服务连接」（2026-09-22 并进来）。
-         *
-         * **常驻，不跟着「当前用哪个站」走**：国内站走历史连接表（每个账号一把），
-         * 海外站走密钥池（可以多把，在上面那张卡里加）。填国内站的 key 与现在用哪个站是两件事 ——
-         * 不能因为当前正用海外站就把这个入口藏起来（原来那一页随时能填，藏了就是把能力收回去）。
-         * 第一版就是按「只在当前站是国内站时才出现」写的，探针当场抓到：用户的当前站是海外站，
-         * 于是这一块整个不存在。
-         */
-        <div className="ms-key-box" data-ms-key-box="cn">
-          <div className="ms-key-box-head">
-            <strong>国内站密钥</strong>
-            <span className="muted">国内站与海外站是两个独立账号：这一把只作用于国内站；海外站的 Key 在上面那张卡里单独添加。</span>
-          </div>
-          {/* 桌面版没有钱包，`credits` 传 null（余额与扣费两行整行不渲染，见那个组件）。 */}
-          <RunningHubKeyForm initial={initial.connection} credits={null} compact onChanged={reload} />
-        </div>
-      }
-      {
-        /*
-         * 填 Key 的表单复用在「海外站 Key」上：两处要填的东西一模一样（地址 / Key），
-         * 只是 provider 不同。单独写一份表单等于把「填 Key 留空=不改」这类规矩抄第二遍。
-         */
-        keyForm === 'runninghub-ai' && keyFields('runninghub-ai')
-      }
 
       {localCard('image')}
 
@@ -1717,7 +1749,7 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
           <p>
             当前站：{rh.active === 'ai' ? '海外站' : '国内站'}（{activeSite.host}） ·
             状态：{siteStatusText(activeSite.status, activeSite.hasKey)}。
-            视频节点与图片节点走的是同一个 RunningHub 账号，密钥只在「图片」段那一块里填。
+            视频节点与图片节点走的是同一个 RunningHub 账号，密钥在页面上面「RunningHub 密钥」那一段里填。
           </p>
         </div>
         <div className="ms-vendor-side">
@@ -1733,8 +1765,8 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
             data-ms-test-site={rh.active} onClick={() => testSite(rh.active)}>
             {busy === 'test:' + rh.active ? '测试中…' : '测试连接'}
           </button>
-          <button className="button secondary" data-ms-goto="image" onClick={() => jumpTo('image')}>
-            去「图片」段管密钥
+          <button className="button secondary" data-ms-goto="runninghub" onClick={() => jumpTo('runninghub')}>
+            去管密钥
           </button>
         </div>
       </div>

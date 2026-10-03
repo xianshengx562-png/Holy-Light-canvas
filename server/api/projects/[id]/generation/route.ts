@@ -416,7 +416,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!useLocal && source === 'env' && !isUnlimited(user.email)) {
       const cost = costPerGenerationFen();
       const charged = await chargeWallet({ userId: user.id, amount: cost, refKey: key, note: `画布生成 · 节点 ${input.nodeId}` });
-      if (!charged.ok) throw new ApiError(402, `余额不足（余额 ¥${(charged.balance / 100).toFixed(2)}，每次生成需要 ¥${(cost / 100).toFixed(2)}）。到「设置 · 密钥中心」填上自己的 RunningHub API Key 就不再扣费。`);
+      if (!charged.ok) throw new ApiError(402, `余额不足（余额 ¥${(charged.balance / 100).toFixed(2)}，每次生成需要 ¥${(cost / 100).toFixed(2)}）。到「设置 · 模型服务 · RunningHub 密钥」里填上自己的 RunningHub API Key 就不再扣费。`);
     }
     /** 两条路归一成这三个值，后面的建行 / 落库就不必再分叉一次。 */
     let externalId: string;
