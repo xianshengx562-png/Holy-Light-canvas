@@ -33,6 +33,15 @@ export type LlmSettings = {
   serverPath: string;
   /** 主模型 GGUF。 */
   modelPath: string;
+  /**
+   * 视觉投影 GGUF（mmproj，2026-10-03 徐先）。**留空 = 不接视觉**（纯文本）。
+   *
+   * 它是「让模型看得懂图」的那部分权重，跟主模型是**配对**的两份文件
+   * （`Qwen3.5-4B-...-Q6_K.gguf` 配 `mmproj-Qwen3.5-4B-...-BF16.gguf`）。
+   * 主模型自己不带它 —— 不给 `--mmproj` 拉起来的 server 就是纯文本的，
+   * 收到带图的请求会直接报错。接了才能看图 / 看视频反推提示词。
+   */
+  mmprojPath: string;
   modelDirs: string[];
   port: number;
   contextSize: number;
@@ -43,7 +52,7 @@ export type LlmSettings = {
   minP: number;
   repeatPenalty: number;
   seed: number;
-  /** -1 = 全部层放 GPU。 */
+    /** -1 = 全部层放 GPU。 */
   gpuLayers: number;
   threads: number;
   batchSize: number;
@@ -71,6 +80,8 @@ export type LlmStatus = {
   log: string;
   running: boolean;
   modelPath: string;
+  /** 这次装载**实际带上**的视觉投影（空 = 这次是纯文本的）。 */
+  mmprojPath: string;
   serverPath: string;
   resolvedServerPath: string;
 };
@@ -80,6 +91,24 @@ export type LlmModelFile = { name: string; path: string; size: number };
 /** 默认端口。与 YUH 一致用 8191，方便两边不同时占着同一个端口排查。 */
 const DEFAULT_PORT = 8191;
 const HEALTH_TIMEOUT_MS = 2500;
+/**
+ * 接了视觉之后，上下文**至少要这么多**（2026-10-03 实测）。
+ *
+ * 一张 1024×1024 的图编出来是 **4115 个 token**，而纯文本那一档的默认上下文是 4096 ——
+ * 也就是接上 mmproj 之后第一次反推必然撞上
+ * `request (4115 tokens) exceeds the available context size (4096 tokens)`。
+ * 图片自己要占一两千、视频那一路是 4 帧，还得留 2048 给输出，
+ * 8192 是「够用、显存也还扛得住」的那个数（KV 缓存 0.25 → 0.5 GB）。
+ */
+export const VISION_MIN_CONTEXT = 8192;
+/**
+ * 每张图最多编成多少个 token。
+ *
+ * 不设上限的话，一张大图就能吃掉整个上下文（实测 4115）—— 而视频那一路一次发 4 帧，
+ * 四张一起就是一万多。交给 llama.cpp 自己按预算缩放（它会挑合适的分辨率），
+ * 比我们在外面猜尺寸稳 —— 本机也没有图像处理库。
+ */
+const IMAGE_MAX_TOKENS = 1024;
 /** 4B Q4 从磁盘读进显存要几十秒，冷盘时更久；给足 3 分钟，短了会误判成失败。 */
 const START_TIMEOUT_MS = 180000;
 const MAX_SCAN_FILES = 300;
@@ -106,6 +135,8 @@ function defaultThreads(): number {
 const DEFAULT_SETTINGS: LlmSettings = {
   serverPath: '',
   modelPath: '',
+  /* 默认不接视觉：多一份 0.7GB 的投影要占显存，而大多数人只用本地改写文本。 */
+  mmprojPath: '',
   modelDirs: [],
   port: DEFAULT_PORT,
   /*
@@ -139,6 +170,7 @@ function normalizeSettings(input: Partial<LlmSettings> | null | undefined): LlmS
   return {
     serverPath: String(merged.serverPath || ''),
     modelPath: String(merged.modelPath || ''),
+    mmprojPath: String(merged.mmprojPath || ''),
     modelDirs: [...new Set(dirs.map((d) => String(d || '')).filter(Boolean))],
     port: Math.round(clamp(merged.port, DEFAULT_PORT, 1024, 65535)),
     contextSize: Math.round(clamp(merged.contextSize, 4096, 512, 65536)),
@@ -337,14 +369,84 @@ export function detectModelDirs(): string[] {
   return [...new Set(out)];
 }
 
+/**
+ * 视觉投影文件的文件名长什么样。
+ *
+ * llama.cpp 生态里就这两种叫法（`mmproj-xxx.gguf` 与 `xxx-vision-projector.gguf`），
+ * 没有第三种约定 —— 认错一个的后果是**主模型下拉里混进一堆几百 MB 的投影**，
+ * 选了它 llama-server 起不来，而报错是「tensor 数量不对」那种看不懂的话。
+ */
+const PROJECTOR_RE = /(?:mmproj|vision[-_ ]?projector)/i;
+
+/** 这是不是一份视觉投影（而不是主模型）。 */
+export function isProjectorFile(file: string): boolean {
+  return PROJECTOR_RE.test(path.basename(String(file || '')));
+}
+
 export function listLlmModels(dirs?: string[]): LlmModelFile[] {
   const roots = dirs && dirs.length ? dirs : [...getLlmSettings().modelDirs, ...detectModelDirs()];
   const files = new Set<string>();
   for (const root of roots) for (const f of scanGgufs(root)) files.add(f);
   return [...files]
-    .filter((p) => !/(?:mmproj|vision[-_ ]?projector)/i.test(path.basename(p)))
+    /* 投影不是主模型，单独一份（见 `listLlmProjectors`）—— 混进来只会让人选错。 */
+    .filter((p) => !isProjectorFile(p))
     .map((p) => ({ name: path.basename(p), path: p, size: fs.statSync(p).size }))
     .sort((a, b) => b.size - a.size);
+}
+
+/**
+ * 能当「视觉」用的投影文件（`listLlmModels` 的反面）。
+ *
+ * 与主模型列在**同一批目录**里扫：投影几乎总是躺在主模型旁边
+ * （`E:\llm\model\Qwen\qwen3.5-4B-un\` 里主模型 + mmproj 就是一对），
+ * 让用户专门去指一个目录是多余的麻烦。
+ */
+export function listLlmProjectors(dirs?: string[]): LlmModelFile[] {
+  const roots = dirs && dirs.length ? dirs : [...getLlmSettings().modelDirs, ...detectModelDirs()];
+  const files = new Set<string>();
+  for (const root of roots) for (const f of scanGgufs(root)) files.add(f);
+  return [...files]
+    .filter((p) => isProjectorFile(p))
+    .map((p) => ({ name: path.basename(p), path: p, size: fs.statSync(p).size }))
+    .sort((a, b) => b.size - a.size);
+}
+
+/**
+ * 给一个主模型**猜**它的投影配哪个（2026-10-03）。
+ *
+ * 两条判据，一条比一条松：
+ *   ① 只认**同目录**的投影 —— 跨目录凑出来的组合算力上未必对得上，
+ *      而猜错的代价是装载失败（几十秒白等）；宁可让用户自己从下拉里选。
+ *   ② 同目录有多个时，挑**名字最像主模型**的那个（最长公共前缀）。
+ *      一个目录里躺着两三套模型（Qwen3.5-4B / Qwen3.5-4B-un 各带各的投影）时，
+ *      按大小挑会挑错 —— 而按名字挑，对他那两台目录实测都对得上。
+ *
+ * 猜不到返回空串 = 这个模型没有视觉，界面上就停在「不接视觉」，不要瞎填一个。
+ */
+export function pickProjectorFor(modelPath: string, dirs?: string[]): string {
+  const model = String(modelPath || '').trim();
+  if (!model) return '';
+  const dir = path.dirname(model);
+  const base = path.basename(model);
+  const candidates = listLlmProjectors(dirs).filter(item => path.dirname(item.path) === dir);
+  if (!candidates.length) return '';
+  /*
+   * ⚠️ 比之前必须先把两边的「装饰」剥掉：`.gguf`、投影标记、以及它留下的那个前导连字符
+   * （`mmproj-Foo-A-BF16.gguf` 去了 `mmproj` 是 `-Foo-A-BF16`，首字符是连字符 ——
+   *  不剥掉的话跟任何主模型的公共前缀都是 0，等于没排序、退回按体积挑，挑错。）
+   */
+  const plain = (name: string): string => path.basename(name)
+    .replace(/\.gguf$/i, '')
+    .replace(PROJECTOR_RE, '')
+    .replace(/^[-_\s.]+|[-_\s.]+$/g, '');
+  const mine = plain(base);
+  const overlap = (name: string): number => {
+    const other = plain(name);
+    let n = 0;
+    while (n < Math.min(mine.length, other.length) && mine[n].toLowerCase() === other[n].toLowerCase()) n += 1;
+    return n;
+  };
+  return [...candidates].sort((a, b) => overlap(b.path) - overlap(a.path))[0]?.path ?? '';
 }
 
 /**
@@ -486,6 +588,8 @@ let message = '本地模型未启动';
 let logTail = '';
 let activeSignature = '';
 let activeModelPath = '';
+/** 当前这个进程**实际带上**的投影。只在真给它传了 `--mmproj` 时才非空。 */
+let activeMmprojPath = '';
 let activeServerPath = '';
 const activeRequests = new Map<string, AbortController>();
 
@@ -529,6 +633,7 @@ export function getLlmStatus(): LlmStatus {
     log: logTail,
     running: Boolean(child) && state !== 'stopped',
     modelPath: activeModelPath || settings.modelPath,
+    mmprojPath: activeMmprojPath,
     serverPath: settings.serverPath,
     resolvedServerPath: activeServerPath || detectServerExe(),
   };
@@ -538,6 +643,12 @@ export function getLlmStatus(): LlmStatus {
 function signature(settings: LlmSettings): string {
   return JSON.stringify([
     settings.modelPath,
+    /*
+     * 视觉投影也算进来（2026-10-03）：它是**装载时**才读进去的权重，
+     * 不算的话「刚选了投影」会被判成「参数没变」，于是接着用那个纯文本的旧进程 ——
+     * 用户看到的是「我明明选了，怎么还是反推不了」。
+     */
+    settings.mmprojPath,
     settings.port,
     settings.contextSize,
     settings.gpuLayers,
@@ -567,20 +678,44 @@ export async function stopLlm(): Promise<LlmStatus> {
   message = '本地模型未启动';
   activeSignature = '';
   activeModelPath = '';
+  activeMmprojPath = '';
   activeServerPath = '';
   return getLlmStatus();
 }
 
-function buildArgs(settings: LlmSettings, modelArg: string, extra: boolean): string[] {
+/**
+ * 这次装载**实际生效的上下文长度**（2026-10-03）。
+ *
+ * 接了视觉就取「设置的」与「视觉下限」里大的那个 —— 不这么做的话，接上 mmproj 的
+ * 第一次反推必然因为图片 token 超限而失败，而用户看到的报错是 llama.cpp 那句英文。
+ * 🔴 只影响**装载时**那一个 `-c` 与显存估算，不写回设置：他想手动调大调小都还是他的。
+ */
+export function effectiveContextSize(settings: LlmSettings): number {
+  return String(settings.mmprojPath || '').trim()
+    ? Math.max(settings.contextSize, VISION_MIN_CONTEXT)
+    : settings.contextSize;
+}
+
+/**
+ * 拼启动参数。
+ *
+ * `mmprojArg` 是**已经处理过中文路径**的投影参数（见 `launch`），不直接读
+ * `settings.mmprojPath` —— 那边是绝对路径，遇到中文目录 llama.cpp 会读不到。
+ * 空串 = 不接视觉，那这项参数整个不出现（老版本 llama.cpp 收到空的 `--mmproj` 会报错）。
+ */
+function buildArgs(settings: LlmSettings, modelArg: string, extra: boolean, mmprojArg = ''): string[] {
   const base = [
     '-m',
     modelArg,
+    ...(mmprojArg
+      ? ['--mmproj', mmprojArg, '--image-max-tokens', String(IMAGE_MAX_TOKENS)]
+      : []),
     '--host',
     '127.0.0.1',
     '--port',
     String(settings.port),
     '-c',
-    String(settings.contextSize),
+    String(effectiveContextSize(settings)),
     '-ngl',
     settings.gpuLayers < 0 ? 'all' : String(settings.gpuLayers),
     '-fa',
@@ -702,7 +837,8 @@ async function launch(exe: string, modelPath: string): Promise<'ok' | string> {
   if (child && activeSignature === nextSignature && (await healthy(next.port))) {
     if (await chatApiReady(next.port)) {
       state = 'ready';
-      message = `已加载 ${path.basename(next.modelPath)}`;
+      /* 这里进程没换（签名相同），带没带视觉沿用上次那个进程自己的值。 */
+      message = `已加载 ${path.basename(next.modelPath)}${activeMmprojPath ? '（带视觉）' : ''}`;
       return 'ok';
     }
     await stopLlm();
@@ -727,11 +863,41 @@ async function launch(exe: string, modelPath: string): Promise<'ok' | string> {
     note('>>> 模型目录包含中文，已改用相对路径加载');
   }
 
+  /*
+   * 视觉投影（2026-10-03）。
+   *
+   * 🔴 路径里的中文跟主模型一样躲不掉：llama.cpp 走窄字符 API，非 ASCII 读不到文件。
+   * 这里能相对化的前提是**投影和主模型在同一个目录**（cwd 已经切过去了），
+   * 不在同目录又带中文，只能报错让他改名 —— 悄悄跳过的后果是「选了视觉却还是反推不了」。
+   */
+  let mmprojArg = '';
+  if (next.mmprojPath) {
+    if (!fs.existsSync(next.mmprojPath)) {
+      throw new Error(`视觉投影文件读不到了：${next.mmprojPath} —— 请在「视觉投影」里重新选一份（或改回「不接视觉」）。`);
+    }
+    if (/[^\x00-\x7f]/.test(next.mmprojPath)) {
+      if (path.dirname(next.mmprojPath) !== path.dirname(modelPath)
+        || /[^\x00-\x7f]/.test(path.basename(next.mmprojPath))) {
+        throw new Error('视觉投影的路径包含中文，llama.cpp 无法读取。请把它和主模型放在同一个目录、并把文件名改成纯英文。');
+      }
+      mmprojArg = path.basename(next.mmprojPath);
+      note('>>> 视觉投影与主模型同目录，已改用相对路径加载');
+    } else {
+      mmprojArg = next.mmprojPath;
+    }
+  }
+  activeMmprojPath = mmprojArg ? next.mmprojPath : '';
+
   state = 'starting';
-  message = `正在加载 ${path.basename(next.modelPath)}`;
+  message = `正在加载 ${path.basename(next.modelPath)}${mmprojArg ? '（带视觉）' : ''}`;
   logTail = '';
   lastExitCode = null;
   note(`>>> ${exe}`);
+  if (mmprojArg) {
+    note(`>>> 视觉投影 --mmproj ${mmprojArg}`);
+    /* 上下文被抬到多少要写进日志：界面上的输入框还是用户填的那个数，这里是实际装载的数。 */
+    note(`>>> 接了视觉，上下文按 -c ${effectiveContextSize(next)} 装载（每图上限 ${IMAGE_MAX_TOKENS} token）`);
+  }
 
   /* 「去掉 --jinja 重试」只在这一次启动里允许一次，否则失败时会一直重启下去。 */
   let unsupportedFlag = false;
@@ -739,7 +905,7 @@ async function launch(exe: string, modelPath: string): Promise<'ok' | string> {
   const flag = (): void => {
     unsupportedFlag = true;
   };
-  let proc = spawnServer(exe, buildArgs(next, modelArg, true), cwd, next.gpuDevice);
+  let proc = spawnServer(exe, buildArgs(next, modelArg, true, mmprojArg), cwd, next.gpuDevice);
   child = proc;
   activeModelPath = next.modelPath;
   activeServerPath = exe;
@@ -754,7 +920,7 @@ async function launch(exe: string, modelPath: string): Promise<'ok' | string> {
         throw new Error(`端口 ${next.port} 上有服务，但它不是 llama.cpp 的对话服务。请换一个端口。`);
       }
       state = 'ready';
-      message = `已加载 ${path.basename(next.modelPath)}`;
+      message = `已加载 ${path.basename(next.modelPath)}${mmprojArg ? '（带视觉）' : ''}`;
       return 'ok';
     }
     /*
@@ -771,7 +937,7 @@ async function launch(exe: string, modelPath: string): Promise<'ok' | string> {
         retriedWithoutExtra = true;
         unsupportedFlag = false;
         note('>>> 检测到旧版 llama.cpp，已去掉 --jinja 等参数重试');
-        proc = spawnServer(exe, buildArgs(next, modelArg, false), cwd, next.gpuDevice);
+        proc = spawnServer(exe, buildArgs(next, modelArg, false, mmprojArg), cwd, next.gpuDevice);
         child = proc;
         state = 'starting';
         attach(proc, flag);
@@ -1159,6 +1325,8 @@ export type VramEstimate = {
   contextSize: number;
   /** 权重上显卡的部分（GB）。 */
   weightsGb: number;
+  /** 视觉投影（mmproj）上显卡的部分（GB）。没接视觉就是 0。 */
+  mmprojGb: number;
   /** KV 缓存（GB）—— 随上下文长度线性增长，调大上下文主要就涨这一项。 */
   kvGb: number;
   /** 运行开销：compute buffer / 计算图 / 后端自身（GB）。 */
@@ -1182,6 +1350,8 @@ export type VramEstimate = {
  */
 export function estimateLlmVram(input: {
   modelPath?: string;
+  /** 视觉投影。不传就用设置里存的那份；传空串 = 按「不接视觉」算。 */
+  mmprojPath?: string;
   contextSize?: number;
   cacheTypeK?: string;
   cacheTypeV?: string;
@@ -1192,16 +1362,30 @@ export function estimateLlmVram(input: {
     || settings.modelPath
     || pickDefaultModel(listLlmModels())?.path
     || '';
-  const contextSize = Math.round(clamp(input.contextSize ?? settings.contextSize, settings.contextSize, 512, 65536));
+  /*
+   * 接了视觉就把上下文抬到下限 —— 必须和装载时那个 `-c` 是**同一个数**，
+   * 否则「算出来 4.2GB 装得下，装载才 OOM」。
+   */
+  const wanted = Math.round(clamp(input.contextSize ?? settings.contextSize, settings.contextSize, 512, 65536));
+  const contextSize = String(input.mmprojPath ?? settings.mmprojPath ?? '').trim()
+    ? Math.max(wanted, VISION_MIN_CONTEXT)
+    : wanted;
   const gpuLayers = Math.round(clamp(input.gpuLayers ?? settings.gpuLayers, settings.gpuLayers, -1, 9999));
   const cacheBytes = (cacheBytesPerValue(input.cacheTypeK ?? settings.cacheTypeK)
     + cacheBytesPerValue(input.cacheTypeV ?? settings.cacheTypeV)) / 2;
 
+  const mmprojPath = String(input.mmprojPath ?? settings.mmprojPath ?? '').trim();
   let sizeBytes = 0;
   try {
     if (modelPath && fs.existsSync(modelPath)) sizeBytes = fs.statSync(modelPath).size;
   } catch {
     sizeBytes = 0;
+  }
+  let mmprojBytes = 0;
+  try {
+    if (mmprojPath && fs.existsSync(mmprojPath)) mmprojBytes = fs.statSync(mmprojPath).size;
+  } catch {
+    mmprojBytes = 0;
   }
 
   const meta = readGgufMeta(modelPath);
@@ -1213,6 +1397,12 @@ export function estimateLlmVram(input: {
         : 1;
 
   const weightsGb = (sizeBytes * onGpu * 1.04) / 1024 ** 3;
+  /*
+   * 投影也算显存（2026-10-03）：它是一份实打实的权重（他那套是 676MB），
+   * 不算的话「看着装得下」、`装载` 才 OOM —— 这个功能的全部意义就是别让人试出来。
+   * 跟 `onGpu` 走：纯 CPU 推理时它在内存里，不吃显存。
+   */
+  const mmprojGb = (mmprojBytes * onGpu * 1.04) / 1024 ** 3;
   const perToken = meta && meta.blockCount > 0 && meta.headDim > 0 && meta.headCountKv > 0
     ? meta.blockCount * meta.headCountKv * meta.headDim * 2 * cacheBytes
     : 0;
@@ -1224,7 +1414,7 @@ export function estimateLlmVram(input: {
   const kvGb = perToken ? (perToken * contextSize * onGpu) / 1024 ** 3 : 0;
   /* 同理：模型文件都不在，就没有「引擎跑起来」这回事，开销也是 0。 */
   const overheadGb = sizeBytes > 0 && onGpu > 0 ? 0.45 : 0;
-  const totalGb = weightsGb + kvGb + overheadGb;
+  const totalGb = weightsGb + mmprojGb + kvGb + overheadGb;
 
   let note = '';
   if (!modelPath) note = '还没选模型文件，没法算。';
@@ -1232,6 +1422,9 @@ export function estimateLlmVram(input: {
   else if (!meta) note = '这个文件的头信息没读出来，KV 缓存那一项算不出来 —— 下面是权重部分，实际会更高。';
   else if (contextSize > meta.contextLength && meta.contextLength > 0) {
     note = `这个模型训练时的上下文是 ${meta.contextLength}，调到 ${contextSize} 超出它的设计长度，长文质量会掉。`;
+  }
+  if (contextSize > wanted) {
+    note = (note ? note + ' ' : '') + `接了视觉，上下文按 ${contextSize} 算（图片自己要占一两千 token）。`;
   }
   if (cpuOnly) note = (note ? note + ' ' : '') + '现在是 0 层上显卡（纯 CPU 推理），不吃显存，但会慢很多。';
 
@@ -1241,6 +1434,7 @@ export function estimateLlmVram(input: {
     modelPath,
     contextSize,
     weightsGb: Math.round(weightsGb * 100) / 100,
+    mmprojGb: Math.round(mmprojGb * 100) / 100,
     kvGb: Math.round(kvGb * 100) / 100,
     overheadGb: Math.round(overheadGb * 100) / 100,
     totalGb: Math.round(totalGb * 100) / 100,

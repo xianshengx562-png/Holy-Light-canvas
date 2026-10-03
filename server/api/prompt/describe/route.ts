@@ -71,7 +71,8 @@ export async function POST(request: Request) {
       return Response.json({ ...result, frames: shots.length });
     } catch (error) {
       if (error instanceof PromptAssistantError) {
-        if (error.code !== 'LOCAL_MODEL_UNAVAILABLE') {
+        /* 本地那两类错都不记账：没有服务商，也不花额度（`LOCAL_NO_VISION` 见 `describePrompt`）。 */
+        if (error.code !== 'LOCAL_MODEL_UNAVAILABLE' && error.code !== 'LOCAL_NO_VISION') {
           await recordCall({
             userId: user.id,
             provider: 'glm',

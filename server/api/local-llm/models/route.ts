@@ -1,5 +1,8 @@
 import { api } from '@/lib/api';
-import { bundledServerPath, detectModelDirs, getLlmSettings, listLlmModels, listServerCandidates, pickDefaultModel } from '@/lib/local-llm';
+import {
+  bundledServerPath, detectModelDirs, getLlmSettings, listLlmModels, listLlmProjectors,
+  listServerCandidates, pickDefaultModel, pickProjectorFor,
+} from '@/lib/local-llm';
 
 /**
  * 本机上能用的模型与运行时。
@@ -11,8 +14,18 @@ export async function GET() {
   return api(async () => {
     const settings = getLlmSettings();
     const models = listLlmModels();
+    const projectors = listLlmProjectors();
     return Response.json({
       models,
+      /**
+       * 视觉投影（mmproj）单独一份（2026-10-03 徐先）。
+       *
+       * 主模型下拉里**没有**它们 —— 投影不是主模型，选了它 llama-server 起不来。
+       * `paired` 是给当前主模型猜的那一份（同目录、名字最像的那个）：
+       * 界面上换了主模型就自动填进去，省得他再从一份几百 MB 的清单里自己找。
+       */
+      projectors,
+      paired: pickProjectorFor(settings.modelPath || pickDefaultModel(models)?.path || ''),
       modelDirs: detectModelDirs(),
       savedDirs: settings.modelDirs,
       servers: listServerCandidates(),

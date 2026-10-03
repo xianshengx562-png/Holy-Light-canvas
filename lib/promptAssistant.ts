@@ -16,7 +16,7 @@ import 'server-only';
 import { readSkill, readSkillBody } from '@/lib/skills';
 import { providerLabel } from '@/lib/providers/registry';
 import { chatText, isLocalTextProvider, resolveTextCredentials, type TextCredentials } from '@/lib/providers/text';
-import { withLocalModel } from '@/lib/local-llm';
+import { getLlmSettings, withLocalModel } from '@/lib/local-llm';
 import type { PromptImage } from '@/lib/promptMedia';
 
 /** 优化提示词（AIFISHER 的 `gWe`）。 */
@@ -227,6 +227,21 @@ export async function describePrompt(
       missingTextModelMessage(preferred),
       PROMPT_ASSISTANT_ERROR.status,
       PROMPT_ASSISTANT_ERROR.code,
+    );
+  }
+  /*
+   * 本地模型**没接视觉**时，这里就得说清楚（2026-10-03）。
+   *
+   * 不拦的话请求照样发出去：llama-server 收到带图的 body 会报一句「不支持 image」
+   * 之类的话，而下面 `guarded()` 那层只认得到含 image/vision 字样的错误 ——
+   * 万一它报的是别的说法，用户看到的就是一句跟图无关的 502，无从下手。
+   * 判据只有一份：本地那档的视觉 = 设置里那份 mmproj。
+   */
+  if (isLocalTextProvider(creds.providerId) && !String(getLlmSettings().mmprojPath || '').trim()) {
+    throw new PromptAssistantError(
+      '本地模型现在没接视觉 —— 到「设置 · 模型服务 · 本地模型（llama.cpp）」里把「视觉投影」选成主模型旁边那个 mmproj 文件（选完要重新装载），或者换一家支持图片的多模态模型。',
+      400,
+      'LOCAL_NO_VISION',
     );
   }
   const note = String(options?.note || '').trim();

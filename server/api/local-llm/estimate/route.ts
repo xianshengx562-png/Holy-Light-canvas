@@ -22,6 +22,11 @@ export async function GET(request: Request) {
     };
     const estimate = estimateLlmVram({
       modelPath: url.searchParams.get('modelPath') ?? undefined,
+      /*
+       * 投影要能单独传：界面上「视觉投影」下拉改了之后，显存数字得立刻跟着变，
+       * 而那一刻值还在 draft 里、没存进设置。传空串 = 按「不接视觉」算。
+       */
+      mmprojPath: url.searchParams.get('mmprojPath') ?? undefined,
       contextSize: num('contextSize'),
       cacheTypeK: url.searchParams.get('cacheTypeK') ?? undefined,
       cacheTypeV: url.searchParams.get('cacheTypeV') ?? undefined,

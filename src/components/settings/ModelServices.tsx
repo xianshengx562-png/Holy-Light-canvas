@@ -99,6 +99,10 @@ export type ModelOption = { value: string; label: string; providerId: string; mo
 /** 本地模型那一层的数据（`GET /api/local-llm/models`）。 */
 export type LocalLlmView = {
   models: { name: string; path: string; size: number }[];
+  /** 视觉投影（mmproj）清单。主模型下拉里没有它们 —— 投影不是模型，选了起不来。 */
+  projectors: { name: string; path: string; size: number }[];
+  /** 给当前主模型猜的那一份投影（同目录、名字最像的）；没有就是空串。 */
+  paired: string;
   modelDirs: string[];
   savedDirs: string[];
   servers: string[];
@@ -108,6 +112,8 @@ export type LocalLlmView = {
   settings: {
     serverPath: string;
     modelPath: string;
+    /** 视觉投影。空串 = 不接视觉（本地模型就只看得懂文字）。 */
+    mmprojPath: string;
     port: number;
     keepAliveSeconds: number;
     /** 上下文长度（`contextSize`）—— 界面上要能改它，也要拿它算显存。 */
@@ -130,6 +136,8 @@ export type VramView = {
   note: string;
   contextSize: number;
   weightsGb: number;
+  /** 视觉投影那一份。没接视觉是 0。 */
+  mmprojGb: number;
   kvGb: number;
   overheadGb: number;
   totalGb: number;
@@ -146,6 +154,8 @@ export type LocalLlmStatus = {
   running: boolean;
   port: number;
   modelPath: string;
+  /** 这一趟装载**实际带上**的视觉投影（空 = 这个进程是纯文本的）。 */
+  mmprojPath: string;
   resolvedServerPath: string;
 };
 
@@ -340,13 +350,21 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
   const [localView, setLocalView] = useState<LocalLlmView | null>(null);
   const [localStatus, setLocalStatus] = useState<LocalLlmStatus | null>(null);
   const [localDraft, setLocalDraft] = useState({
-    modelPath: '', serverPath: '', keepAliveSeconds: '', port: '',
+    modelPath: '', mmprojPath: '', serverPath: '', keepAliveSeconds: '', port: '',
     /*
      * 跟上面那些一样先给空串：要等第一次读到服务端设置才填，
      * 否则界面上的默认值会把用户存过的数悄悄覆盖掉。
      */
     contextSize: '',
   });
+  /*
+   * 「视觉投影」这个下拉**用户动过没有**（2026-10-03）。
+   *
+   * 非要这个标志不可的原因：空串既是「还没读过设置」也是「他显式选了不接视觉」。
+   * 只用 `prev.mmprojPath || view.paired` 去填，选了「不接视觉」的人每次刷新
+   * 都会被我们悄悄填回一份投影 —— 而他的选择恰恰是不要。
+   */
+  const [mmprojTouched, setMmprojTouched] = useState(false);
   const [localBusy, setLocalBusy] = useState('');
   const [localNote, setLocalNote] = useState<Notice>(null);
   /** 显存估算（换模型 / 改上下文时重算）。 */
@@ -403,13 +421,21 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
 
   /* ── 本地模型 ─────────────────────────────────────────────── */
 
-  /** 拉一次「有什么模型 / 有什么运行时 / 现在什么状态」。 */
-  async function refreshLocal() {
+  /**
+   * 拉一次「有什么模型 / 有什么运行时 / 现在什么状态」。
+   *
+   * `repickProjector`：换主模型时传它 —— 投影是跟着主模型配对的，
+   * 换了模型就按新的那份重新猜一次（用户自己选过的话由 `mmprojTouched` 压住）。
+   */
+  async function refreshLocal(opts?: { repickProjector?: boolean }) {
     try {
       const view = await apiGet<LocalLlmView>('/api/local-llm/models');
       setLocalView(view);
       setLocalDraft(prev => ({
         modelPath: prev.modelPath || view.settings.modelPath || view.recommended?.path || '',
+        mmprojPath: opts?.repickProjector || !mmprojTouched
+          ? (view.settings.mmprojPath || view.paired || '')
+          : prev.mmprojPath,
         serverPath: prev.serverPath || view.settings.serverPath || '',
         keepAliveSeconds: prev.keepAliveSeconds === '' ? String(view.settings.keepAliveSeconds) : prev.keepAliveSeconds,
         port: prev.port || String(view.settings.port),
@@ -439,12 +465,17 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
       return;
     }
     let cancelled = false;
-    const qs = new URLSearchParams({ modelPath, contextSize: String(contextSize) });
+    /* 投影也算：它是实打实的一份权重（他那套是 0.68GB），不算就是「看着装得下、装载才 OOM」。 */
+    const qs = new URLSearchParams({
+      modelPath,
+      contextSize: String(contextSize),
+      mmprojPath: localDraft.mmprojPath || '',
+    });
     apiGet<VramView>(`/api/local-llm/estimate?${qs.toString()}`)
       .then(value => { if (!cancelled) setVram(value); })
       .catch(() => { if (!cancelled) setVram(null); });
     return () => { cancelled = true; };
-  }, [localView, localDraft.modelPath, localDraft.contextSize]);
+  }, [localView, localDraft.modelPath, localDraft.mmprojPath, localDraft.contextSize]);
 
   useEffect(() => {
     void refreshLocal();
@@ -581,6 +612,8 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
       /* 先把卡片上选的模具交过去：用户点「装载」时看到的是这一份，装的就该是这一份。 */
       await apiPost('/api/local-llm/start', {
         modelPath: localDraft.modelPath,
+        /* 一并交过去：点「装载」时卡片上摆的就是这一份，装的也就该是这一份。 */
+        mmprojPath: localDraft.mmprojPath,
         serverPath: localDraft.serverPath,
         port: Number(localDraft.port) || undefined,
       });
@@ -649,6 +682,7 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
       localBusy === 'local:start' ? 'starting' : (status?.state ?? 'stopped');
     const active = initial.promptProvider === 'local';
     const models = view?.models ?? [];
+    const projectors = view?.projectors ?? [];
     const servers = view?.servers ?? [];
     const savedDirs = view?.savedDirs ?? [];
     const bundled = view?.bundled ?? '';
@@ -664,6 +698,7 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
           <p>
             用本机显卡跑小模型优化提示词，不联网、不花额度。
             用的时候装载，跑完按下面的「保活秒数」卸载（<strong>0 = 立刻卸</strong>，显存一秒都不多占）。
+            接上「视觉投影」之后，它还能看着图 / 看着视频反推提示词。
           </p>
         </div>
         <div className="ms-vendor-side">
@@ -728,10 +763,29 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
             onChange={event => {
               const modelPath = event.target.value;
               setLocalDraft({ ...localDraft, modelPath });
-              void saveLocal({ modelPath });
+              /* 换了模型就重新猜投影：配对关系是「主模型 ↔ 同目录那个 mmproj」。 */
+              void (async () => {
+                await saveLocal({ modelPath }).catch(() => undefined);
+                await refreshLocal({ repickProjector: true });
+              })();
             }}>
             <option value="">（自动挑一个能跑的）</option>
             {models.map(item => <option key={item.path} value={item.path}>
+              {item.name}（{formatSize(item.size)}）
+            </option>)}
+          </select>
+        </label>
+        <label className="field" style={{ flex: '2 1 260px' }}>
+          <span>视觉投影（mmproj）</span>
+          <select data-ms-local-mmproj value={localDraft.mmprojPath}
+            onChange={event => {
+              const mmprojPath = event.target.value;
+              setMmprojTouched(true);
+              setLocalDraft({ ...localDraft, mmprojPath });
+              void saveLocal({ mmprojPath });
+            }}>
+            <option value="">不接视觉（只改文字）</option>
+            {projectors.map(item => <option key={item.path} value={item.path}>
               {item.name}（{formatSize(item.size)}）
             </option>)}
           </select>
@@ -785,6 +839,12 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
         </div>
       </div>
 
+      {!projectors.length && (
+        <p className="muted" data-ms-local-mmproj-empty>
+          本机没扫到视觉投影（主模型旁边那个 <code>mmproj-*.gguf</code>）。不接视觉的话本地模型只看得懂文字，看图反推会失败。
+        </p>
+      )}
+
       {/*
         显存占用：把三个分量摊开写，因为用户要判断的是「我能把哪一项调小」。
         只给一个总数等于让他自己猜 KV 缓存占了多少 —— 而那正是上下文长度决定的那一项。
@@ -794,7 +854,9 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
           {vram.cpuOnly
             ? '现在是 0 层上显卡（纯 CPU 推理），不吃显存 —— 但会慢很多'
             : `预计显存占用 ~${vram.totalGb.toFixed(2)} GB`
-              + `（模型 ${vram.weightsGb.toFixed(2)} + KV 缓存 ${vram.kvGb.toFixed(2)} + 运行开销 ${vram.overheadGb.toFixed(2)}）`}
+              + `（模型 ${vram.weightsGb.toFixed(2)}`
+              + (vram.mmprojGb > 0 ? ` + 视觉 ${vram.mmprojGb.toFixed(2)}` : '')
+              + ` + KV 缓存 ${vram.kvGb.toFixed(2)} + 运行开销 ${vram.overheadGb.toFixed(2)}）`}
           {vram.deviceGb ? ` · 本机显卡 ${vram.deviceGb.toFixed(1)} GB` : ''}
           {vram.deviceGb && vram.totalGb > vram.deviceGb
             ? ' —— 装不下，把上下文调小或换个更小的模型'
@@ -836,6 +898,7 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
         状态：{status?.message || '还没读过引擎状态'}
         {status?.resolvedServerPath ? ` · 运行时 ${serverLabel(status.resolvedServerPath, bundled)}` : ''}
         {status?.modelPath ? ` · 模型 ${shortName(status.modelPath)}` : ''}
+        {status?.mmprojPath ? ` · 视觉 ${shortName(status.mmprojPath)}` : ''}
         {status ? ` · 端口 ${status.port}` : ''}
         {keepAlive > 0 ? ` · 跑完保活 ${keepAlive} 秒` : ' · 跑完立刻卸载'}
       </p>
