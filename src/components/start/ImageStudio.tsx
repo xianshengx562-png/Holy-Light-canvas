@@ -18,7 +18,7 @@
  * 出图挂靠「图片生成」固定项目（`lib/start/studio.ts` 的约定），任务与资产都有归属。
  */
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUp, ChevronDown, Loader2, Plus, Sparkles, X } from 'lucide-react';
+import { ArrowUp, ChevronDown, ExternalLink, Loader2, Plus, Sparkles, X } from 'lucide-react';
 import {
   defaultEngine, defaultParams, ENGINES_FOR, ENGINE_META, paramSummary, ratioOptions, resolutionOptions,
   type ComposeEngine, type ComposeParams,
@@ -91,6 +91,18 @@ export default function ImageStudio() {
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
   const [results, setResults] = useState<string[]>([]);
+  /*
+   * 「现在在大区里看的那一张」（2026-10-03，N-101）。
+   *
+   * 2026-10-03 之前：点历史栏缩略图走的是 `<a target="_blank">` —— **弹一个独立窗口**
+   * （窗口标题就一行 `media.png (1214×1295)`），跟整页割裂。徐先：「预览图像这样，
+   * 直接镶嵌在画面中」→ 改成**落进右边大区里看**，生成条不动。
+   *
+   * 空串 = 没有单独在看哪一张，大区显示刚生成的那一批（`results`）。
+   * ⚠️ 它跟 `results` 是**两件事**：`results` 是「这次生成出来的」，这个是「我正在看哪张」。
+   *    别把两者合并成一个数组 —— 那样「生成完自动跳回新图」这条就没了。
+   */
+  const [preview, setPreview] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
   /** 固定项目：进页面就 find-or-create（GET 幂等），出图与传图都打在它下面。 */
@@ -258,7 +270,8 @@ export default function ImageStudio() {
     if (!projectId) { setError('出图项目还没就绪，稍等一下再点。'); return; }
     const text = prompt.trim().slice(0, STUDIO_PROMPT_MAX);
     if (!text) { setError('先写一句提示词。'); return; }
-    setBusy(true); setResults([]); setStatus('提交中…'); setSizeOpen(false); setNotice('');
+    /* 提交这一刻把大区交回给「这一次生成」—— 上一次在看的旧图不该继续占着画面。 */
+    setBusy(true); setResults([]); setPreview(''); setStatus('提交中…'); setSizeOpen(false); setNotice('');
     /*
      * 同步那一档（自定义接口）才挂计时器 —— 工作流那一路 `pollTask` 自己就在报
      * 「已等 N 秒」，再挂一个只会和它抢同一行字。
@@ -354,12 +367,42 @@ export default function ImageStudio() {
     ? [...ENGINES_FOR.image, 'custom']
     : [...ENGINES_FOR.image];
 
+  /*
+   * 大区现在显示什么：
+   *   - 正在单看某一张（`preview` 有值）→ 就它一张；
+   *   - 否则 → 这一次生成出来的那一批（可能一张都不剩）。
+   * ⚠️ **渲染哪一块**与**空态牌子出不出**必须都看这一个值。一边看 `results` 一边看 `preview`，
+   *    就会出现「点历史图之后，那行『给你的下一幅杰作』压在图上」这种只在一条路径下才有的 bug。
+   */
+  const shown = preview ? [preview] : results;
+
+  /* 单看某一张时 Esc 收回 —— 关不掉的浮层等于把人锁住（跟画布大图灯箱同一条规矩）。 */
+  useEffect(() => {
+    if (!preview) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setPreview(''); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [preview]);
+
   return <div className="studio">
     <div className="studio-main">
       <aside className="studio-rail" aria-label="历史出图">
         {history.length
           ? history.map(item => (
-            <a className="studio-rail-item" key={item.id} href={item.url} target="_blank" rel="noreferrer" title={item.name || ''}>
+            /*
+             * 左键：**在右边大区里看这张**（再点一下收回）。中键 / Ctrl 点：照旧开新窗口
+             * —— `href` 与 `target` 都留着，只把左键那一下 `preventDefault` 掉。
+             * 这样「看一眼」是本页动作、「要原图文件」是系统动作，各走各的。
+             */
+            <a className={`studio-rail-item${preview === item.url ? ' on' : ''}`} key={item.id}
+              href={item.url} target="_blank" rel="noreferrer"
+              title={item.name ? `${item.name} —— 点一下在右边看，中键开新窗口` : '点一下在右边看，中键开新窗口'}
+              aria-current={preview === item.url ? 'true' : undefined}
+              onClick={event => {
+                if (event.metaKey || event.ctrlKey || event.shiftKey) return;
+                event.preventDefault();
+                setPreview(current => (current === item.url ? '' : item.url));
+              }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={item.url} alt={item.name || '历史出图'} loading="lazy" />
             </a>
@@ -367,20 +410,39 @@ export default function ImageStudio() {
           : <span className="studio-rail-empty">还没有出过图</span>}
       </aside>
 
-      {/* 大区只负责「出结果之后的样子」—— 空态不在它里面，见下面那段说明。 */}
+      {/* 大区只负责「有图之后的样子」—— 空态不在它里面，见下面那段说明。 */}
       <div className="studio-stage">
-        {results.length > 0 && (
+        {shown.length > 0 && (
           /* `multi` 与 `data-studio-results` 只给 CSS 排格子用（一张铺满 / 多张两张一行），
              也顺手给探针当判据的钩子。 */
-          <div className={`studio-stage-results${results.length > 1 ? ' multi' : ''}`}
-            data-studio-results={results.length}>
-            {results.map(url => (
-              <a key={url} href={url} target="_blank" rel="noreferrer" title="点开看原图">
+          <div className={`studio-stage-results${shown.length > 1 ? ' multi' : ''}`}
+            data-studio-results={shown.length}>
+            {shown.map(url => (
+              /* 图本身就是「正在看的那张」，所以它自己不带跳转；点它是**只看这一张**
+                 （一次出好几张时点其中一张就单独放大看它），再点一下回到整批。
+                 要原图文件走右上角那颗（见下）。 */
+              <span className="studio-shot" key={url}
+                title={shown.length > 1 ? '点一下只看这一张' : ''}
+                onClick={() => {
+                  if (shown.length < 2) return;
+                  setPreview(current => (current === url ? '' : url));
+                }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={url} alt="生成结果" />
-              </a>
+                <img src={url} alt={preview ? '正在看的图' : '生成结果'} />
+              </span>
             ))}
           </div>
+        )}
+        {/*
+          「在新窗口打开原图」—— 单独一张时才给这一颗。多张时它指向哪一张说不清，
+          那颗按钮会变成骗人的东西；多张就先点一下只看这一张，再从这里开。
+        */}
+        {shown.length === 1 && (
+          <a className="studio-open" href={shown[0]} target="_blank" rel="noreferrer"
+            data-studio-open="" title="在新窗口打开原图">
+            <ExternalLink size={14} strokeWidth={2} aria-hidden />
+            <span>原图</span>
+          </a>
         )}
       </div>
 
@@ -393,7 +455,7 @@ export default function ImageStudio() {
            基准就是整个生成区 —— 横向归零，纵向本来就对。
         ⚠️ `pointer-events: none` 是配套的：它只是一块牌子，不许挡住历史栏和底下的大区。
       */}
-      {results.length === 0 && (
+      {shown.length === 0 && (
         <div className="studio-empty" data-studio-empty="">
           {busy ? (
             <>

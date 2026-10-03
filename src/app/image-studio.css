@@ -51,6 +51,15 @@
   transition: border-color var(--t-fast);
 }
 .studio-rail-item:hover img { border-color: var(--accent-line); }
+/*
+ * 「正在大区里看的就是这一张」的标记（N-101）。
+ * ⚠️ 比 hover 那圈要**明显一档**，否则鼠标一移开就分不清在看哪张 —— 用实心强调色描边
+ *    再加一圈同色的外描边（`box-shadow` 不占位，缩略图不会因此挪位/换行）。
+ */
+.studio-rail-item.on img {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
 .studio-rail-empty { font-size: 11px; color: var(--text-mute); writing-mode: vertical-rl; margin: auto; }
 
 /* ---------- 中间大区 ---------- */
@@ -60,6 +69,7 @@
  * （它是 `.studio-main` 的绝对定位子元素），所以这条改了它不受影响。
  */
 .studio-stage {
+  position: relative;   /* 「原图」那颗绝对定位的基准 */
   flex: 1;
   min-width: 0;
   display: grid;
@@ -113,13 +123,13 @@
   min-height: 0;
   overflow: hidden;
 }
-.studio-stage-results > a {
+.studio-stage-results > .studio-shot {
   position: relative;
   display: block;
   flex: 1 1 0;
   min-width: 0;
 }
-.studio-stage-results > a > img {
+.studio-stage-results > .studio-shot > img {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -128,6 +138,37 @@
   border: 0;
   border-radius: 0;
 }
+/* 一次出好几张时，点其中一张 = 只看它。所以这时它才该有「可点」的鼠标样子。 */
+.studio-stage-results.multi > .studio-shot { cursor: pointer; }
+
+/*
+ * 右上角那颗「原图」（只有单张时出现）：它是**唯一**会开新窗口的入口，
+ * 所以不能藏 —— 藏起来等于「想拿原文件的人找不到路」（这条错在超清那颗按钮上犯过）。
+ * 底色压淡、字重不高，它就别跟画面抢注意力。
+ */
+.studio-open {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  /* globals 那条 button 规则（height:36px / padding:0 14px）在这页会盖住外观 —— 逐条压回来。 */
+  height: auto;
+  padding: 5px 11px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: nowrap;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  transition: color var(--t-fast), border-color var(--t-fast);
+}
+.studio-open:hover { color: var(--text); border-color: var(--accent-line); }
+.studio-open > svg { flex: none; color: var(--text-mute); }
+.studio-open:hover > svg { color: inherit; }
 /*
  * 一次出好几张（自定义接口可以回多张）：**两张一行**，行高按行数均分 ——
  * 4 张就是 2×2，全都贴着边。列数用 `minmax(min(46%, 460px), 1fr)` 定：
