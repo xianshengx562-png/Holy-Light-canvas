@@ -1,4 +1,5 @@
 import { db } from '@/lib/db';
+import { pollTaskOnce } from '@/lib/taskQuery';
 import { refundGeneration } from '@/lib/wallet';
 
 /**
@@ -51,7 +52,11 @@ export type RunningTask = {
  * `running` 那一份是给前端**恢复轮询**用的：还在跑说明上游可能还在算，
  * 这时候直接判失败等于把一张本来会出片的单子撕了。
  */
-export async function sweepTasks(userId: string, projectId: string | null): Promise<{ running: RunningTask[] }> {
+export async function sweepTasks(userId: string, projectId: string | null): Promise<{
+  running: RunningTask[];
+  /** 这一趟问明白的（成功或失败）—— 前端拿它去写节点，别再自己编终态。 */
+  settled: { taskId: string; nodeId: string; status: string; error?: string | null; externalTaskId?: string | null; workflowId?: string }[];
+}> {
   const tasks = await db.task.findMany({
     where: {
       userId,
@@ -59,24 +64,48 @@ export async function sweepTasks(userId: string, projectId: string | null): Prom
       ...(projectId ? { projectId } : {}),
     },
     select: {
-      id: true, nodeId: true, externalTaskId: true, workflowId: true,
-      idempotencyKey: true, createdAt: true,
+      id: true, nodeId: true, provider: true, externalTaskId: true, workflowId: true,
+      projectId: true, input: true, idempotencyKey: true, createdAt: true,
     },
     orderBy: { createdAt: 'asc' },
     /** 上限只是安全带：正常项目不该有几百个在跑的任务，真有也不该一次全结。 */
     take: 200,
   });
   /*
-   * 只报，不结（2026-09-30 定死）：这一趟不结任何单，也不按等待时长做判定 ——
-   * 任务只有成功与失败两种结果，跑多久是上游的事。
-   * 前端拿到这份列表去**接着轮询**，用户想停由他自己点「放弃这一轮」。
+   * 🔴 逐个**真的去问上游一句**（2026-10-03，N-112）。
+   *
+   * 以前这一趟只报不结 —— 于是「任务所属的节点已经被删了」的那批**永远没人会去查它**，
+   * 库里就一直躺着一条 running，谁也看不见，界面上早就没有它了。
+   *
+   * 现在每一条都走 `pollTaskOnce()`：
+   *   - 上游说成功 → 落盘 + 写库（关掉软件那段时间跑完的，重开直接就有结果）；
+   *   - 上游说失败 / 说这个任务不存在 → 结单（N-111 那条判定）；
+   *   - 上游还在跑 → 留在 `running` 里，前端接着轮询；
+   *   - **问不到**（网络、本机 ComfyUI 没开、超时）→ 也留在 `running` 里。
+   *     🔴 这一趟**不按等待时长做判定**：任务只有成功与失败两种结果，跑多久是上游的事。
+   *     问不到就下一轮再问，绝不因为「够久了」判它死。
    */
-  return {
-    running: tasks.map(task => ({
-      taskId: task.id,
-      nodeId: task.nodeId,
-      externalTaskId: task.externalTaskId,
-      workflowId: task.workflowId,
-    })),
-  };
+  const running: RunningTask[] = [];
+  const settled: { taskId: string; nodeId: string; status: string; error?: string | null; externalTaskId?: string | null; workflowId?: string }[] = [];
+  for (const task of tasks) {
+    const outcome = await pollTaskOnce(userId, task);
+    if (outcome.task.status === 'running' || outcome.task.status === 'queued') {
+      running.push({
+        taskId: task.id,
+        nodeId: task.nodeId,
+        externalTaskId: task.externalTaskId,
+        workflowId: task.workflowId,
+      });
+    } else {
+      settled.push({
+        taskId: task.id,
+        nodeId: task.nodeId,
+        status: outcome.task.status,
+        error: outcome.task.error ?? null,
+        externalTaskId: task.externalTaskId,
+        workflowId: task.workflowId,
+      });
+    }
+  }
+  return { running, settled };
 }

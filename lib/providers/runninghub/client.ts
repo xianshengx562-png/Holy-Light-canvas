@@ -30,10 +30,19 @@ function bearer(apiKey?: string) {
   return `Bearer ${key}`;
 }
 function authHeaders(apiKey?: string) { return { 'content-type': 'application/json', authorization: bearer(apiKey) }; }
-async function request(path: string, init: RequestInit, apiKey?: string, baseUrl?: string) { const response = await fetch(`${endpoint(baseUrl)}${path}`, { ...init, headers: { ...authHeaders(apiKey), ...(init.headers || {}) }, cache: 'no-store' }); const body = await response.json().catch(() => null); if (!response.ok) throw new Error(`RunningHub HTTP ${response.status}`); return body as RunningHubResponse; }
+/**
+ * 🔴 一律带超时（2026-10-03，N-112）：这一层原来**没有任何超时**，上游不回就一直挂着 ——
+ * 而 `queryTask` 是轮询的心跳，挂一次整个节点就一直转圈，最后还只显示一句
+ * 「服务暂时不可用」。查询 30 秒足够；提交（`/run/workflow`）给 60 秒，
+ * 它要把整张节点图交上去，慢一些是正常的。
+ */
+const QUERY_TIMEOUT_MS = 30_000;
+const SUBMIT_TIMEOUT_MS = 60_000;
+
+async function request(path: string, init: RequestInit, apiKey?: string, baseUrl?: string, timeoutMs = QUERY_TIMEOUT_MS) { const response = await fetch(`${endpoint(baseUrl)}${path}`, { ...init, headers: { ...authHeaders(apiKey), ...(init.headers || {}) }, cache: 'no-store', signal: AbortSignal.timeout(timeoutMs) }); const body = await response.json().catch(() => null); if (!response.ok) throw new Error(`RunningHub HTTP ${response.status}`); return body as RunningHubResponse; }
 export type RunningHubResult = { url?: string; nodeId?: string; outputType?: string; text?: string | null };
 export type RunningHubResponse = { taskId?: string; status?: string; errorCode?: string; errorMessage?: string; results?: RunningHubResult[] | null; [key: string]: unknown };
-export async function submitWorkflow(input: { workflowId: string; nodeInfoList: unknown[]; instanceType?: string; usePersonalQueue?: boolean }, apiKey?: string, baseUrl?: string) { return request(`/run/workflow/${encodeURIComponent(input.workflowId)}`, { method: 'POST', body: JSON.stringify({ addMetadata: true, nodeInfoList: input.nodeInfoList, instanceType: input.instanceType || 'default', usePersonalQueue: input.usePersonalQueue ?? false }) }, apiKey, baseUrl); }
+export async function submitWorkflow(input: { workflowId: string; nodeInfoList: unknown[]; instanceType?: string; usePersonalQueue?: boolean }, apiKey?: string, baseUrl?: string) { return request(`/run/workflow/${encodeURIComponent(input.workflowId)}`, { method: 'POST', body: JSON.stringify({ addMetadata: true, nodeInfoList: input.nodeInfoList, instanceType: input.instanceType || 'default', usePersonalQueue: input.usePersonalQueue ?? false }) }, apiKey, baseUrl, SUBMIT_TIMEOUT_MS); }
 export async function queryTask(taskId: string, apiKey?: string, baseUrl?: string) { return request('/query', { method: 'POST', body: JSON.stringify({ taskId }) }, apiKey, baseUrl); }
 
 export async function uploadMedia(file: File, apiKey?: string, baseUrl?: string) {

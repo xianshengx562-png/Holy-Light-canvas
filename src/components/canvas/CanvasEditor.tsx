@@ -2290,6 +2290,10 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
             workflowId: item.workflowId,
           }] as [string, { taskId: string; externalTaskId?: string; workflowId?: string }]),
       );
+      const settledByNode = new Map<string, { taskId?: string; nodeId?: string; externalTaskId?: string; workflowId?: string }>(
+        (Array.isArray(scan?.settled) ? scan.settled : []).map((item: { taskId?: string; nodeId?: string; externalTaskId?: string; workflowId?: string }) =>
+          [String(item.nodeId || ''), item] as [string, { taskId?: string; nodeId?: string; externalTaskId?: string; workflowId?: string }]),
+      );
       nodes.filter(node => node.data.status === 'running').forEach(node => {
         const alive = runningByNode.get(node.id);
         if (alive?.taskId) {
@@ -2306,6 +2310,24 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
             externalTaskId: alive.externalTaskId,
             workflowId: resumedId,
             operation: resumedOp,
+          });
+          return;
+        }
+        /*
+         * 服务端扫尾时**已经把它问明白了**（2026-10-03，N-112）——
+         * 那就照样走 `poll()` 那条路写节点：它去查这个任务号，库里已经是终态，
+         * 立刻就会走成功 / 失败那两个分支，节点的图、历史、下游连线一条不落。
+         * 🔴 别在这里自己写终态 —— 那会绕过落盘和下游那一整套。
+         */
+        const done = settledByNode.get(node.id);
+        if (done?.taskId) {
+          const doneId = String(done.workflowId || node.data.workflowId || '');
+          const doneOp = workflows.find(item => item.workflowId === doneId)?.operation === 'upscale'
+            ? 'upscale' : 'generate';
+          void poll(done.taskId, node.id, String(node.data.label || '生成'), {
+            externalTaskId: done.externalTaskId,
+            workflowId: doneId,
+            operation: doneOp,
           });
           return;
         }
