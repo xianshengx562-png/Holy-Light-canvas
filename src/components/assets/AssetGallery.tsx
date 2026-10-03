@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
-  Check, Download, Eye, FileArchive, ImageIcon, Music, Pencil, Trash2, Video, X,
+  Check, Download, Eye, FileArchive, ImageIcon, Music, Pencil, Sparkles, Trash2, Video, X,
 } from 'lucide-react';
 import { apiPatch, apiPost } from '@/lib/client';
 import type { AssetCategoryItem } from '@/lib/asset-kinds';
@@ -52,7 +52,7 @@ function Glyph({ kind }: { kind: Kind }) {
   return <FileArchive size={22} strokeWidth={1.5} aria-hidden />;
 }
 
-export default function AssetGallery({ items, categories, onChanged }: {
+export default function AssetGallery({ items, categories, onChanged, onUpscale, upscalingId }: {
   items: GalleryItem[];
   /** 用户自己维护的分类表。灯箱里的分类按钮与批量「归类」都按它来画。 */
   categories: AssetCategoryItem[];
@@ -61,6 +61,15 @@ export default function AssetGallery({ items, categories, onChanged }: {
    * 传进来的话只重取一次列表；没传就退回 `router.refresh()`（整页重载，桌面版那次等于 reload）。
    */
   onChanged?: () => void;
+  /**
+   * 超清（2026-10-03 徐先：「从资产库中导入的图片和视频也可以进行超清处理」）。
+   *
+   * 挑工作流、提交、轮询那些都归上层（页面），这里只负责**在灯箱里给一个入口** ——
+   * 资产画廊不该知道「超清是怎么跑的」。传了才画按钮，所以不需要的页面不占版面。
+   */
+  onUpscale?: (item: GalleryItem) => void;
+  /** 正在超清的那一条（页面在轮询）。卡片 / 按钮按它显形，不另开一套状态。 */
+  upscalingId?: string | null;
 }) {
   const router = useRouter();
   const [openId, setOpenId] = useState<string | null>(null);
@@ -529,6 +538,23 @@ export default function AssetGallery({ items, categories, onChanged }: {
                 onClick={() => askDelete([open.id], [open.name])}>
                 <Trash2 size={16} strokeWidth={2} aria-hidden /> 删除
               </button>
+              {/*
+                超清。**只有图片与视频能按**（latent 是中间态、音频没有这一道工序），
+                所以这两类之外根本不画这颗按钮 —— 画一个点了只报错的按钮等于骗人。
+              */}
+              {onUpscale && (open.type === 'image' || open.type === 'video') && (
+                <button
+                  className="button secondary"
+                  type="button"
+                  data-asset-lightbox-upscale
+                  disabled={upscalingId === open.id}
+                  onClick={() => onUpscale(open)}
+                  title="用一份「超清」工作流把这份素材再加工一道（结果存成新的资产）"
+                >
+                  <Sparkles size={16} strokeWidth={2} aria-hidden />
+                  {upscalingId === open.id ? '超清中…' : '超清'}
+                </button>
+              )}
               <span className="asset-lightbox-spacer" />
               <Link className="button secondary" href={`/projects/${open.projectId}`}>打开所在项目</Link>
               <a className="button" href={open.downloadUrl} download>

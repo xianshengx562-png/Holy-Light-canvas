@@ -68,6 +68,7 @@ import {
   isRunnableKind, isTextValueKind, displayLabelOf, normalizeNodeLabels, resetTransientStatus,
   latentBrokenHint, latentBrokenLabel, latentLabel, purposeOfNode, purposeForNode, workflowMismatchHint, upscaleWorkflowFor,
   nodeEngineProvider, readUpscaleMode, readUpscaleSource, UPSCALE_SOURCE_LABELS,
+  upscalePurposeOfNode, upscaleSourceOfNode, upscaleResultPatch,
   isRelayLatentSource, latentPicksOf, resolvePickedLatents,
   workflowDisplayName, generatorKindLabel, newNodeData, isReferenceSource, referenceUrlsOf, latentNodeIdOf,
   mediaReadyForRun, isResolvableUrl, workflowsForProvider, engineSwitchPatch, readInstanceType,
@@ -1319,13 +1320,20 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         const imageOnly = runKind === 'image-generate'
           || (runKind === 'app-generate' && !videoItem && Boolean(imageItem));
         const primary = imageOnly ? (imageItem || ambiguous) : (videoItem || audioItem || ambiguous || imageItem);
-        patch(id, {
-          status: 'success',
+        /*
+         * 超清的落点与生成不同：输入节点（图片输入 / 视频输入）要写回**它自己那份值**，
+         * 不然卡片正面还是超清前那一张 —— 用户点了超清却像什么都没发生。
+         * 写哪些字段只有 `upscaleResultPatch` 一处知道。
+         */
+        const settled = {
+          status: 'success' as const,
           result: imageOnly
             ? (primary ? '生成完成' : '本次结果没有图片输出')
             : videoItem || audioItem ? '生成完成' : imageItem ? '只返回了图片' : '生成完成',
-          resultUrl: primary?.url,
-        });
+        };
+        patch(id, meta.operation === 'upscale'
+          ? { ...settled, ...upscaleResultPatch(runKind, primary?.url || '') }
+          : { ...settled, resultUrl: primary?.url });
         /** Push the media each downstream node can actually show: image output takes the image, video output takes the video. */
         edges.filter(edge => edge.source === id).forEach(edge => {
           const target = nodes.find(node => node.id === edge.target);
@@ -2690,11 +2698,15 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
   const upscale = useCallback(async (id: string, auto = false) => {
     const node = nodes.find(item => item.id === id);
     if (!node) return;
-    /** 只有生成节点能超清：超清的输入是「这个节点自己生成出来的东西」。 */
-    const purpose = purposeOfNode(node.data.kind);
+    /*
+     * 能超清的不只是生成节点：拖进来的那张图 / 那段视频**同样是一份现成的媒体**
+     * （2026-10-03 徐先：「从资产库中导入的图片和视频也可以进行超清处理」）。
+     * 判定与取值都走 nodeMeta 里那两个函数，和按钮显不显形用的是同一份。
+     */
+    const purpose = upscalePurposeOfNode(node.data.kind);
     if (!purpose) return;
     if (node.data.status === 'running') return;
-    const source = String(node.data.resultUrl || '').trim();
+    const source = upscaleSourceOfNode(node.data);
     if (!source) return patch(id, { status: 'failed', result: '这个节点还没有结果 —— 先生成一次，再点「超清」' });
     /*
      * 一份都没配时要把话说完整：「没有超清工作流」只是现象，用户要的是「去哪儿配」。
@@ -3874,8 +3886,15 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         /** 优化节点：就地跑一次改写（参数条那个按钮与「启动」走的是同一条）。 */
         onOptimize: node.data.kind === 'prompt-optimize' ? () => void runPromptNode(node.id) : undefined,
 
-        /** 超清：拿本节点已生成的结果再加工一道（按钮在卡片右上角，悬停才显形）。 */
-        onUpscale: isGenerator ? () => void upscale(node.id) : undefined,
+        /*
+         * 超清：拿本节点上那份媒体再加工一道（按钮在卡片右上角，悬停才显形）。
+         * 输入节点（图片输入 / 视频输入）也在内 —— 它们身上就躺着一份媒体，
+         * 没有理由只有生成出来的才能加工。能不能用由按钮自己那四个条件决定，
+         * 这里只是把入口给出去（`upscale()` 内部还会再判一次）。
+         */
+        onUpscale: isGenerator || node.data.kind === 'image' || node.data.kind === 'video-input'
+          ? () => void upscale(node.id)
+          : undefined,
         onAbandon: isGenerator ? () => void abandonNode(node.id) : undefined,
         /**
          * 双击节点标题重命名：写回 data.label。

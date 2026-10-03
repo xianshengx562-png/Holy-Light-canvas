@@ -22,6 +22,8 @@ import StorageBar from '@/components/assets/StorageBar';
 import { ConfirmDialog } from '@/components/ui/ContextMenu';
 import { isDesktop } from '@/lib/edition';
 import { apiPost, useApi, useSession } from '@/lib/client';
+import { pollDelayMs } from '@/lib/taskPoll';
+import { upscaleWorkflowFor } from '@/lib/workflows/upscale';
 import { useSearchParams } from 'next/navigation';
 
 type AssetProject = { id: string; name: string; count: number };
@@ -75,6 +77,86 @@ export default function Assets() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState('');
+
+  /* ── 超清（2026-10-03：导入的图 / 视频也能加工）────────────── */
+  /*
+   * 用哪一份超清工作流：**与画布上那颗「超清」按钮同一个筛法**（`upscaleWorkflowFor`），
+   * 只是这里没有「节点引擎」那一档，所以按 `follow` + 不筛来源取最近的一份 ——
+   * 两边各写一份挑法的话，迟早出现「画布点得动、资产页说没配」这种同文案两种结论。
+   */
+  const { data: flowData } = useApi<{
+    workflows: { workflowId: string; name: string; kind: string; operation: string; provider?: string }[];
+  }>(user ? '/api/workflows?operation=upscale' : null);
+  const upscaleFlows = flowData?.workflows ?? [];
+  const [upscaling, setUpscaling] = useState<{ assetId: string; taskId: string; name: string } | null>(null);
+
+  /** 参数只用得到这几个字段（画廊那边的 `GalleryItem` 也是这个形状），不绑死某一种类型。 */
+  async function startUpscale(item: { id: string; name: string; type: string; url: string; projectId: string }) {
+    if (upscaling) return;
+    const kind = item.type === 'video' ? 'video' : item.type === 'image' ? 'image' : null;
+    if (!kind) { setUploadMsg('只有图片和视频能超清 —— latent 与音频没有这一道工序。'); return; }
+    const flow = upscaleWorkflowFor(upscaleFlows, kind);
+    if (!flow) {
+      setUploadMsg(`还没有配${kind === 'video' ? '视频' : '图片'}超清工作流 —— 到「设置 · 工作流」新建一份工作流，`
+        + '把「工序」改成「超清」，再把工作流里那个上传段的「画布绑定」选成「画布 · 参考图 1」（图）'
+        + '或「画布 · 视频输入 1」（视频）。');
+      return;
+    }
+    setUploadMsg('');
+    try {
+      const res = await fetch(`/api/projects/${item.projectId}/generation`, {
+        method: 'POST',
+        /* 桌面版带上它：不带会被当成页面跳转回一个 303，fetch 跟过去就 Failed to fetch。 */
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify({
+          /** 这一条不是画布节点：`asset:` 前缀让它在生成历史里也说得清是谁跑的。 */
+          nodeId: `asset:${item.id}`,
+          nodeLabel: String(item.name || '').slice(0, 60),
+          workflowId: flow.workflowId,
+          kind,
+          operation: 'upscale',
+          /* 超清唯一的输入就是这份素材本身；服务端会把它换成对端认得的文件名。 */
+          bindingValues: { upscaleInput: item.url },
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body?.error || '提交失败。');
+      setUpscaling({ assetId: item.id, taskId: String(body.taskId || ''), name: item.name });
+      setUploadMsg(`已提交超清 · ${flow.name || flow.workflowId} —— 跑完会存成新的一份资产。`);
+    } catch (e) {
+      setUploadMsg(e instanceof Error ? e.message : '提交失败。');
+    }
+  }
+
+  /*
+   * 轮询这一条超清任务。**只问到有结果为止**（与画布同一个口径）：
+   * 任务只有成功与失败两种终态，不问到终态就不知道该刷新还是该报错。
+   */
+  useEffect(() => {
+    if (!upscaling?.taskId) return;
+    let alive = true;
+    const startedAt = Date.now();
+    void (async () => {
+      for (;;) {
+        await new Promise(resolve => setTimeout(resolve, pollDelayMs(Date.now() - startedAt)));
+        if (!alive) return;
+        const res = await fetch(`/api/tasks/${upscaling.taskId}`).catch(() => null);
+        const task = res && res.ok ? await res.json().catch(() => null) : null;
+        if (!alive) return;
+        /* 这一趟没问到（网络 / 上游抽风）不算失败 —— 任务还在，下一趟接着问。 */
+        if (!task || task.status === 'running' || task.status === 'queued') continue;
+        if (task.status === 'success') {
+          setUploadMsg(`「${upscaling.name}」超清完成 —— 结果已经存进资产库。`);
+          reload();
+        } else {
+          setUploadMsg(`超清失败：${String(task.error || '任务失败了')}`);
+        }
+        setUpscaling(null);
+        return;
+      }
+    })();
+    return () => { alive = false; };
+  }, [upscaling, reload]);
 
   /* ── 一键删除 Latent（2026-10-02）────────────────────────── */
   const [purgeOpen, setPurgeOpen] = useState(false);
@@ -154,10 +236,18 @@ export default function Assets() {
       if (!res.ok) throw new Error(body?.error || '上传失败。');
       reload();
       const skipped = Array.isArray(body.skipped) ? body.skipped.length : 0;
+      /*
+       * 「上传了几个」要说清是图还是视频：混着拖进来时一句「已上传 3 张图片」
+       * 会让人以为那一段视频没进来。（数量由服务端按落盘结果点，不靠前端猜扩展名。）
+       */
+      const saved: { type?: string }[] = Array.isArray(body.items) ? body.items : [];
+      const images = saved.filter(item => item.type === 'image').length;
+      const videos = saved.filter(item => item.type === 'video').length;
+      const counted = [images ? `${images} 张图片` : '', videos ? `${videos} 个视频` : ''].filter(Boolean).join(' 和 ');
       setUploadMsg(
-        `已上传 ${body.saved} 张图片`
+        `已上传 ${counted || `${body.saved} 个文件`}`
         + (skipped ? `，跳过 ${skipped} 个存不下来的文件` : '')
-        + (projectId ? '' : '（在「上传的图片」项目里）'),
+        + (projectId ? '' : `（在「${body.projectName || '上传的素材'}」项目里）`),
       );
     } catch (e) {
       setUploadMsg(e instanceof Error ? e.message : '上传失败。');
@@ -181,7 +271,7 @@ export default function Assets() {
       <section className="workspace">
         {dragActive && (
           <div className="assets-drop-hint" data-assets-drop-hint aria-hidden>
-            <div>松开鼠标，把图片传进资产</div>
+            <div>松开鼠标，把图片 / 视频传进资产</div>
           </div>
         )}
         <header className="workspace-header">
@@ -206,9 +296,9 @@ export default function Assets() {
             event.preventDefault();
             dragDepth.current = 0; setDragActive(false);
             const files = Array.from(event.dataTransfer?.files ?? [])
-              .filter((f) => f.type.startsWith('image/'));
+              .filter((f) => f.type.startsWith('image/') || f.type.startsWith('video/'));
             if (!files.length) {
-              setUploadMsg('拖进来的文件里没有图片 —— 只收 PNG / JPEG / WebP / GIF。');
+              setUploadMsg('拖进来的文件里没有能存的 —— 只收图片（PNG / JPEG / WebP / GIF）和视频（MP4 / WebM / MOV）。');
               return;
             }
             uploadFiles(files);
@@ -222,7 +312,7 @@ export default function Assets() {
               <div className="header-actions">
                 <button className="button" type="button" data-assets-upload disabled={uploading}
                   onClick={() => fileInputRef.current?.click()}>
-                  <Upload size={15} aria-hidden /> {uploading ? '上传中…' : '上传图片'}
+                  <Upload size={15} aria-hidden /> {uploading ? '上传中…' : '上传素材'}
                 </button>
                 {/* 没有 latent 就不出现 —— 常态不该占版面。 */}
                 {latentCount > 0 && (
@@ -238,7 +328,7 @@ export default function Assets() {
                 )}
                 <Link className="button" href="/projects/new">新建项目</Link>
               </div>
-              <input ref={fileInputRef} type="file" accept="image/*" multiple hidden data-assets-file
+              <input ref={fileInputRef} type="file" accept="image/*,video/*" multiple hidden data-assets-file
                 onChange={(event) => {
                   if (event.target.files?.length) uploadFiles(event.target.files);
                   event.target.value = '';
@@ -282,7 +372,13 @@ export default function Assets() {
             用户删空一个筛选结果就什么都看不到（2026-09-26 探针 H-2 抓到的真 bug）。
             空列表时画廊自己只留回执那一条，不画网格也不画「选择」入口。
           */}
-          <AssetGallery items={items} categories={categories} onChanged={reload} />
+          <AssetGallery
+            items={items}
+            categories={categories}
+            onChanged={reload}
+            onUpscale={startUpscale}
+            upscalingId={upscaling?.assetId ?? null}
+          />
 
           {purgeMsg && <p className="muted assets-upload-msg" data-assets-purge-msg>{purgeMsg}</p>}
 

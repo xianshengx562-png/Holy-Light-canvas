@@ -7,8 +7,9 @@ import { nodeTintVars } from '@/lib/appearance';
 import {
   LATENT_SLOTS, NODE_META, NODE_SIZE,
   isAudioUrl, isGeneratorKind, isLatentKind, isVideoUrl, latentAssetPrefix, latentBrokenHint, latentLabel, paramRowLabel,
-  purposeOfNode, upscaleWorkflowFor, usesGenerateDock, workflowDisplayName, workflowIdNote, displayLabelOf,
+  upscaleWorkflowFor, usesGenerateDock, workflowDisplayName, workflowIdNote, displayLabelOf,
   nodeEngineProvider, readUpscaleMode, readUpscaleSource,
+  upscalePurposeOfNode, upscaleSourceOfNode,
 } from './nodeMeta';
 import type { NodeKind } from './nodeMeta';
 import { NodeGlyph } from './nodeIcons';
@@ -103,13 +104,15 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
   const sizedHeight = Number(data.height) > 0 ? Math.round(Number(data.height)) : undefined;
   /**
    * 右上角「超清」按钮用不用得上。四个条件缺一不可：
-   * 这是个生成节点（超清的输入就是它自己的结果）、它已经有结果、
+   * 这个节点身上有一份能加工的媒体（生成节点是它自己的结果，**图片输入 / 视频输入节点是
+   * 它自己那份图 / 视频** —— 2026-10-03 起导入的素材也能超清）、它确实有那份媒体、
    * 这一节点没把超清关掉（参数条上那个胶囊能选「关闭 / 手动 / 自动」，2026-10-02）、
    * 以及配置里有**同用途且来源对得上**的超清工作流。
    */
-  const upscalePurpose = purposeOfNode(kind);
+  const upscalePurpose = upscalePurposeOfNode(kind);
+  const upscaleSource = upscaleSourceOfNode(data);
   const upscaleMode = readUpscaleMode(data.upscaleMode);
-  const upscaleTarget = upscalePurpose && resultValue && upscaleMode !== 'off'
+  const upscaleTarget = upscalePurpose && upscaleSource && upscaleMode !== 'off'
     ? upscaleWorkflowFor(
       data.workflows || [], upscalePurpose,
       readUpscaleSource(data.upscaleSource), nodeEngineProvider(kind, data.engine),
@@ -594,7 +597,7 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
           <button
             type="button"
             className="cv-node-upscale nodrag"
-            title={`用「${workflowDisplayName(upscaleTarget)}」把这份${resultIsVideo ? '视频' : '图'}再加工一道（超清）`}
+            title={`用「${workflowDisplayName(upscaleTarget)}」把这份${upscalePurpose === 'video' ? '视频' : '图'}再加工一道（超清）`}
             aria-label="超清"
             disabled={running || !data.onUpscale}
             onClick={event => { event.stopPropagation(); data.onUpscale?.(); }}

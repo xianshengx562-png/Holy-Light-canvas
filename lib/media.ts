@@ -289,33 +289,58 @@ export async function archiveInlineMedia(input: {
  */
 const uploadMaxBytes = 20 * 1024 * 1024;
 
-/**
- * 把**用户上传的参考图**落盘成资产 —— 首页那个大输入框的「上传图片」走这里。
- *
- * 为什么不复用 RunningHub 的上传（`/api/providers/runninghub/upload`）：那条路要求用户
- * 配好 RunningHub Key、还会把图传到**别人的服务器**上；而这里要的只是一个
+/*
+ * 为什么不走 RunningHub 的上传（`/api/providers/runninghub/upload`）：那条路要求用户
+ * 配好 RunningHub Key、还会把文件传到**别人的服务器**上；而这里要的只是一个
  * 「服务端取得到字节、画布显示得出来」的地址 —— 同步出图的参考图正是按
- * `/api/assets/...` 读本地盘的。出图这条链路不该被另一个平台的凭据卡住。
+ * `/api/assets/...` 读本地盘的。存一份素材这件事不该被另一个平台的凭据卡住。
  *
  * 落盘三步与 `archiveInlineMedia` **完全一致**（先定 id → 先写文件 → 再插记录），
  * 那是「一次成型」的硬要求：先插一条占位记录再回头补 URL，中间失败就会留下指向
  * `/api/assets/pending` 的坏行 —— 资产库里一张坏图，取流 405。
- *
- * 扩展名认**魔数**不认文件名：用户交上来的名字可以是任意字符串，而扩展名直接决定
- * `/media.{ext}` 这条路由能不能取到流。
  */
-export async function archiveUploadedImage(input: {
+/**
+ * 视频那一路的上限。比图片那 20MB 宽得多 —— 一段十几秒的 1080p 轻松几十 MB，
+ * 按图片的门卡会「拖了个视频进来却存不下」，而那句报错根本说不清为什么。
+ * 120MB 与实用工具成品同档：两边都是「用户自己手里的一段成品」，不是我们生成的。
+ */
+const uploadMediaMaxBytes = 120 * 1024 * 1024;
+
+/**
+ * 把**用户上传的文件**落盘成资产 —— 资产页那个「上传」按钮走这里。
+ *
+ * 与 `archiveUploadedImage` 只差「收哪些文件」：那个是老口径（只收图片，认不出还兜 png），
+ * 这个是资产页的新口径（图片 **和** 视频）。落盘三步（先定 id → 先写文件 → 再插记录）
+ * 必须与那边完全一致，那是「一次成型」的硬要求。
+ *
+ * 🔴 认格式一律认**魔数**（`mediaExtOfBuffer`），不看 `File.type`、也不看文件名：
+ * 浏览器给的类型可能是 `video/webm;codecs=vp9` 甚至空串，而扩展名直接决定
+ * `/media.{ext}` 这条取流路由能不能命中 —— 认错等于往资产库里塞一个打不开的文件。
+ */
+export async function archiveUploadedMedia(input: {
   userId: string;
   projectId: string;
   file: File;
-  /** 落在 metadata.source 里，用来区分「首页上传的参考图」和「实用工具的产出」。 */
+  /** 落在 metadata.source 里，用来区分「资产页上传」和「实用工具的产出」。 */
   source?: string;
-}): Promise<{ id: string; url: string; name: string; size: number } | null> {
+  /**
+   * 收哪些。`image` = 只收图片（老口径）；`media` = 图片与视频。
+   * 🔴 音频**不在这两种里**：资产页那颗按钮只说图片与视频，放音频进来等于
+   * 界面上没提、库里却多出一种，报错时也说不清「为什么不收这个」。
+   */
+  allow?: 'image' | 'media';
+  /** 体积上限。缺省按 `allow` 走：图片 20MB、媒体 120MB。 */
+  maxBytes?: number;
+}): Promise<{ id: string; url: string; name: string; size: number; type: MediaKind } | null> {
+  const allow = input.allow === 'media' ? 'media' : 'image';
+  const max = Number(input.maxBytes) > 0 ? Number(input.maxBytes) : (allow === 'media' ? uploadMediaMaxBytes : uploadMaxBytes);
   const bytes = Buffer.from(await input.file.arrayBuffer());
-  if (!bytes.length || bytes.length > uploadMaxBytes) return null;
-  const ext = imageExtOfBuffer(bytes);
+  if (!bytes.length || bytes.length > max) return null;
+  const ext = allow === 'media' ? mediaExtOfBuffer(bytes) : imageExtOfBuffer(bytes);
   const kind = MIME[ext];
-  if (!kind || kind.media !== 'image') return null;
+  if (!kind) return null;
+  if (allow === 'image' && kind.media !== 'image') return null;
+  if (allow === 'media' && kind.media !== 'image' && kind.media !== 'video') return null;
   try {
     const dir = path.join(await mediaRoot(), input.projectId);
     await mkdir(/*turbopackIgnore: true*/ dir, { recursive: true });
@@ -343,10 +368,28 @@ export async function archiveUploadedImage(input: {
         },
       },
     });
-    return { id, url, name, size: bytes.length };
+    return { id, url, name, size: bytes.length, type: kind.media };
   } catch {
     return null;
   }
+}
+
+/**
+ * 老口径：把**用户上传的参考图**落盘成资产（首页那个大输入框的「上传图片」走这里，
+ * 快速出图与自定义接口那两条路也在用）—— **只收图片**。
+ *
+ * 它就是 `archiveUploadedMedia` 的一个薄封装：「只收图片」这个口径只有一处实现，
+ * 免得两条路上限 / 认格式的方式悄悄长成两样。
+ */
+export async function archiveUploadedImage(input: {
+  userId: string;
+  projectId: string;
+  file: File;
+  /** 落在 metadata.source 里，用来区分「首页上传的参考图」和「实用工具的产出」。 */
+  source?: string;
+}): Promise<{ id: string; url: string; name: string; size: number } | null> {
+  const saved = await archiveUploadedMedia({ ...input, allow: 'image' });
+  return saved ? { id: saved.id, url: saved.url, name: saved.name, size: saved.size } : null;
 }
 
 /**

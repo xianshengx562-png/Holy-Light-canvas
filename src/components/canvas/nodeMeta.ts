@@ -137,41 +137,15 @@ export function nodeEngineProvider(kind: unknown, engine: unknown): 'local' | 'r
   return null;
 }
 
-/**
- * 「超清」按钮要用的那份工作流：同用途 + 工序是超清（+ 来源对得上）。
+/*
+ * 「超清」按钮要用的那份工作流（同用途 + 工序是超清 + 来源对得上）。
  *
- * 与上面那条是**同一个维度的两面**：一份工作流属于哪一种工序，决定了它出现在哪个入口。
- * 万一一个用途下配了多份超清工作流，取最近改过的那份（列表已经按 `updatedAt` 倒序）。
- *
- * 🔴 `source` 指定了某一来源却一份都没有时**返回 undefined，不回退**：用户选了
- * 「本地 ComfyUI」，我们不该悄悄拿云端那份去跑 —— 那一路花的是他自己账号里的钱。
- * `follow` 且这一档不经过工作流（`provider` 为 null）时同样不筛，取第一份。
+ * 实现在 `lib/workflows/upscale.ts` —— 2026-10-03 搬过去的：资产页那颗「导入的素材也要
+ * 超清」由服务端接口挑工作流，两边必须共用同一份筛法，否则会出现
+ * 「画布点得动、资产页说没配」这种同文案两种结论的事。
+ * 这里只做转出：画布上的组件一律还从 nodeMeta 引，别再各写一份。
  */
-export function upscaleWorkflowsFor<T extends WorkflowOption>(
-  workflows: T[], purpose: GeneratorKind,
-  source: UpscaleSource = DEFAULT_UPSCALE_SOURCE, provider: 'local' | 'runninghub' | null = null,
-): T[] {
-  const pool = workflows.filter(item => item.kind === purpose && item.operation === 'upscale');
-  const wanted = source === 'follow' ? provider : source;
-  if (!wanted) return pool;
-  return pool.filter(item => (item.provider === 'local' ? 'local' : 'runninghub') === wanted);
-}
-
-/**
- * `chosenId` 是用户在「超清工作流」那一行点名的哪一份（见 `NodeData.upscaleWorkflowId`）。
- * 它**只在那批候选里挑**：点名了一份来源对不上的，等于想绕开「来源」那一档，不给。
- * 点名的那份不在了就退回自动挑（`pool[0]`）—— 那一刻界面那一行会说出「不在了」，
- * 所以这里安静退回不算静默失败。
- */
-export function upscaleWorkflowFor<T extends WorkflowOption>(
-  workflows: T[], purpose: GeneratorKind,
-  source: UpscaleSource = DEFAULT_UPSCALE_SOURCE, provider: 'local' | 'runninghub' | null = null,
-  chosenId: unknown = '',
-): T | undefined {
-  const pool = upscaleWorkflowsFor(workflows, purpose, source, provider);
-  const wanted = String(chosenId ?? '').trim();
-  return (wanted ? pool.find(item => String(item.workflowId) === wanted) : undefined) ?? pool[0];
-}
+export { upscaleWorkflowsFor, upscaleWorkflowFor } from '@/lib/workflows/upscale';
 
 export type { NodeData, InputSlot, LatentRecord, ParamRow, WorkflowOption } from './types';
 
@@ -593,6 +567,62 @@ export function purposeOfNode(kind: unknown): GeneratorKind | null {
   if (kind === 'video-generate') return 'video';
   if (kind === 'image-generate') return 'image';
   return null;
+}
+
+/**
+ * 「这个节点能不能超清、超清的是哪一类媒体」（2026-10-03 徐先：导入的图 / 视频也要能超清）。
+ *
+ * 与 `purposeOfNode` 的区别：那个只管**生成节点**（超清的输入是它自己生成出来的东西），
+ * 这里还要认**输入节点** —— 拖进画布的那张图、那段视频**同样是一份现成的媒体**，
+ * 没有理由只有生成出来的才能加工。
+ *
+ * 🔴 这份判定被两处用（按钮显不显形 + 提交时带哪个 `kind`），所以只能有这一份：
+ * 两处各写一遍 if 的话，迟早出现「按钮出来了、提交却说不认识这个节点」。
+ */
+export function upscalePurposeOfNode(kind: unknown): GeneratorKind | null {
+  const purpose = purposeOfNode(kind);
+  if (purpose) return purpose;
+  /* 图片输入 / 视频输入：节点身上就躺着一份媒体，类型由它自己那一种决定。 */
+  if (kind === 'image') return 'image';
+  if (kind === 'video-input') return 'video';
+  return null;
+}
+
+/**
+ * 这一节点**此刻**能拿去超清的那份媒体地址。空串 = 没有。
+ *
+ * 取值顺序跟着「卡片正面画的是哪一份」走：
+ *   - 生成节点：自己生成出来的结果；
+ *   - 图片输入：它那张图（`imageUrl` / `previewUrl`）；
+ *   - 视频输入：它那段视频（优先落盘那两个字段）。
+ *
+ * 🔴 `blob:` 一律不算：那是上传中临时喂给播放器的地址，刷新就没了、服务端也读不到字节
+ * —— 放它过去只在点完超清之后换来一句「认不出这个地址」。
+ */
+export function upscaleSourceOfNode(data: NodeData): string {
+  const pick = (...values: unknown[]) =>
+    values.map(item => String(item ?? '').trim()).find(item => item && !item.startsWith('blob:')) || '';
+  const result = pick(data.resultUrl);
+  if (result) return result;
+  if (data.kind === 'image') return pick(data.imageUrl, data.previewUrl);
+  if (data.kind === 'video-input') return pick(data.videoRemoteFile, data.videoRemoteUrl, data.videoUrl);
+  return '';
+}
+
+/**
+ * 超清的结果写回节点的哪些字段。
+ *
+ * 生成节点只写 `resultUrl`（卡片正面画的就是它）；**输入节点要写回它自己那份值** ——
+ * 否则卡片上还是超清前那一张，用户点了超清却什么都没变（结果只在历史里躺着）。
+ * 原版不会丢：超清产出是**另一条资产**，原来那条还在资产库里。
+ */
+export function upscaleResultPatch(kind: unknown, url: string): Partial<NodeData> {
+  const clean = String(url || '').trim();
+  if (!clean) return {};
+  if (kind === 'image') return { imageUrl: clean, previewUrl: clean, resultUrl: clean };
+  if (kind === 'video-input')
+    return { videoUrl: clean, videoRemoteUrl: clean, videoRemoteFile: clean, resultUrl: clean };
+  return { resultUrl: clean };
 }
 
 /**
