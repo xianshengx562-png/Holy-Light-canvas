@@ -909,9 +909,24 @@ html[data-theme='light'] .cv-skill-mask {
   transition: border-color 0.14s ease, box-shadow 0.14s ease;
 }
 .cv-node:hover .cv-node-frame { border-color: var(--cv-node-line-hover); }
+/*
+ * 选中 = **只把描边换成强调色**，外面那圈环从 3px 收到 1px。
+ *
+ * 🔴 为什么（2026-10-03 徐先：「选中节点后节点四周阴影会消失」）：
+ *   原来这里是 `var(--cv-node-shadow), 0 0 0 3px var(--cv-node-accent-ring)`。
+ *   阴影那条声明**一个像素都没少**（真机量过：两态 computed box-shadow 完全一致），
+ *   丢的是**观感** —— 那圈 3px 的半透明环正好落在「这张卡片投影最深的一圈」上，
+ *   两者都是从描边往外由深转浅、颜色又接近，近处那段渐变被描边吃掉，
+ *   卡片就看着被拍平了，「压在地板上的一块面」没了。
+ *
+ *   所以这里不是"把阴影加回来"，是**别拿描边盖住它**：
+ *   环收到 1px（并且用实强调色，读成"2px 的选中边"而不是"一圈灰"），
+ *   出描边 2px 之外那整段投影渐变就完整留着了。
+ *   ⚠️ 改这行前先看 `_sel-shadow-*.png` 那组对照图，别再把环加宽回去。
+ */
 .cv-node.selected .cv-node-frame {
   border-color: var(--cv-node-accent);
-  box-shadow: var(--cv-node-shadow), 0 0 0 3px var(--cv-node-accent-ring);
+  box-shadow: var(--cv-node-shadow), 0 0 0 1px var(--cv-node-accent);
 }
 .cv-node.running .cv-node-frame { border-color: var(--cv-warn); }
 
