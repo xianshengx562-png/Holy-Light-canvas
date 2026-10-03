@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { NextResponse } from 'next/server';
 import { currentUser } from '@/lib/auth/session';
+import { currentRequest, isTimeoutError } from '@/lib/requestContext';
 export class ApiError extends Error { constructor(public status: number, message: string) { super(message); } }
 export async function apiUser() { const user = await currentUser(); if (!user) throw new ApiError(401,'请先登录。'); return user; }
 /**
@@ -41,9 +42,36 @@ export async function api(handler: () => Promise<Response>) {
      * 画布保存失败就是这么被藏掉的：看上去是没接库，其实是别的地方炸了。
      */
     if (process.env.DATABASE_URL && error instanceof Prisma.PrismaClientInitializationError) return NextResponse.json({error:'数据库尚未连接，请管理员完成数据库配置。'},{status:503});
-    /* 未预期的异常必须落日志：这一层对前端只回一句「服务暂时不可用」，
-       服务端什么都不打的话，500 就成了一个没有现场的黑盒（注册那次 P2021 就是这么查了半天）。 */
-    console.error('[api] 未处理的接口异常', error);
+    /*
+     * 未预期的异常必须落日志：这一层对前端只回一句「服务暂时不可用」，
+     * 服务端什么都不打的话，500 就成了一个没有现场的黑盒（注册那次 P2021 就是这么查了半天）。
+     *
+     * 🔴 日志必须带**哪个请求 + 什么时候 + 跑了多久**（2026-10-03 补）。
+     * 只打异常对象是不够的：那天徐先截图问「服务暂时不可用是什么原因」，日志里躺着 11 行
+     * `[DOMException [TimeoutError]]` —— 没有路径、没有时间，能确定「有东西超时了」，
+     * 却定不到是哪一步（生成这条路上带超时的 fetch 有七八处），只能回头去猜。
+     * 请求上下文来自 `lib/requestContext.ts`（桌面版由 `dispatch.ts` 设；web 版没有，
+     * 这里退化成 `(未知请求)`，不影响功能）。
+     */
+    const req = currentRequest();
+    const where = req
+      ? `${req.method} ${req.path} · 已跑 ${Date.now() - req.startedAt}ms`
+      : '(未知请求)';
+    const timedOut = isTimeoutError(error);
+    console.error(`[api] 未处理的接口异常 ${new Date().toISOString()} ${where}${timedOut ? ' [超时]' : ''}`, error);
+    /*
+     * 超时**单独报**，不要混进「服务暂时不可用」里。
+     *
+     * 两者对用户是两件事：500 是「我们这边炸了，等我们修」；超时是「等太久了，这次没等到，
+     * 要么稍后重试、要么换小一点的素材」—— 后者用户自己就能处理。
+     * 状态码给 504（网关超时），语义准确；前端只读 `error` 字段，换码不影响它。
+     */
+    if (timedOut) {
+      return NextResponse.json(
+        { error: '连上游等太久了，这一轮已经中断 —— 稍后重试；如果这次带了很大的参考图或视频，换小一点的素材再试。' },
+        { status: 504 },
+      );
+    }
     return NextResponse.json({error:'服务暂时不可用，请稍后重试。'},{status:500});
   }
 }

@@ -46,6 +46,16 @@ export function isRetryableApiStatus(status: number): boolean {
   if (!Number.isFinite(status)) return false;
   if (status === 0) return true;
   if (status === 408 || status === 429) return true;
+  /*
+   * 🔴 **504 不重试**（2026-10-03 补）。
+   *
+   * 这个码是我们自己发的「连上游等太久了」（`lib/api.ts` 认出 `AbortSignal.timeout`
+   * 掐断时给的那个），和「后端不在」是两回事：后者等一两秒就好（503 / 连不上），
+   * 前者是**上游真的慢**，再等一遍是同样的时长 —— 超时档最长 120 秒，五档退避加起来
+   * 会让界面白等十分钟，而结果大概率还是一样。
+   * 该重试的那两类不受影响：后端重启回 503、连不上回 0，都还在这里面。
+   */
+  if (status === 504) return false;
   return status >= 500;
 }
 

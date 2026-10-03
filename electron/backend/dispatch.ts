@@ -6,6 +6,12 @@ import { APP_ORIGIN } from '@/lib/app-origin';
  * 的请求互相读到对方的身份。所以每个 handler 都要包在这一层里。
  */
 import { runWithRequest } from '../shims/next-headers';
+/*
+ * 「当前请求是谁」—— 第二个按请求的上下文，但用途不同：上面那个给 `next/headers` 的替身
+ * 读会话令牌用，这一个**只给日志用**（`lib/api.ts` 的兜底 catch 靠它打出
+ * 「哪个接口、跑了多久」，见 `lib/requestContext.ts` 的注释）。
+ */
+import { runInRequest } from '@/lib/requestContext';
 
 /**
  * 路由分发 —— **只跑在后端进程里**。
@@ -96,7 +102,10 @@ export async function dispatchRequest(req: Request): Promise<Response> {
 
   const request = await normalize(req);
   try {
-    const out = await runWithRequest(request, () => handler(request, { params: Promise.resolve(hit.params) }));
+    const out = await runInRequest(
+      { method, path: url.pathname, startedAt: Date.now() },
+      () => runWithRequest(request, () => handler(request, { params: Promise.resolve(hit.params) })),
+    );
     // 路由里可能直接返回 undefined（忘了 return 的分支），别让协议层拿到 undefined 去崩
     return out ?? json({ error: '接口没有返回内容' }, 500);
   } catch (error) {
