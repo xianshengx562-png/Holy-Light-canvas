@@ -174,14 +174,24 @@ type DockFrame = { x: number; y: number; zoom: number; width: number };
  *   - 会压住左下角那条视口控制条 `.cv-vp`（`left:14 / bottom:14`、高 38px）。
  *   换来的是**位置永不跳动**：面板永远在节点正下方 12px，节点往上挪一点它就自己回来。
  */
-function dockAnchorFor(node: Node<NodeData>, frame: DockFrame): DockAnchor {
+function dockAnchorFor(
+  node: Node<NodeData>,
+  frame: DockFrame,
+  /**
+   * 这个节点的**实测**尺寸（DOM 量出来的，flow 坐标）。
+   *
+   * 🔴 见 `dockSize` 那段注释：`node.measured` 在用户拖宽节点之后会**停在旧值**，
+   * 拿它算高度就会把面板贴进卡片中间。实测值优先，量不到才退回 `measured`。
+   */
+  size?: { w: number; h: number } | null,
+): DockAnchor {
   const zoom = frame.zoom || 1;
   /* 画布还没量出来（首帧 width 是 0）时按窗口算 —— 不然会蹦到左上角一下。 */
   const paneW = frame.width || window.innerWidth;
   const nodeLeft = node.position.x * zoom + frame.x;
   const nodeTop = node.position.y * zoom + frame.y;
-  const boxW = (node.measured?.width ?? node.width ?? DOCK_FALLBACK_W) * zoom;
-  const boxH = (node.measured?.height ?? node.height ?? DOCK_FALLBACK_H) * zoom;
+  const boxW = (size?.w || node.measured?.width || node.width || DOCK_FALLBACK_W) * zoom;
+  const boxH = (size?.h || node.measured?.height || node.height || DOCK_FALLBACK_H) * zoom;
 
   const width = Math.max(DOCK_MIN_W, Math.min(DOCK_WIDTH, paneW - DOCK_EDGE * 2));
   const centered = nodeLeft + boxW / 2 - width / 2;
@@ -668,6 +678,20 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
    */
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(starter ? defaultEdges : initial.edges);
   const [selected, setSelected] = useState<string | null>(null);
+  /**
+   * 参数底栏贴的那个节点的**实测尺寸**（2026-10-03 徐先：「我放大节点之后，再点击节点，
+   * 框直接到画面中了」）。
+   *
+   * 🔴 为什么不能读 `node.measured`：节点尺寸是 `data.width/height` 驱动出来的
+   * （拖右下角把手、换比例、结果图/视频加载完都会改），而 React Flow 那份 `measured`
+   * 只反映**它自己最近一次测量**的结果 —— 实测下来，把节点从 707×463 拖到 1157×716 之后，
+   * `measured.height` 一直停在 463 不动（等 2 秒、取消选中再点，都不动）。
+   * 于是面板还按旧高度往下贴，直接贴进了卡片中间（实测差 128px，视觉上就是「框跑到画面里」）。
+   *
+   * 所以这里**直接盯那个节点的 DOM**：尺寸一变就跟着走，跟 React Flow 的账本无关。
+   * 只在有 dock 的时候观察（同时观察整块画布的每个节点没有必要，也很贵）。
+   */
+  const [dockSize, setDockSize] = useState<{ id: string; w: number; h: number } | null>(null);
   const [saveState, setSaveState] = useState<'saved' | 'saving' | 'failed' | 'conflict'>('saved');
   const [latents, setLatents] = useState<LatentRecord[]>([]);
   const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
@@ -4012,6 +4036,32 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
    */
   const dockNode = current && usesGenerateDock(current.data.kind) ? current : null;
   /**
+   * 盯住 dock 那个节点的 DOM 尺寸，量到就记进 `dockSize`（见它那段注释）。
+   *
+   * ⚠️ 依赖只写**节点的 id**，不写 `dockNode` 本身 —— 那个对象每帧都是新的，
+   * 写进去等于每帧重建一个 ResizeObserver。
+   * ⚠️ 用 `useEffect` 而不是 `useLayoutEffect`：项目里一处 `useLayoutEffect` 都没有，
+   * 而且它会在服务端渲染时报警告、污染 `backend.stderr.log`。代价是面板出现的那一帧
+   * 还按旧尺寸贴（16ms 后自己跳正），比现在「一直错」好得多。
+   * ⚠️ `read` 里做了同值短路：ResizeObserver 回调里每帧 setState 会让画布白重渲染。
+   */
+  const dockId = dockNode?.id || '';
+  useEffect(() => {
+    if (!dockId) { setDockSize(null); return; }
+    const el = document.querySelector(`.react-flow__node[data-id="${dockId}"]`);
+    if (!el) { setDockSize(null); return; }
+    const read = () => {
+      /* offsetWidth/Height 是**布局**尺寸，不受画布 zoom 影响 —— 正是上面公式要的量。 */
+      const w = (el as HTMLElement).offsetWidth;
+      const h = (el as HTMLElement).offsetHeight;
+      setDockSize(prev => (prev && prev.id === dockId && prev.w === w && prev.h === h ? prev : { id: dockId, w, h }));
+    };
+    read();
+    const observer = new ResizeObserver(read);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [dockId]);
+  /**
    * 对话框要**跟着节点走**，所以位置得在每次视口变化时重算。
    *
    * ⚠️ 这里三个原始值必须**分开订阅**：`useStore(s => s.transform)` 返回的是同一个
@@ -4024,8 +4074,11 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
   const viewY = useStore(state => state.transform[1]);
   const viewZoom = useStore(state => state.transform[2]);
   const paneW = useStore(state => state.width);
+  /* ⚠️ 尺寸要**跟着节点走**：量到的是上一个节点的，就宁可退回 `measured`（那至少是它自己的），
+     不然换节点那一帧面板会先跳到上一个节点的高度上去。 */
   const dockAnchor = dockNode
-    ? dockAnchorFor(dockNode, { x: viewX, y: viewY, zoom: viewZoom, width: paneW })
+    ? dockAnchorFor(dockNode, { x: viewX, y: viewY, zoom: viewZoom, width: paneW },
+      dockSize && dockSize.id === dockNode.id ? dockSize : null)
     : undefined;
 
   /**
