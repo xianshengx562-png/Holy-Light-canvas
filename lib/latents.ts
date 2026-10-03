@@ -6,6 +6,7 @@ import { gunzipSync, gzipSync } from 'node:zlib';
 import { db } from '@/lib/db';
 import { latentRoot, resolveStoredPath } from '@/lib/output-dir';
 import { isMediaResult } from '@/lib/media';
+import { latentUploadName } from '@/lib/latent-name';
 
 export const latentAssetPrefix = 'asset:';
 export type LatentKind = 'coarse' | 'fine';
@@ -166,7 +167,14 @@ export async function readLatentFile(assetId: string, userId: string) {
   const packed = await readFile(/*turbopackIgnore: true*/ await resolveStoredPath(meta.path));
   return {
     buffer: gunzipSync(packed),
-    fileName: `${meta.sequence || 'L000'}-${meta.kind === 'fine' ? 'fine' : 'coarse'}.latent`,
+    /*
+     * 🔴 上传时用的名字**必须以 `.safetensors` 结尾**（2026-10-03 徐先报的那次 500）：
+     * 上游那个 `Yuan_H3MotionContextLoadLatent` 节点按后缀判类型，原来这里给的是
+     * `.latent`，于是任务跑完一轮才报「手动上传仅支持 .safetensors 文件」。
+     * 内容一直是 safetensors（读回来就是上游给的那份字节），错的只是名字。
+     * 判据只有一处：`lib/latent-name.ts`（零依赖、另有单测锁着）。
+     */
+    fileName: latentUploadName(meta.sequence, meta.kind),
     name: asset.name,
   };
 }
