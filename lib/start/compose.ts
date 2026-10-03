@@ -62,11 +62,24 @@ export const ENGINES_FOR: Record<CanvasMode, readonly ComposeEngine[]> = {
   video: ['videoapi', 'runninghub', 'local'],
 };
 
-export const ENGINE_META: Record<ComposeEngine, { label: string; hint: string }> = {
-  videoapi: { label: '视频网关', hint: '直连视频网关，选比例 / 分辨率 / 时长' },
-  runninghub: { label: 'RunningHub 工作流', hint: '用云端保存的工作流，算力在 RunningHub 上，按点扣费；进画布后选具体哪一份' },
-  local: { label: '本地 ComfyUI 工作流', hint: '用本机 ComfyUI 的工作流，图与算力都在自己这边，不扣费；进画布后选具体哪一份' },
-  custom: { label: '自定义接口', hint: '走你在「设置 · 模型服务」里添加的自定义接口，挑一个模型直接出图；参数是比例 / 分辨率，计费由那家决定' },
+/**
+ * 每个引擎两套名字，**按语境挑**：
+ *   - `label` —— 完整名字，把「这是个什么来源」说全。首页那个选择框用它
+ *     （那里就一颗下拉，旁边没有别的字能替它把话说完）。
+ *   - `short` —— 短名字，**只在图片生成页底部那一排**用（2026-10-03，N-99）。
+ *     那里的语境是 `RunningHub ⌄ | 选工作流… ⌄ | 16:9 横屏 ⌄ | 1328 × 752 ⌄`：
+ *     右边那颗已经写着「工作流」了，左边再写一遍，整排就要 904px ——
+ *     而生成条只有 860px，多出来的 44px 正好把发送钮挤到第二行。
+ *
+ * ⚠️ 短名字**只改显示**：`engine` 的值、参数链路、提交给工作流的字段一个都不动。
+ * ⚠️ 短名字是**必填**（不是 `short?`）：这样以后加一个引擎，tsc 会逼着你想一次
+ *    「它在那一排里显示成什么」，而不是默默退回到长名字、把那排重新撑破。
+ */
+export const ENGINE_META: Record<ComposeEngine, { label: string; short: string; hint: string }> = {
+  videoapi: { label: '视频网关', short: '视频网关', hint: '直连视频网关，选比例 / 分辨率 / 时长' },
+  runninghub: { label: 'RunningHub 工作流', short: 'RunningHub', hint: '用云端保存的工作流，算力在 RunningHub 上，按点扣费；进画布后选具体哪一份' },
+  local: { label: '本地 ComfyUI 工作流', short: '本地 ComfyUI', hint: '用本机 ComfyUI 的工作流，图与算力都在自己这边，不扣费；进画布后选具体哪一份' },
+  custom: { label: '自定义接口', short: '自定义接口', hint: '走你在「设置 · 模型服务」里添加的自定义接口，挑一个模型直接出图；参数是比例 / 分辨率，计费由那家决定' },
 };
 
 /** 每个模式的默认引擎：出图走 RunningHub 工作流，出视频走网关。 */

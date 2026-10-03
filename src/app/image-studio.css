@@ -195,14 +195,33 @@
 .studio-input::placeholder { color: var(--text-mute); }
 
 /* 下段：参数排。它**自己没有边框** —— 边框在上段那张卡上。 */
+/*
+ * 🔴 这一排**永不换行**（2026-10-03，N-99）。
+ *
+ * 原来这里是 `flex-wrap: wrap`：装不下就往下折一行 —— 看着像个兜底，实际是**把发送钮折走**。
+ * 徐先看到的就是这个：「生成按钮被你移动到下一行了」。量出来的数：
+ *   这一排要 904px（8 个控件 + 7×8px 间隙），而 `.studio-dock` 上限只有 860px → 差 44px。
+ * 而掉行之后更难看：第一行被 `.studio-spacer` 撑满，出图钮落到第二行**贴左边**
+ * （实测 x 从最右的 1240 变成最左的 416）——「被移走了」的感觉就是这么来的。
+ *
+ * 所以：**不换行**，宽度不够时让参数胶囊**按比例压扁**（下面 `.studio-pill` 那条），
+ * 两颗动作钮 `flex: none` 一律不参与压缩、永远钉在右边缘。
+ * 压扁的上限是浏览器自己算的：超出多少就摊到几颗胶囊上，压不动了才溢出；
+ * 实测窗口拉到最小（1024 → 生成条只剩 776px）也只是胶囊窄十几像素，不会掉行、不会越界。
+ */
 .studio-dockbar {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   margin-top: 10px;
 }
-.studio-spacer { flex: 1 1 auto; }
+/*
+ * 🔴 弹性空档：装得下时它吃掉余量（把两颗动作钮顶到右边缘），装不下时它**不占权重**
+ *    —— `flex-basis: auto` 而内容是空的 → 基准尺寸 0，再怎么 `flex-shrink` 也轮不到它。
+ *    别改成 `flex: 1 1 100%` 之类：那会让它在压缩时跟参数胶囊抢份额，胶囊白挨一刀。
+ */
+.studio-spacer { flex: 1 1 auto; min-width: 0; }
 
 /*
  * 「优化时照 <技能>」那一格（2026-09-26）。
@@ -235,7 +254,10 @@
 .studio-pill.skill-pill .studio-select:hover,
 .studio-pill.skill-pill .studio-select:focus {
   padding: 6px 25px 6px 0;
-  max-width: 210px;
+  /* 210 → 160（N-99）：它是这一排**最宽的一颗**（含左边「优化时照」那四个字，实测 226px）。
+     它跟别的不同 —— 宽度由**最长的技能标题**决定，不是选中项，所以只能靠 max-width 收。
+     收到 160 之后整排从 904px 降到 826px，860px 的生成条终于有 34px 余量。 */
+  max-width: 160px;
   background: transparent;
   border-color: transparent;
 }
@@ -246,11 +268,25 @@
  * 胶囊：外壳是 `.studio-pill`（定位 + 装那个自画的箭头），里面才是原生 `<select>`。
  * 箭头得自己画 —— 系统那个下拉三角是方角表单的一部分，跟整页胶囊手感对不上。
  */
-.studio-pill { position: relative; display: inline-flex; align-items: center; flex: none; }
+/*
+ * 参数胶囊：**可压缩**（`flex: 0 1 auto`，原来是 `flex: none` 一律不缩）。
+ *
+ * 🔴 `min-width: 0` 才是让压缩真生效的那一句 —— 不写它，`<select>` 的「自动最小尺寸」
+ *    是它**最宽那个 option** 的宽度（原生表单控件的固有尺寸），压缩会被挡住、直接溢出。
+ *    写了它，压出来的效果是文字被右边缘切掉一点（原生 select 没法打省略号），
+ *    比「发送钮掉到第二行」好得多。
+ * ⚠️ 两颗动作钮（`.studio-opt` / `.studio-go`）**必须留在 `flex: none`**：
+ *    它们是这一排里唯一不许变形的东西（正圆 + 固定 36px），压扁就不成圆了。
+ */
+.studio-pill { position: relative; display: inline-flex; align-items: center; flex: 0 1 auto; min-width: 0; }
 .studio-select {
   /* globals 给表单控件的 width:100% / 方角 / 实心描边 / 输入框底色在这里都不成立。 */
   width: auto;
-  max-width: 190px;
+  /* 190 → 170（N-99）：引擎 / 工作流这两颗的下限，见 `.studio-dockbar` 那段的总账。
+     这一页最长的内容（按中文全角的 `本地 ComfyUI` 那种）量出来 148 —— 170 留了余量。 */
+  max-width: 170px;
+  /* ⚠️ 必须写：不写的话「自动最小尺寸」= 最宽那个 option 的宽度，父级压不动它。 */
+  min-width: 0;
   appearance: none;
   -webkit-appearance: none;
   padding: 6px 25px 6px 12px;

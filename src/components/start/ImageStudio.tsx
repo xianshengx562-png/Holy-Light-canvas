@@ -460,8 +460,14 @@ export default function ImageStudio() {
           <select className="studio-select" value={engine} aria-label="引擎"
             onChange={event => switchEngine(event.target.value as ComposeEngine)}
             title={ENGINE_META[engine].hint}>
+            {/*
+              ⚠️ 这里用**短名字**（`short`），不是 `label` —— 这颗胶囊右边就挨着「选工作流…」，
+                 再写一遍「工作流」会把整排撑到 904px，发送钮就掉到第二行了（见 ENGINE_META 那段）。
+                 `<select>` 显示的永远是选中项的文本，所以下拉列表里也会是短名字 —— 这一页只有
+                 两三项，标题（hint）里仍然带着完整说法，认得出来。
+            */}
             {engineItems.map(item => (
-              <option key={item} value={item}>{ENGINE_META[item].label}</option>
+              <option key={item} value={item}>{ENGINE_META[item].short}</option>
             ))}
           </select>
           <ChevronDown size={13} strokeWidth={2} aria-hidden />
