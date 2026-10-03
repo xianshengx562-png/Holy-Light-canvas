@@ -1,7 +1,7 @@
 import type { Prisma } from '@prisma/client';
 import { db } from '@/lib/db';
 import { refundGeneration } from '@/lib/wallet';
-import { remoteStatusOf } from '@/lib/taskRemote';
+import { failureDetailOf, remoteStatusOf } from '@/lib/taskRemote';
 import { queryTask } from '@/lib/providers/runninghub/client';
 import { queryWebAppOutputs } from '@/lib/providers/runninghub/webapp';
 import { webAppIdOf } from '@/lib/workflows/runninghubApp';
@@ -173,7 +173,12 @@ export async function pollTaskOnce(userId: string, task: PollableTask): Promise<
     data: {
       status,
       result: done ? rewriteResultUrls(remote.results, media) : (remote.results ?? undefined),
-      error: remote.errorMessage || undefined,
+      /*
+       * 🔴 失败原因要取**详细的那份**（2026-10-04）：上游的 `failedReason` 里写着哪个节点、
+       * 什么异常、以及一句「该怎么办」（显存不足会给四条调整建议）—— 原来只存外层那句
+       * 「工作流运行失败」，用户看到的等于什么都没说。
+       */
+      error: failureDetailOf(remote) || undefined,
       completedAt: status === 'success' || status === 'failed' ? new Date() : undefined,
     },
   });

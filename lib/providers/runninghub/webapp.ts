@@ -121,7 +121,7 @@ export async function queryWebAppOutputs(
   taskId: string,
   apiKey?: string,
   baseUrl?: string,
-): Promise<{ status: string; results?: { url: string; outputType?: string }[]; errorMessage?: string }> {
+): Promise<{ status: string; results?: { url: string; outputType?: string }[]; errorMessage?: string; failedReason?: unknown }> {
   const payload = await postJson('/task/openapi/outputs', { taskId }, apiKey, baseUrl);
   const data = payload.data;
   const list = Array.isArray(data)
@@ -140,6 +140,13 @@ export async function queryWebAppOutputs(
   return {
     status: failed ? 'FAILED' : (status || 'RUNNING'),
     results: results.length ? results : undefined,
-    errorMessage: failed ? String(raw?.failedReason || raw?.errorMessage || '应用运行失败。') : undefined,
+    /*
+     * ⚠️ 这里**不能**直接 `String(failedReason)`：工作流那条给的是对象，String() 出来是
+     * "[object Object]"，比没有还糟。详细原因交给 `failureDetailOf()` 归一化，这里只留一句兜底。
+     */
+    errorMessage: failed
+      ? String(typeof raw?.failedReason === 'string' && raw.failedReason ? raw.failedReason : raw?.errorMessage || '应用运行失败。')
+      : undefined,
+    failedReason: raw?.failedReason,
   };
 }

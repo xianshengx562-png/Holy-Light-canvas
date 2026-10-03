@@ -1,5 +1,5 @@
 import { api, apiUser, ApiError, checkOrigin } from '@/lib/api';
-import { uploadMedia } from '@/lib/providers/runninghub/client';
+import { uploadMediaCached } from '@/lib/providers/runninghub/client';
 import { resolveRunningHub } from '@/lib/providers/runninghub/connection';
 
 const maxBytes = 100 * 1024 * 1024;
@@ -33,7 +33,8 @@ export async function POST(request: Request) {
      * 失败原因要带出去。原来这里只回一句「上传失败，请检查连接或文件格式后重试」——
      * 那是在让人猜：是 Key 不认、还是文件太大、还是上游抽风？（同 `lib/upload.ts` 那条规矩）
      */
-    try { return Response.json(await uploadMedia(file, apiKey, baseUrl)); }
+    /* Cached like the generation path: uploading the same bytes twice should be free. */
+    try { return Response.json(await uploadMediaCached(file, apiKey, baseUrl)); }
     catch (error) { throw new ApiError(502, error instanceof Error ? error.message : 'RunningHub 上传失败。'); }
   });
 }

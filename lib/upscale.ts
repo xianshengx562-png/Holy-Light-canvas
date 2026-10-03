@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { ApiError } from '@/lib/api';
 import { openMediaAsset } from '@/lib/media';
-import { uploadMedia } from '@/lib/providers/runninghub/client';
+import { uploadMediaCached } from '@/lib/providers/runninghub/client';
 import { uploadOrExplain } from '@/lib/upload';
 
 /**
@@ -82,7 +82,7 @@ export async function resolveUpscaleInput(
     throw new ApiError(400, `取不到要超清的媒体（${error instanceof Error ? error.message : '读取失败'}）。它可能是 RunningHub 的原始地址、已经过期了 —— 换一次生成结果再试。`);
   }
 
-  const uploader = upload || ((file: File) => uploadMedia(file, apiKey).then(item => item.fileName));
+  const uploader = upload || ((file: File) => uploadMediaCached(file, apiKey).then(item => item.fileName));
   /* 上传失败要说清「哪一步、为什么」（`uploadOrExplain` 那条注释里就是这一轮撞出来的事）。 */
   return uploadOrExplain('待超清的媒体', () => uploader(new File([bytes], name)));
 }

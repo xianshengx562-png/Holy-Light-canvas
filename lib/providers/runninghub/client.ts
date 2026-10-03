@@ -1,6 +1,7 @@
 import 'server-only';
 import { sharedKeyAllowed } from './config';
 import { RUNNINGHUB_SITES } from './connection';
+import { bytesDigest, readUploadCache, rememberUpload, uploadCacheKey } from './upload-cache';
 
 /**
  * ⚠️ 2026-09-21：地址不再是**全局常量**了。
@@ -83,6 +84,32 @@ export async function uploadMedia(file: File, apiKey?: string, baseUrl?: string)
     throw new Error(`RunningHub 上传失败（HTTP ${response.status}${detail ? ' · ' + detail : ''}）`);
   }
   return { fileName: String(body.data.fileName), url: String(body.data.download_url || ''), uploadedAt: new Date().toISOString() };
+}
+
+/**
+ * `uploadMedia` with a "same bytes → same upstream file name" cache in front of it.
+ *
+ * A run has to get its latents and reference images onto RunningHub *before* the task
+ * exists, and it does that serially: 徐先's two latents (13.5 MB + 31.6 MB) at this
+ * machine's ~75 KB/s upstream meant the canvas sat on "运行中" for minutes while the cloud
+ * had not even started — the wait was our upload, not their queue. The *same* latent is
+ * re-sent on every run of a chain, so most of that was pure repetition.
+ *
+ * Everything that pushes a file to RunningHub should go through here. The cache key is
+ * (host + account + sha256 of the bytes), so a renamed or re-generated copy of the same
+ * file hits too.
+ *
+ * ⚠️ On a cache miss we upload the bytes we already read — not the original `File` — so the
+ * hash and the upload are guaranteed to be about the same content.
+ */
+export async function uploadMediaCached(file: File, apiKey?: string, baseUrl?: string) {
+  const bytes = Buffer.from(await file.arrayBuffer());
+  const key = uploadCacheKey({ baseUrl, apiKey, digest: bytesDigest(bytes) });
+  const hit = await readUploadCache(key);
+  if (hit) return { ...hit, uploadedAt: new Date().toISOString() };
+  const fresh = await uploadMedia(new File([bytes], file.name || 'file', { type: file.type }), apiKey, baseUrl);
+  await rememberUpload(key, fresh, bytes.length);
+  return fresh;
 }
 
 /**

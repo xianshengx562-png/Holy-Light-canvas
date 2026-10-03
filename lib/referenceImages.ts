@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { ApiError } from '@/lib/api';
 import { openMediaAsset } from '@/lib/media';
-import { uploadMedia } from '@/lib/providers/runninghub/client';
+import { uploadMediaCached } from '@/lib/providers/runninghub/client';
 import { uploadOrExplain } from '@/lib/upload';
 
 /**
@@ -91,7 +91,7 @@ export async function resolveReferenceImage(
     throw new ApiError(400, `取不到${label}（${error instanceof Error ? error.message : '读取失败'}）。它可能是 RunningHub 的原始地址、已经过期了 —— 换一次生成结果再试。`);
   }
 
-  const uploader = options.upload || ((file: File) => uploadMedia(file, apiKey).then(item => item.fileName));
+  const uploader = options.upload || ((file: File) => uploadMediaCached(file, apiKey).then(item => item.fileName));
   /* 与超清那条同一条规矩：上传失败要报「哪一份东西、上游为什么」，别被兜成「服务暂时不可用」。 */
   return uploadOrExplain(label, () => uploader(new File([bytes], name)));
 }

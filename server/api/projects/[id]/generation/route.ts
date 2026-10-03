@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { api, apiUser, ApiError, checkOrigin, jsonBody } from '@/lib/api';
 import { chargeWallet, costPerGenerationFen, isUnlimited, refundGeneration } from '@/lib/wallet';
 import { db } from '@/lib/db';
-import { submitWorkflow, uploadMedia, type RunningHubResponse } from '@/lib/providers/runninghub/client';
+import { submitWorkflow, uploadMediaCached, type RunningHubResponse } from '@/lib/providers/runninghub/client';
 import { submitWebApp } from '@/lib/providers/runninghub/webapp';
 import { isRunningHubAppWorkflowId, webAppIdOf } from '@/lib/workflows/runninghubApp';
 import { resolveRunningHub, type KeySource } from '@/lib/providers/runninghub/connection';
@@ -121,8 +121,13 @@ async function resolveLatentValues(values: string[] | undefined, userId: string,
      * 参考图 / 视频 / 超清那三条路早就包了 `uploadOrExplain`，只有 latent 这条漏了。
      */
     /* `uploadOrExplain` 收的是「拿文件名」这一步 —— 它和参考图 / 视频那几条路一个形状。 */
+    /*
+     * 🔴 走**带缓存**的那版（2026-10-04）：同一个 latent 每次跑都重传，两份加起来 45MB、
+     * 本机上行 ~75 KB/s —— 那几分钟的「运行中」其实是在传文件，不是在等云端排队。
+     * 缓存的键是文件内容的 sha256 + 站点 + 账号，所以换名字/重新导出的同一份文件也能命中。
+     */
     return uploadOrExplain(`latent「${file.fileName}」`, () =>
-      uploadMedia(new File([file.buffer], file.fileName), apiKey, baseUrl).then(item => item.fileName));
+      uploadMediaCached(new File([file.buffer], file.fileName), apiKey, baseUrl).then(item => item.fileName));
   }));
 }
 
@@ -334,7 +339,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
      */
     const uploader: (file: File) => Promise<string> = useLocal
       ? (file: File) => uploadLocalMedia(file, local)
-      : (file: File) => uploadMedia(file, apiKey, runningHubBase).then(item => item.fileName);
+      : (file: File) => uploadMediaCached(file, apiKey, runningHubBase).then(item => item.fileName);
     /*
      * 超清：待加工的那份媒体是**已经落盘的本地资产**，得重传成对端认得的文件名 ——
      * 直接把 `/api/assets/...` 塞进去，工作流收到的是一个它取不到的路径，

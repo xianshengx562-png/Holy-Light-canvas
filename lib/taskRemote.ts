@@ -19,6 +19,12 @@
 export type RemoteTaskState = {
   status?: unknown;
   errorMessage?: unknown;
+  /**
+   * RunningHub 把**真正有用的那部分**放在这里：哪个节点、什么异常、以及一句「该怎么办」。
+   * 工作流那条（`/query`）给的是**对象**，应用那条（`/task/openapi/outputs`）给的是**字符串** ——
+   * 两种都认，见 `failureDetailOf()`。
+   */
+  failedReason?: unknown;
 };
 
 export type TaskStatus = 'success' | 'failed' | 'queued' | 'running';
@@ -49,4 +55,42 @@ export function remoteStatusOf(remote: RemoteTaskState | null | undefined): Task
   if (raw === 'QUEUED') return 'queued';
   if (typeof remote?.errorMessage === 'string' && isTerminalRemoteError(remote.errorMessage)) return 'failed';
   return 'running';
+}
+
+/**
+ * 失败原因的长文案上限。
+ *
+ * 上游会塞一整段带换行和箭头的建议进来（显存那条就是），原样写进卡片会撑破布局 ——
+ * 压成一行、截到这么长，够看出「哪个节点、什么错、往哪个方向调」。
+ */
+export const FAILURE_DETAIL_MAX = 200;
+
+/** 压成一行并截断 —— 界面上是一行文字的位置，不是一段日志。 */
+function oneLine(value: unknown): string {
+  const text = typeof value === 'string' ? value : '';
+  return text.replace(/\s+/g, ' ').trim().slice(0, FAILURE_DETAIL_MAX);
+}
+
+/**
+ * 失败原因的**可读版本**（2026-10-04）。
+ *
+ * 起因：徐先看到卡片上只有一句「工作流运行失败」，得我这边解密 key 去问上游才知道是
+ * 显存不足 —— 而那句话（连同四条操作建议、出错节点名）**上游本来就给了**，只是我们
+ * 只取了外层那句没营养的 `errorMessage`，把 `failedReason` 整个丢掉了。
+ *
+ * 优先级：`failedReason.exception_message` > `failedReason`（字符串）> `errorMessage`。
+ * 节点名拼在前面（`SamplerCustomAdvanced：...`）——「在哪个节点炸的」是排查第一步。
+ */
+export function failureDetailOf(remote: RemoteTaskState | null | undefined): string {
+  const reason = remote?.failedReason;
+  if (typeof reason === 'string' && reason.trim()) return oneLine(reason);
+  if (reason && typeof reason === 'object') {
+    const row = reason as { exception_message?: unknown; node_name?: unknown; exception_type?: unknown };
+    const message = oneLine(row.exception_message);
+    const node = oneLine(row.node_name);
+    if (message) return node ? `${node}：${message}` : message;
+    const type = oneLine(row.exception_type);
+    if (type) return node ? `${node}（${type}）` : type;
+  }
+  return oneLine(remote?.errorMessage);
 }
