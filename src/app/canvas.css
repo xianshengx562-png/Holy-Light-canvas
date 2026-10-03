@@ -1448,7 +1448,29 @@ html[data-theme='light'] .cv-skill-mask {
   box-shadow: var(--cv-shadow-2);
 }
 .flow-shell .react-flow__attribution { display: none !important; }
-.flow-shell .react-flow__selection { background: var(--cv-select-bg); border: 1px solid var(--cv-accent); }
+/*
+ * 框选是**两段**，必须用同一套样式：
+ *   ① 按住左键拖着的时候 = `.react-flow__selection`
+ *   ② **松开之后**（节点已经选中，整组外面还留着一圈，拖这一圈可以整组搬）
+ *      = `.react-flow__nodesselection-rect`
+ *
+ * 🔴 我们原来只管住了 ①，② 一直是 **React Flow 的默认值**：
+ *      border: 1px dotted rgba(0, 89, 220, 0.8)
+ *      background: rgba(0, 89, 220, 0.08)
+ *    —— 翻译过来就是「一圈**蓝**虚线 + 一片**淡蓝**底」。它跟这个应用不是一套语言
+ *    （这边是单强调色 + 极淡的底），而且在深色地板上那点蓝特别扎眼。
+ *    2026-10-03 徐先：「框选后是这种虚线，这种蓝色的」—— 说的就是它。
+ *
+ * 现在两段并成一条规则：改一处两段一起变，不会再各自跑偏。
+ * ⚠️ 必须带 `.flow-shell` 前缀：React Flow 自带那条是单类名选择器，
+ *    同权重下靠先后顺序也能压住，但加前缀更稳、也不会被别处的重排带跑。
+ * ⚠️ 放开之前先看 `_mq-before-after.png`：别再把「②」改回虚线。
+ */
+.flow-shell .react-flow__selection,
+.flow-shell .react-flow__nodesselection-rect {
+  background: var(--cv-select-bg);
+  border: 1px solid var(--cv-accent);
+}
 
 /* ---------- 生成结果侧边栏（右上角第三个图标 · 跨画布共通） ----------
    2026-09-17 从「顶栏按钮 + 画布左上角浮层」改成右上角图标 + 右侧抽屉：
