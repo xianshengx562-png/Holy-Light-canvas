@@ -159,7 +159,15 @@ export async function listAssets(input: {
       createdLabel: dateFormat.format(row.createdAt),
       sizeLabel: formatSize(size),
       projectId: row.projectId,
-      projectName: row.project.name,
+      /*
+       * 🔴 **项目行可能已经不在了，必须兜住**（2026-10-03 验自动清理时炸出来的）：
+       * `deleteProject()` 会连资产一起删，但**删完之后才落盘的那一笔**（还在跑的任务
+       * 回来归档）仍然带着旧 `projectId`。这种记录一出现，这里 `row.project.name`
+       * 就抛 `Cannot read properties of null` —— 而它在一个 `flatMap` 里，
+       * 一抛就是**整个 `/api/assets` 500**，资产页直接打不开（他库里有 6 条，挂了很久没被发现）。
+       * 措辞跟 `listAssetProjects()` 里那条保持一致：同一件事在界面上就该是同一句话。
+       */
+      projectName: row.project?.name ?? '（已删除的项目）',
       sourceTaskId: row.sourceTaskId ? String(row.sourceTaskId) : null,
       /* 只有视频会拿到东西 —— 它就是「接一个 Latent 中转就能续接」的那几份。 */
       relayLatents: row.sourceTaskId ? (relayByTask.get(String(row.sourceTaskId)) || []) : [],
@@ -750,6 +758,89 @@ export async function cleanupOrphans(): Promise<CleanupResult> {
     }
   }
   return { removed, bytes, failed, recent: scan.recent };
+}
+
+/* ------------------------------------------------------------------ *
+ * 反过来那一半：记录还在、文件没了 —— 自动收掉
+ * ------------------------------------------------------------------ */
+
+/** 路径在不在（目录 / 文件都算）。 */
+async function exists(target: string): Promise<boolean> {
+  try { await stat(/*turbopackIgnore: true*/ target); return true; } catch { return false; }
+}
+
+/** 一次自动清理最多删几条（见 `pruneMissingAssets` 的闸门 ③）。 */
+const MISSING_PRUNE_MAX = 200;
+
+export type MissingPrune = {
+  /** 这一轮删掉了几条。 */
+  removed: number;
+  /** 这一轮看了几条。 */
+  checked: number;
+  /** 产出目录不在（盘没挂 / 目录搬走）→ 整轮跳过，一条都没看。 */
+  skipped: boolean;
+};
+
+/**
+ * 把「文件已经不在了」的资产记录删掉 —— **自动，不用用户点**（2026-10-03，徐先：
+ * 「没有的图就自动删除记录」）。
+ *
+ * 他要清的是生成页历史栏里那张点不开的占位（alt 写着 `image.png`）：它是**旧数据目录
+ * 时代留下的幽灵** —— `metadata.path` 指着改名前的 `frame-studio\storage\media\...`，
+ * 而文件在两个根目录下都已经没有了，记录却一直躺在列表里当坏图。
+ *
+ * 与 `scanOrphans()` **正好相反**：那边管「有文件、没记录」，这边管「有记录、没文件」。
+ * 判据只有一条：`metadata.path` 过一遍 `resolveStoredPath()`（**路径过期会被找回**，
+ * 找回后文件真在就不算丢）之后 `stat` 得到。
+ *
+ * 🔴 **三道闸门，少一道都可能一次清掉一大片**：
+ *  ① **产出目录不在就整轮跳过。** `media` 与 `latents` 两个锚点目录一个都不存在时，
+ *     全库的文件都会「看起来不在」—— 那是盘没挂 / 产出目录被移到移动硬盘上了，
+ *     这时候删记录等于把资产库清空。宁可这一轮什么都不做。
+ *  ② **安全期**：只碰 `createdAt` 早于 `ORPHAN_MIN_AGE_MS` 的记录。刚落盘那一步文件
+ *     可能还没写完，抢在它前面判死就等于删掉一张刚生成的图。
+ *  ③ **一次最多 `MISSING_PRUNE_MAX` 条**。真出岔子也只损失一轮，不会一夜清空。
+ *
+ * 🔴 **刻意不走 `deleteAsset()`**：那个函数先扫**全部画布**问「谁在引用」，有引用还默认拒删。
+ *    这里的记录**文件已经没了**，画布上那条引用早就是 404 的死链 —— 再拦一次只会让坏图
+ *    永远留在列表里，正是要清掉的那个东西。另外 `deleteMany` 一把过还有个好处：
+ *    两个标签页同时刷到时，后一个不会因为「记录已经不存在」抛错。
+ *
+ * ⚠️ **`metadata.path` 为空的也删** —— 这不是新规矩，`storageOverview()` 早就把这种行
+ *    算进「文件已不在磁盘上」并显示给用户了（资产页那条红线）。两处必须同一个口径，
+ *    不然会出现「红线说 N 条坏了，自动清理却说一条都没坏」。
+ *
+ * ⚠️ 只删记录、**不碰磁盘**：文件已经不在（在的就不是 missing）。所以这里没有 `unlink`。
+ */
+export async function pruneMissingAssets(input: { userId: string; projectId?: string }): Promise<MissingPrune> {
+  /* 闸门 ① */
+  const mediaAlive = await exists(await mediaRoot());
+  const latentAlive = await exists(await latentRoot());
+  if (!mediaAlive && !latentAlive) return { removed: 0, checked: 0, skipped: true };
+
+  const rows = await db.asset.findMany({
+    where: { userId: input.userId, ...(input.projectId ? { projectId: input.projectId } : {}) },
+    select: { id: true, metadata: true, createdAt: true },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  /* 闸门 ② */
+  const cutoff = Date.now() - ORPHAN_MIN_AGE_MS;
+  const gone: string[] = [];
+  for (const row of rows) {
+    const created = Date.parse(String(row.createdAt ?? ''));
+    if (Number.isFinite(created) && created > cutoff) continue;
+    const stored = (row.metadata as { path?: string } | null)?.path || '';
+    /* 空路径直接算丢（与 `storageOverview` 同口径）；有路径就先找回一次再 stat。 */
+    if (stored && await exists(await resolveStoredPath(stored))) continue;
+    gone.push(row.id);
+    /* 闸门 ③ */
+    if (gone.length >= MISSING_PRUNE_MAX) break;
+  }
+  if (!gone.length) return { removed: 0, checked: rows.length, skipped: false };
+
+  const result = await db.asset.deleteMany({ where: { id: { in: gone } } });
+  return { removed: Number(result.count || 0), checked: rows.length, skipped: false };
 }
 
 export async function storageOverview(userId: string): Promise<StorageOverview> {
