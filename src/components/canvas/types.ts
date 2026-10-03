@@ -468,7 +468,24 @@ export type NodeData = {
    * **必须由用户指定**，不自动猜：猜错的症状是接续悄悄喂了错的 latent，
    * 任务照样成功、产出和上一段毫无关系。
    */
+  /**
+   * 这一份（老的）来源 —— **只当 `latentPicks[0]` 用**。
+   * 老画布上存的就是它，读的时候由 `latentPicksOf()` 统一归一。
+   */
   latentPick?: string;
+  /**
+   * 逐槽选的来源（2026-10-03，N-114）：下标 0 → latent_1（粗采），1 → latent_2（精采）。
+   *
+   * 三种取值：某个 `asset:<id>` = 就用这一份；`LATENT_PICK_OFF` = 这一槽明确不要；
+   * **空串 / 数组里没这一项 = 自动**（跟随上游那一组归档的粗 / 精配对）。
+   * 语义上有意把「你看着办」和「别写这里」分成两种。
+   */
+  latentPicks?: string[];
+  /**
+   * 解析出来、这一轮真正会交出去的那几份（**只在 hydrated 里算，不写库**）。
+   * 面板据此在下拉里显示「自动现在配到了哪一份」—— 用户不选也能看到结果。
+   */
+  relayValues?: string[];
   /** 下拉里能选的那些（只列上游视频节点自己的归档）。只在 `hydrated` 里算，不写库。 */
   latentPickOptions?: LatentPickOption[];
   /**
@@ -609,6 +626,11 @@ export type NodeData = {
   onAppRows?: (rows: ParamRow[]) => void;
   /** 改 latent 的参数位编号（1 / 2，可多选：一条 latent 同时写进多个槽）。 */
   onLatentIndexes?: (indexes: number[]) => void;
+  /**
+   * 中转节点逐槽选的来源（2026-10-03，N-114）：下标 0 → latent_1、1 → latent_2。
+   * 空串 = 这一槽自动（跟随上游那一组归档的粗 / 精配对），`LATENT_PICK_OFF` = 明确不要。
+   */
+  onLatentPicks?: (picks: string[]) => void;
   onPreview?: (url: string) => void;
   /** 关掉预览灯箱。Esc 要能用 —— 关不掉的全屏浮层等于把画布锁住。 */
   onPreviewClose?: () => void;
@@ -663,7 +685,16 @@ export type ResultItem = { url: string; label: string; at: string; kind?: 'video
  * 后者要人点一下下拉，指错了方向就是白等。
  */
 export type LatentChain = {
+  /** 主值（= `values[0]`），老用法都还认它。 */
   value: string;
+  /**
+   * 这一轮真正要交出去的那几份 latent（2026-10-03，N-114）。
+   *
+   * 一个中转节点可以同时供**两份**（粗 / 精各一份）—— 一次生成本来就会归档两份，
+   * 以前只能二选一、另一份得再连一个中转节点。下标即槽位（0 → latent_1）。
+   * 中间空着的槽位**不能压实**：`binding: latent_N` 取的是 `values.latents[N-1]`。
+   */
+  values: string[];
   from: string;
   broken: 'cycle' | 'upstream' | 'empty' | 'unpicked' | null;
 };

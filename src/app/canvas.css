@@ -1165,10 +1165,41 @@ html[data-theme='light'] .cv-skill-mask {
   white-space: pre-wrap;
   word-break: break-word;
 }
-.cv-node-info { display: grid; gap: 5px; justify-items: center; text-align: center; }
-.cv-node-info b { font-size: 14px; font-weight: 600; }
-.cv-node-info span { font-size: 11px; color: var(--cv-mute); }
-.cv-node-info em { font-style: normal; font-size: 11px; color: var(--cv-dim); }
+/*
+ * 🔴 这里**不能**用 grid / flex（2026-10-03 真机抓到）。
+ *
+ * grid / flex item 的 `display` 会被**块化（blockify）**：写在子元素上的
+ * `display: -webkit-box` 到运行时变成 `flow-root`，于是下面那句
+ * `-webkit-line-clamp: 2` **完全失效**（实测：可见 2.5 行，卡片照样被顶出去，
+ * 而 CSS 里看着什么都有）。所以这一块用 block + 每个子元素自己 `display: block`，
+ * 唯一的目的就是**别让那个 span 变成 grid item**。
+ */
+.cv-node-info { text-align: center; }
+.cv-node-info b { display: block; margin-bottom: 5px; font-size: 14px; font-weight: 600; }
+/*
+ * 🔴 这一行必须能收缩 + 能断词（2026-10-03 徐先：latent 中转的卡片文字跃出节点框）。
+ *
+ * 它显示的是上游那一份 latent 的**文件名**（`learned_latent_twopass_i2va_..._1791028081.mp4`），
+ * 一长串没有空格。三件事缺一不可：`min-width: 0`（肯于收缩）、`overflow-wrap: anywhere`
+ * （无空格的长串也要断）、两行封顶（一个文件名不该占掉整张卡片）。
+ * 完整名字在 `title` 里，鼠标停上去还是看得到。
+ *
+ * ⚠️ 判据别写 `scrollHeight <= clientHeight` —— 封顶本来就是「看得见两行、内容更长」，
+ * scrollHeight 必然更大（这么判会假红）。要看**可见高度**是不是两行以内。
+ */
+.cv-node-info span {
+  font-size: 11px;
+  color: var(--cv-mute);
+  margin-bottom: 5px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.cv-node-info em { display: block; font-style: normal; font-size: 11px; color: var(--cv-dim); }
 
 /* ---------- 图片 / 视频 ------------- */
 .cv-thumb {
@@ -1916,8 +1947,25 @@ html[data-theme='light'] .cv-skill-mask {
 .cv-codex-input::placeholder { color: var(--cv-placeholder); }
 
 /* ---------- 表单控件 ---------- */
-.cv-field { display: grid; gap: 5px; }
+/*
+ * 🔴 `min-width: 0` 不能少（2026-10-03 徐先报「下拉框超出面板」）：
+ * 它是栅格子项，默认 `min-width: auto` = **不小于内容的固有最小宽度**，
+ * 而原生 `<select>` 的固有最小宽度就是**最宽那个 option** ——
+ * latent 中转那个下拉里放的是素材文件名，一条就能把整块面板顶破。
+ * 下面 `.cv-row2 > .cv-field` 早就为同一个原因写了一遍，这里漏的是**直接挂在
+ * `.cv-param-desc` 下的**那些字段。
+ */
+.cv-field { display: grid; gap: 5px; min-width: 0; }
 .cv-field > span { font-size: 11px; color: var(--cv-mute); }
+
+/*
+ * 中转节点「取自哪次生成」：**一列两行**（2026-10-03，N-114）。
+ * 一个中转节点可以同时供两份 latent（粗 / 精），所以每一槽各占一行。
+ * 右侧用 `minmax(0, 1fr)` 而不是 `1fr` —— 同上，不写 0 的话原生下拉压不动。
+ */
+.cv-relay-picks { display: grid; gap: 6px; }
+.cv-relay-pick { display: grid; grid-template-columns: 58px minmax(0, 1fr); align-items: center; gap: 8px; }
+.cv-relay-pick em { font-style: normal; font-size: 11px; color: var(--cv-mute); }
 /* 「一行两格」。2026-10-01 起真的有人在用了（`NodeParamBar` 的粗 / 精采节点 id）。
    `min-width: 0` 不能少：栅格子项默认 `min-width: auto`，里面那个 `width: 100%` 的输入框
    会把列撑破、两格挤成一大一小。 */

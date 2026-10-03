@@ -233,7 +233,12 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
     ? <div className="cv-node-empty" aria-hidden />
     : awaiting
       ? starFrame
-      : <div className="cv-node-empty glyph" aria-hidden><NodeGlyph kind={kind} size={44} /></div>;
+      /*
+       * 空态那个图标原来 44px，徐先说「小一点」（2026-10-03，N-113）——
+       * 44 在 128px 高的空框里几乎顶满，看着像个大按钮而不是「这里以后会有东西」。
+       * 32 留出呼吸，和卡片标题栏那颗 13px 的层级关系也更正常。
+       */
+      : <div className="cv-node-empty glyph" aria-hidden><NodeGlyph kind={kind} size={32} /></div>;
 
   /**
    * 画框里只放**状态**：「正在上传 / 等待上游 / 失败」这类真的说明正在发生什么的话。
@@ -293,7 +298,8 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
           : relayValue
             ? <div className="cv-node-info">
               <b>透传</b>
-              <span>{relayFrom || '上游 latent'}</span>
+              {/* 卡片上只放得下两行（CSS 里封的），完整名字走 `title` —— 那是个没有空格的长文件名，截断了没法自己拼回来。 */}
+              <span title={relayFrom || undefined}>{relayFrom || '上游 latent'}</span>
               {latentIndexes.length ? <em>#{latentIndexes.join(' / #')}</em> : <em>{latentOn ? '已启用接续' : '已停用'}</em>}
             </div>
             : latentOn

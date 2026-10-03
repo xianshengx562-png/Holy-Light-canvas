@@ -636,7 +636,14 @@ export function purposeForNode(
  * 所以编号就这两个；`configuration.ts` 里 `binding: 'latent_N'` 取的是 `values.latents[N-1]`。
  * 编号是**显式指定**的——在此之前第几个生效纯看连线顺序，改一下连线就悄悄换了槽位。
  */
-export const LATENT_SLOTS = 2;
+/*
+ * latent 槽位数与「逐槽取哪一份」那组纯函数住在 `./latentPicks`（零依赖，要单独跑单测）。
+ * 这里**原样转出**，所以原来 `from './nodeMeta'` 引它们的地方一行都不用改。
+ */
+export {
+  LATENT_SLOTS, LATENT_PICK_OFF, autoPairLatents, resolvePickedLatents, latentPicksOf,
+} from './latentPicks';
+export type { LatentCandidate, ResolvedLatents } from './latentPicks';
 
 /** 中转节点与普通 latent 节点在「收集 / 计数 / 显示」上是一类，别在多处各写一遍判断。 */
 export function isLatentKind(kind: unknown) {
@@ -825,24 +832,11 @@ export function formatSize(bytes: number) {
  * 只吃这三个字段是有意的：除了项目里那份 `LatentRecord`，
  * 从资产库带回来的那几份 latent 也走这里（它们没有 `createdAt` / `sourceTaskId`）。
  */
-/**
- * 「上游这一次生成归档了几份 latent，中转节点要其中哪一份」—— 两处共用的那一段判定。
- *
- * 两个入口都走它：视频生成节点（按 `data.runs` 找自己的归档）和从资产库放进来的
- * 视频节点（按导入时记下的那份快照）。**别在两头各写一遍** ——
- * 一边判定成 `empty`、另一边判定成 `unpicked`，界面上就成了同一件事两种说法。
- *
- * 🔴 `unpicked` 不是「没有」：没选哪一份时**不能**悄悄挑第一份。一次生成归档两份
- * （粗 / 精），跑多轮又有好几组，猜错的症状是接续悄悄喂了错的 latent ——
- * 任务照样成功、产出和上一段毫无关系，界面上什么都不说。
+/*
+ * 🔴 单值版 `resolvePickedLatent` 已于 2026-10-03（N-114）删除 —— 一份 latent 不够用，
+ * 现在走 `latentPicks.ts` 里的 `resolvePickedLatents`（返回 `values[]`）。
+ * 判定仍在两处共用（视频生成节点 / 资产库带进来的视频节点），**别在两头各写一遍**。
  */
-export function resolvePickedLatent(ids: string[], pick: string, from: string): {
-  value: string; from: string; broken: 'empty' | 'unpicked' | null;
-} {
-  if (!ids.length) return { value: '', from, broken: 'empty' };
-  if (!pick || !ids.includes(pick)) return { value: '', from, broken: 'unpicked' };
-  return { value: pick, from, broken: null };
-}
 
 /**
  * 这个节点能不能当中转节点的 latent 源头（2026-10-02）。

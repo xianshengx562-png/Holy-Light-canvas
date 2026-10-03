@@ -5,7 +5,8 @@ import type { LatentPickOption, NodeData, ParamRow } from './types';
 import {
   LATENT_ACCEPT, LATENT_SLOTS, NODE_META,
   groupWorkflowsByProvider, isAudioUrl, isLatentKind, isVideoUrl, latentAssetPrefix,
-  latentBrokenHint, latentLabel, latentSlotHint, workflowLabel, displayLabelOf,
+  LATENT_PICK_OFF, latentBrokenHint, latentLabel, latentSlotHint, workflowLabel, displayLabelOf,
+  latentPicksOf,
 } from './nodeMeta';
 import type { NodeKind } from './nodeMeta';
 import { NodeGlyph } from './nodeIcons';
@@ -407,8 +408,29 @@ export default function NodeParamBar({ data }: { data: NodeData }) {
     const fromLabel = String(data.relayFrom || '');
     /** 上游视频节点产出过的 latent；为空说明没接视频节点（那就还是老样子）。 */
     const picks = (data.latentPickOptions || []) as LatentPickOption[];
-    /** 选过的值可能已经不在列表里（上游重新生成、连线改了）—— 这种要显式说出来，不能让 select 静默跳第一项。 */
-    const pickedValid = picks.some(option => option.value === String(data.latentPick || ''));
+    /*
+     * 逐槽选的来源。老画布上存的是单个 `latentPick`，当槽 1 读。
+     * 🔴 归一只在这一处做（`latentPicksOf`）—— 提交那侧（`CanvasEditor`）也调同一个函数，
+     * 两边各写一遍的话，老画布会出现「下拉显示得出来、提交时读不到」。
+     */
+    const pickSlots: string[] = latentPicksOf(data as { latentPicks?: unknown; latentPick?: unknown });
+    /** 这一轮真正会交出去的份数（含自动配对）—— 底部那行状态要说清「几份」。 */
+    const relayValues = (data.relayValues || []) as string[];
+    /**
+     * 底部那一行里显示的短标签。`asset:<id>` 这种内部值不该直接给用户看
+     * （图 2 里原来显示的就是一整条长文件名，把面板挤爆）—— 优先用下拉里的
+     * 「节点名 · L003 · 粗采样 · 12.3 MB」，只留最后两段；取不到才回落 id。
+     */
+    const shortLatentOf = (value: string) => {
+      const label = picks.find(option => option.value === value)?.label || '';
+      if (label) {
+        const parts = label.split(' · ');
+        return parts.length > 2 ? parts.slice(-2).join(' · ') : label;
+      }
+      const hit = archived.find(item => `${latentAssetPrefix}${item.id}` === value);
+      if (hit) return latentLabel(hit);
+      return value.startsWith(latentAssetPrefix) ? value.slice(latentAssetPrefix.length) : value;
+    };
     /** 节点上填的粗 / 精采样节点号。留空 = 沿用配置页里绑的那个字段的节点号。 */
     const coarseNodeId = String(data.latentCoarseNodeId || '');
     const fineNodeId = String(data.latentFineNodeId || '');
@@ -472,16 +494,39 @@ export default function NodeParamBar({ data }: { data: NodeData }) {
         */}
         {relay && picks.length > 0 && (
           <div className="cv-field">
+            {/*
+              一列两行（2026-10-03 徐先）：一个中转节点可以**同时供两份**（粗 / 精）——
+              一次生成本来就归档两份，以前只能二选一、另一份得再连一个中转节点。
+              空着 = 自动，按粗 / 精的对应关系配（粗 → latent_1、精 → latent_2），
+              自动的结果直接显示在第一项的文案里，不用点开也知道会喂哪一份。
+            */}
             <span>取自哪次生成</span>
-            <select
-              className="cv-select"
-              disabled={!latentOn}
-              value={pickedValid ? String(data.latentPick || '') : ''}
-              onChange={event => data.onField?.('latentPick', event.target.value)}
-            >
-              <option value="">— 选择一份 latent —</option>
-              {picks.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-            </select>
+            <div className="cv-relay-picks">
+              {[1, 2].map(slot => {
+                const raw = String(pickSlots[slot - 1] ?? '').trim();
+                const auto = String((data.relayValues || [])[slot - 1] || '');
+                const autoLabel = picks.find(option => option.value === auto)?.label || '';
+                return (
+                  <label className="cv-relay-pick" key={slot}>
+                    <em>latent_{slot}</em>
+                    <select
+                      className="cv-select"
+                      disabled={!latentOn}
+                      value={raw === LATENT_PICK_OFF ? LATENT_PICK_OFF : raw}
+                      onChange={event => {
+                        const next = [String(pickSlots[0] ?? ''), String(pickSlots[1] ?? '')];
+                        next[slot - 1] = event.target.value;
+                        data.onLatentPicks?.(next);
+                      }}
+                    >
+                      <option value="">— 自动{autoLabel ? `（${autoLabel}）` : ''} —</option>
+                      <option value={LATENT_PICK_OFF}>— 这一槽不用 —</option>
+                      {picks.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </label>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>,
@@ -504,7 +549,9 @@ export default function NodeParamBar({ data }: { data: NodeData }) {
           */}
           {latentValue ? '用本节点自己的文件'
             : relay
-              ? (fromLabel ? `透传「${fromLabel}」` : latentBrokenHint(data.relayBroken) || '未接上游 · 透传为空')
+              ? (relayValues.length
+                ? `透传 ${relayValues.length} 份 · ${relayValues.map(value => shortLatentOf(value)).join(' + ')}`
+                : fromLabel ? `透传「${fromLabel}」` : latentBrokenHint(data.relayBroken) || '未接上游 · 透传为空')
               : '未选择归档'}
         </span>
       </>,

@@ -68,7 +68,7 @@ import {
   isRunnableKind, isTextValueKind, displayLabelOf, normalizeNodeLabels, resetTransientStatus,
   latentBrokenHint, latentBrokenLabel, latentLabel, purposeOfNode, purposeForNode, workflowMismatchHint, upscaleWorkflowFor,
   nodeEngineProvider, readUpscaleMode, readUpscaleSource, UPSCALE_SOURCE_LABELS,
-  isRelayLatentSource, resolvePickedLatent,
+  isRelayLatentSource, latentPicksOf, resolvePickedLatents,
   workflowDisplayName, generatorKindLabel, newNodeData, isReferenceSource, referenceUrlsOf, latentNodeIdOf,
   mediaReadyForRun, isResolvableUrl, workflowsForProvider, engineSwitchPatch, readInstanceType,
 } from './nodeMeta';
@@ -336,7 +336,7 @@ function inputSlots(
   continuationOn: boolean,
   edges: Edge[] = [],
   /** 中转节点的值是沿链算出来的，这里得拿到同一个解析器，否则槽位会把它画成「未选择」。 */
-  chainOf: (id: string) => LatentChain = () => ({ value: '', from: '', broken: null }),
+  chainOf: (id: string) => LatentChain = () => ({ values: [], value: '', from: '', broken: null }),
 ): InputSlot[] {
   return list.map(node => {
     const kind = String(node.data.kind || 'text');
@@ -1393,11 +1393,12 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
    * 就是「这一次跑出来的」。只认**成功**的那几次：失败的任务留不下 latent，
    * 算进去只会让下拉里多出一个取不到的选项。
    *
-   * 取哪一份由 `pick`（中转节点上的 `latentPick`）决定，**不自动猜**：
-   * 一次生成会归档两份（粗 / 精），跑多轮又有好几组，猜错的症状是接续悄悄喂了
+   * 取哪几份由 `picks`（中转节点上的 `latentPicks`）决定 —— 没选时按**粗 / 精的对应关系**
+   * 自动配最新那一组（徐先 2026-10-03 要的），**不是随手挑第一份**。
+   * 一次生成会归档两份（粗 / 精），跑多轮又有好几组，配错的症状是接续悄悄喂了
    * 错的 latent —— 任务照样成功、产出和上一段毫无关系，界面上什么都不说。
    */
-  const videoLatentsOf = useCallback((node: Node<NodeData>, pick: string): LatentChain => {
+  const videoLatentsOf = useCallback((node: Node<NodeData>, picks: string[]): LatentChain => {
     const runIds = new Set(
       ((node.data.runs || []) as GenerationRun[])
         .filter(run => run.status === 'success')
@@ -1407,7 +1408,13 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       ? latents.filter(item => item.sourceTaskId && runIds.has(String(item.sourceTaskId)))
       : [];
     const from = String(node.data.label || NODE_META['video-generate'].label);
-    return resolvePickedLatent(mine.map(item => `${latentAssetPrefix}${item.id}`), pick, from);
+    /* `group` 用任务号：自动配对只在**同一次生成**归档的那两份之间进行（N-114）。 */
+    const resolved = resolvePickedLatents(
+      mine.map(item => ({ value: `${latentAssetPrefix}${item.id}`, kind: item.kind, group: String(item.sourceTaskId || '') })),
+      picks,
+      from,
+    );
+    return { values: resolved.values, value: resolved.values[0] || '', from, broken: resolved.broken };
   }, [latents]);
 
   /**
@@ -1415,12 +1422,17 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
    *
    * 与 `videoLatentsOf` 唯一的区别是**不看 `data.runs`** —— 这种节点不是画布上跑出来的，
    * 它没有 runs，只有「我来自哪一次生成」（`sourceTaskId`）以及那次归档了什么。
-   * 判定规则共用 `resolvePickedLatent`，界面上的说法才一致。
+   * 判定规则共用 `resolvePickedLatents`，界面上的说法才一致。
    */
-  const assetLatentsOf = useCallback((node: Node<NodeData>, pick: string): LatentChain => {
+  const assetLatentsOf = useCallback((node: Node<NodeData>, picks: string[]): LatentChain => {
     const mine = node.data.relayLatents || [];
     const from = String(node.data.label || NODE_META['video-input'].label);
-    return resolvePickedLatent(mine.map(item => `${latentAssetPrefix}${item.id}`), pick, from);
+    const resolved = resolvePickedLatents(
+      mine.map(item => ({ value: `${latentAssetPrefix}${item.id}`, kind: item.kind, group: 'relay' })),
+      picks,
+      from,
+    );
+    return { values: resolved.values, value: resolved.values[0] || '', from, broken: resolved.broken };
   }, []);
 
   /**
@@ -1476,6 +1488,12 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
    * 于是「链断了」和「还没上传」在界面上长得一模一样，而前者怎么补文件都没用。
    */
   const latentChainOf = useCallback((id: string): LatentChain => {
+    /*
+     * `picks` 是**这个中转节点自己**上逐槽选的来源（不是上游那个节点上的）——
+     * 一个节点供两份 latent 时，「谁选的」必须分清（2026-10-03，N-114）。
+     */
+    const start = nodes.find(item => item.id === id);
+    const picks = latentPicksOf(start ? start.data : {});
     /**
      * 一次解析里的备忘表。结论与「从哪个入口进来」无关（见下面的判环说明），所以可以缓存；
      * 不缓存的话，菱形链（两条链汇到同一个上游）会按路径数重走，层数一多就是指数级。
@@ -1487,15 +1505,15 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
        * 全局集合会把「两条链汇到同一个上游」的汇合点误报成环，而菱形在这个图里是正常连法。
        * 反过来说，`path` 里出现 `current` 就一定意味着沿上游走回了自己 —— 是真环。
        */
-      if (path.has(current)) return { value: '', from: '', broken: 'cycle' };
+      if (path.has(current)) return { values: [], value: '', from: '', broken: 'cycle' };
       const hit = cache.get(current);
       if (hit) return hit;
       const done = (result: LatentChain) => { cache.set(current, result); return result; };
       const node = nodes.find(item => item.id === current);
-      if (!node) return done({ value: '', from: '', broken: null });
+      if (!node) return done({ values: [], value: '', from: '', broken: null });
       const own = String(node.data.remoteFile || '').trim();
-      if (own) return done({ value: own, from: '', broken: null });
-      if (node.data.kind !== 'latent-relay') return done({ value: '', from: '', broken: null });
+      if (own) return done({ values: [own], value: own, from: '', broken: null });
+      if (node.data.kind !== 'latent-relay') return done({ values: [], value: '', from: '', broken: null });
       const links: Node<NodeData>[] = [];
       for (const edge of edges) {
         if (edge.target !== current) continue;
@@ -1503,7 +1521,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         /* 从资产库放进来的视频也算一个源头 —— 值在它自己身上，不在上游。 */
       if (from && (isLatentSourceKind(from.data.kind) || isRelayLatentSource(from.data))) links.push(from);
       }
-      if (!links.length) return done({ value: '', from: '', broken: 'upstream' });
+      if (!links.length) return done({ values: [], value: '', from: '', broken: 'upstream' });
       const next = new Set(path).add(current);
       /** 成环比「没接上游」更值得说，所以优先级压在它上面。 */
       let broken: LatentChain['broken'] = null;
@@ -1512,18 +1530,23 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       for (const from of links) {
         /*
          * 上游是视频节点时，来源是**它自己生成出来并归档的那些** latent，
-         * 取哪一份由本中转节点的 `latentPick` 决定（见 `videoLatentsOf`）。
+         * 取哪几份由本中转节点的 `latentPicks` 决定（见 `videoLatentsOf`）。
          * 这里不递归：视频节点那头没有更上游的 latent 链，它只有自己的产出。
          */
         const upper = from.data.kind === 'video-generate'
-          ? videoLatentsOf(from, String(node.data.latentPick || '').trim())
+          ? videoLatentsOf(from, picks)
           : isRelayLatentSource(from.data)
-            ? assetLatentsOf(from, String(node.data.latentPick || '').trim())
+            ? assetLatentsOf(from, picks)
             : walk(from.id, next);
-        if (upper.value) return done({ value: upper.value, from: String(from.data.label || NODE_META.latent.label), broken: null });
+        if (upper.values.length) return done({
+          values: upper.values,
+          value: upper.values[0] || '',
+          from: String(from.data.label || NODE_META.latent.label),
+          broken: null,
+        });
         if (upper.broken && (rank[upper.broken] || 0) > (broken ? rank[broken] || 0 : 0)) broken = upper.broken;
       }
-      return done({ value: '', from: '', broken });
+      return done({ values: [], value: '', from: '', broken });
     };
     return walk(id, new Set());
   }, [assetLatentsOf, edges, nodes, videoLatentsOf]);
@@ -1848,17 +1871,38 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     let cursor = 0;
     for (const entry of latentsForRun) {
       const picked = (entry.item.data.latentIndexes || []).filter(index => index >= 1 && index <= LATENT_SLOTS);
+      /**
+       * 一个中转节点可能同时带**两份**（粗 / 精，2026-10-03 N-114）——
+       * 那就一份占一个槽位。**不能只放第一份**：第二份被丢掉是静默的，
+       * 任务照样成功、出来的片段只用了一半的续接，界面上一个字都不说。
+       */
+      const values = entry.chain.values?.length
+        ? entry.chain.values.filter(Boolean)
+        : (entry.chain.value ? [entry.chain.value] : []);
+      if (!values.length) continue;
       if (!picked.length) {
-        while (placed[cursor]) cursor += 1;
-        placed[cursor] = entry.chain.value;
-        placedNodeIds[cursor] = latentNodeIdOf(entry.item.data, cursor + 1);
-        cursor += 1;
+        for (const value of values) {
+          while (placed[cursor]) cursor += 1;
+          if (cursor >= LATENT_SLOTS) break;
+          placed[cursor] = value;
+          placedNodeIds[cursor] = latentNodeIdOf(entry.item.data, cursor + 1);
+          cursor += 1;
+        }
         continue;
       }
-      for (const index of picked) {
-        placed[index - 1] = entry.chain.value;
+      /* 选中了槽位：第 i 份值 → 第 i 个选中的槽位；多出来的值依次填还没占的槽位（同样不许丢）。 */
+      let spare = 0;
+      values.forEach((value, offset) => {
+        let index = picked[offset];
+        if (!index) {
+          while (spare < LATENT_SLOTS && placed[spare]) spare += 1;
+          index = spare + 1;
+          spare += 1;
+        }
+        if (index < 1 || index > LATENT_SLOTS) return;
+        placed[index - 1] = value;
         placedNodeIds[index - 1] = latentNodeIdOf(entry.item.data, index);
-      }
+      });
     }
     const latents = Array.from({ length: LATENT_SLOTS }, (_, index) => placed[index] || '');
     /**
@@ -3673,6 +3717,8 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
             .slice(0, MAX_REFERENCE_IMAGES).length
           : undefined,
         relayValue: chain?.value || undefined,
+        /** 这一轮真正会交出去的那几份（含自动配对的结果）—— 面板的下拉和卡片都用它。 */
+        relayValues: chain?.values?.length ? chain.values : undefined,
         relayFrom: chain?.from || undefined,
         /** 取不到值时把原因也带上：卡片和面板要能把「链断了」和「没上传」分开说。 */
         relayBroken: chain?.broken || undefined,
@@ -3740,6 +3786,9 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         onAppRows: node.data.kind === 'app-generate' ? (rows: ParamRow[]) => patch(node.id, { appRows: rows }) : undefined,
         onLatentIndexes: isLatentKind(node.data.kind)
           ? (indexes: number[]) => patch(node.id, { latentIndexes: indexes })
+          : undefined,
+        onLatentPicks: node.data.kind === 'latent-relay'
+          ? (picks: string[]) => patch(node.id, { latentPicks: picks })
           : undefined,
         onMeasure: (size: string) => { if (node.data.imageSize !== size) patch(node.id, { imageSize: size }); },
         onPreview: setPreview,

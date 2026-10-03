@@ -9,6 +9,7 @@ import { submitWebApp } from '@/lib/providers/runninghub/webapp';
 import { isRunningHubAppWorkflowId, webAppIdOf } from '@/lib/workflows/runninghubApp';
 import { resolveRunningHub, type KeySource } from '@/lib/providers/runninghub/connection';
 import { isDesktop } from '@/lib/edition';
+import { uploadOrExplain } from '@/lib/upload';
 import { readLocalCredentials } from '@/lib/providers/local/connection';
 import { applyNodeInfoList, type LocalGraph } from '@/lib/providers/local/graph';
 import { submitLocalPrompt, uploadLocalMedia } from '@/lib/providers/local/client';
@@ -113,8 +114,15 @@ async function resolveLatentValues(values: string[] | undefined, userId: string,
     // 空串是「该槽位留空」，不是要上传的文件
     if (!value || !value.startsWith(latentAssetPrefix)) return value;
     const file = await readLatentFile(value.slice(latentAssetPrefix.length), userId);
-    const uploaded = await uploadMedia(new File([file.buffer], file.fileName), apiKey, baseUrl);
-    return uploaded.fileName;
+    /*
+     * 🔴 必须包这一层（2026-10-03，N-113）：原来这里是裸的 `uploadMedia`，
+     * 它超时抛的 `DOMException` 一路裸奔到 `api()` 兜底，界面上只剩一句
+     * 「连上游等太久了」—— 没说在传什么、等了多少、文件多大。
+     * 参考图 / 视频 / 超清那三条路早就包了 `uploadOrExplain`，只有 latent 这条漏了。
+     */
+    /* `uploadOrExplain` 收的是「拿文件名」这一步 —— 它和参考图 / 视频那几条路一个形状。 */
+    return uploadOrExplain(`latent「${file.fileName}」`, () =>
+      uploadMedia(new File([file.buffer], file.fileName), apiKey, baseUrl).then(item => item.fileName));
   }));
 }
 

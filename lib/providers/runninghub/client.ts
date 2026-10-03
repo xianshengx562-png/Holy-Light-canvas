@@ -45,12 +45,31 @@ export type RunningHubResponse = { taskId?: string; status?: string; errorCode?:
 export async function submitWorkflow(input: { workflowId: string; nodeInfoList: unknown[]; instanceType?: string; usePersonalQueue?: boolean }, apiKey?: string, baseUrl?: string) { return request(`/run/workflow/${encodeURIComponent(input.workflowId)}`, { method: 'POST', body: JSON.stringify({ addMetadata: true, nodeInfoList: input.nodeInfoList, instanceType: input.instanceType || 'default', usePersonalQueue: input.usePersonalQueue ?? false }) }, apiKey, baseUrl, SUBMIT_TIMEOUT_MS); }
 export async function queryTask(taskId: string, apiKey?: string, baseUrl?: string) { return request('/query', { method: 'POST', body: JSON.stringify({ taskId }) }, apiKey, baseUrl); }
 
+/**
+ * 上传给多少时间 —— **按体积算，不写死**（2026-10-03，N-113）。
+ *
+ * 原来这里是 `AbortSignal.timeout(120_000)` 一个死数，素材一大就必撞。
+ * 徐先那次是 latent 中转递一份 mp4，日志写着「已跑 120609ms [超时]」——
+ * 一秒不多不少，看着像上游挂了，其实是**我们自己的秒表到点了**。
+ *
+ * 依据（实测，不是拍脑袋）：本机到 RunningHub 约 **75 KB/s ≈ 13 秒/MB**
+ * （发 174MB 的安装包花了 38 分钟）。所以给「每 MB 15 秒 + 90 秒兜底」，
+ * 再封一档 30 分钟上限 —— 小文件不至于干等半小时，大文件也不会因为网慢被判死。
+ *
+ * ⚠️ 超时太长也有代价：真的传不动时用户要干等这么久才看到报错。
+ *    所以下面那句报错必须**说清等了多少秒、多大的文件**，让人能据此换素材。
+ */
+export function uploadTimeoutMs(bytes: number) {
+  const mb = Math.max(1, Math.ceil((Number(bytes) || 0) / 1048576));
+  return Math.min(30 * 60_000, 90_000 + mb * 15_000);
+}
+
 export async function uploadMedia(file: File, apiKey?: string, baseUrl?: string) {
   const form = new FormData();
   form.set('file', file);
   const response = await fetch(`${endpoint(baseUrl)}/media/upload/binary`, {
     method: 'POST', headers: { authorization: bearer(apiKey) }, body: form,
-    signal: AbortSignal.timeout(120_000),
+    signal: AbortSignal.timeout(uploadTimeoutMs(file.size)),
   });
   const body = await response.json().catch(() => null);
   /*
