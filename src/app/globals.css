@@ -1796,8 +1796,21 @@ h1 { margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.02em; }
 .auth-remember-hint { color: var(--text-mute); }
 
 /* ---------- 7. 设置 · 服务连接 / 模型服务共用（.provider / .key-form / .key-meta …） ---------- */
+/*
+ * 卡片**在内容区里居中**（2026-10-03 徐先：「卡片保持在对应界面中间」）。
+ *
+ * 改之前是靠左的：`.content` 有 1200 上限、这张卡自己 760 上限，两个都是块级元素
+ * 默认左对齐 —— 窗口一宽就变成「卡片贴左边、右边空一大块」，设置页每张卡都这样。
+ *
+ * 🔴 只给**左右** auto，**不写 `margin: 0 auto`**：卡片之间的上下间距不在这条规则里，
+ *    写成 `margin: 0` 会把它们一起清掉（整页卡片会挤成一堆）。
+ * 🔴 全站共用这一条（设置页的模型服务 / 输出目录 / 版本更新，以及画布里的设置浮层）——
+ *    只在模型服务那一页居中，别的页还是贴左边，看着像两个应用。
+ */
 .provider {
   max-width: 760px;
+  margin-left: auto;
+  margin-right: auto;
   padding: 26px;
   border: 1px solid var(--line);
   border-radius: var(--r-xl);
