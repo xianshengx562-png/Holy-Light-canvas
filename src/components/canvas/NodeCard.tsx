@@ -72,6 +72,8 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
   /** 中转节点自己没选值时透传上游 latent，卡片上要说明这值是「借来的」。 */
   const relayValue = String(data.relayValue || '');
   const relayFrom = String(data.relayFrom || '');
+  /** 这一轮真正会交出去的**份数**（含自动配对）—— 只写「透传」的话一份两份看不出来。 */
+  const relayCount = (data.relayValues || []).filter(Boolean).length || (relayValue ? 1 : 0);
   const latentIndexes = (data.latentIndexes || []).filter(index => index >= 1 && index <= LATENT_SLOTS);
   const chosenWorkflow = (data.workflows || []).find(item => item.workflowId === String(data.workflowId || ''));
   /** Generated video urls must not be rendered as an image. */
@@ -297,7 +299,9 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
           </div>
           : relayValue
             ? <div className="cv-node-info">
-              <b>透传</b>
+              {/* 🔴 份数要写在卡片上（2026-10-03）：一个中转节点能供两份，只写「透传」的话
+                  供一份和供两份长得一模一样，他会以为「才穿了一个到下游」。 */}
+              <b>{relayCount > 1 ? `透传 ${relayCount} 份` : '透传'}</b>
               {/* 卡片上只放得下两行（CSS 里封的），完整名字走 `title` —— 那是个没有空格的长文件名，截断了没法自己拼回来。 */}
               <span title={relayFrom || undefined}>{relayFrom || '上游 latent'}</span>
               {latentIndexes.length ? <em>#{latentIndexes.join(' / #')}</em> : <em>{latentOn ? '已启用接续' : '已停用'}</em>}

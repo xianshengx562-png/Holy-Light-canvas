@@ -338,7 +338,11 @@ function inputSlots(
   /** 中转节点的值是沿链算出来的，这里得拿到同一个解析器，否则槽位会把它画成「未选择」。 */
   chainOf: (id: string) => LatentChain = () => ({ values: [], value: '', from: '', broken: null }),
 ): InputSlot[] {
-  return list.map(node => {
+  /*
+   * 🔴 这里用 `flatMap` 而不是 `map`：一个节点可能占**多格**（见下面 latent 那一段）。
+   * 其余分支返回的是单个对象，`flatMap` 会原样留下 —— 不用为了那几处包一层数组。
+   */
+  return list.flatMap(node => {
     const kind = String(node.data.kind || 'text');
     const title = String(node.data.label || NODE_META[kind as NodeKind]?.label || kind);
     if (kind === 'image') {
@@ -416,23 +420,55 @@ function inputSlots(
       /** Only counts as "in use" when both the node switch and the generator's switch agree. */
       const used = continuationOn && nodeOn;
       const chain = chainOf(node.id);
-      const value = String(chain.value || node.data.remoteFile || '');
-      const match = archived.find(item => `${latentAssetPrefix}${item.id}` === value);
-      const label = match ? match.sequence : value ? String(value).split('/').pop() || '' : '';
       const indexes = (node.data.latentIndexes || []).filter(index => index >= 1 && index <= LATENT_SLOTS);
       /** 已经被下游中转节点接走了：它自己不再占槽，卡片上要照实说，别画成「已就绪」。 */
       const relayed = !isTerminalLatent(node.id, list, edges);
-      return {
-        id: node.id, kind, title, previewable: false,
-        ready: used && !!value && !relayed,
-        skipped: !used || relayed,
-        thumb: indexes.length ? `${label} → #${indexes.join('/#')}` : label,
-        note: !nodeOn ? '已停用'
-          : !continuationOn ? '接续已关 · 未参与'
-            : relayed ? '已转交下游中转节点'
-              : value ? '已就绪'
-                : latentBrokenLabel(chain.broken) || '未选择',
-      };
+      /**
+       * 🔴 **一个中转节点供两份就画两格**（2026-10-03 徐先：「这里选择一个，传1个latent，
+       * 选择两个，传两个latent」）。
+       *
+       * 原来这里按**节点**画：供一份和供两份长得一模一样，只有一格、文案 `L002 → #1/#2`。
+       * 于是他把「取自哪次生成」两格都设成自动（真交出去的是**两份** —— 抓包验过
+       * `bindingValues.latents` 里粗精都在）之后，看底栏只有一格，结论就成了「才穿了一个」。
+       * 份数看不见 = 这件最贵的事（接续喂错 / 只喂一半）在界面上没法核对。
+       */
+      /** 链上解析出来的那几份；链上一份都没有时回落到这个节点自己传的那个文件（老行为）。 */
+      const fromChain = (chain.values?.length ? chain.values : (chain.value ? [chain.value] : [])).filter(Boolean);
+      const own = String(node.data.remoteFile || '').trim();
+      const values = fromChain.length ? fromChain : (own ? [own] : []);
+      /*
+       * 🔴 别在这条链里把「已就绪」那一档丢了：拿到值就是已就绪，只有**一份都没解析出来**
+       * 才轮到 `latentBrokenLabel` / 「未选择」。上一版就是这个写法漏了中间那档，
+       * 结果两格都标着 `ready`（金边）却写着「未选择」—— 边框和字互相打架。
+       */
+      const head = !nodeOn ? '已停用'
+        : !continuationOn ? '接续已关 · 未参与'
+          : relayed ? '已转交下游中转节点' : '';
+      const baseNote = head || (values.length ? '已就绪' : latentBrokenLabel(chain.broken) || '未选择');
+      if (!values.length) {
+        return [{
+          id: node.id, kind, title, previewable: false,
+          ready: false, skipped: !used || relayed, thumb: '', note: baseNote,
+        }];
+      }
+      const many = values.length > 1;
+      return values.map((value, offset) => {
+        const match = archived.find(item => `${latentAssetPrefix}${item.id}` === value);
+        const label = match ? match.sequence : String(value).split('/').pop() || '';
+        /** 手传的文件没有粗 / 精之分（`match` 取不到），那一档就不标。 */
+        const kindTag = match ? (match.kind === 'fine' ? '精' : '粗') : '';
+        const slot = indexes[offset];
+        return {
+          /* 多格时 id 必须各自唯一，否则 React 会把两格当成同一格。 */
+          id: many ? `${node.id}#${offset}` : node.id,
+          kind, title, previewable: false,
+          ready: used && !relayed,
+          skipped: !used || relayed,
+          /* 粗 / 精 + 落点都写在格子上：份数靠**格子数**数，落点靠 `#N` 认。 */
+          thumb: [label, kindTag, slot ? `#${slot}` : ''].filter(Boolean).join(' '),
+          note: baseNote,
+        };
+      });
     }
     if (kind === 'params') {
       const rows = (node.data.paramRows || []) as ParamRow[];
@@ -2230,7 +2266,9 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       status: 'running',
       result: isImage
         ? `提交中 · ${imageUrls.length} 图${custom}`
-        : `提交中 · ${imageUrls.length} 图 · ${latentsForRun.length} latent${custom}`,
+        /* 🔴 数**份数**，不是上游节点个数：一个中转节点能供两份（2026-10-03），
+           数节点的话两份会说成「1 latent」——看着就是「只传了一份」。 */
+        : `提交中 · ${imageUrls.length} 图 · ${latents.filter(Boolean).length} latent${custom}`,
     });
     try {
       const body = await json(await fetch(`/api/projects/${projectId}/generation`, {
