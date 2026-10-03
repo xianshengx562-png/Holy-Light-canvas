@@ -1087,17 +1087,17 @@ html[data-theme='light'] .cv-skill-mask {
 .cv-node-empty.glyph { display: grid; place-items: center; color: var(--cv-icon-dim); }
 
 /*
- * 生成中的等待动画：**星星持续向内流**（2026-10-02 徐先：「节点生成等待界面为星星汇聚的
- * 效果」；追问后定的落点与形态 —— 画在卡片正面这个框里、形态是"持续向内流动"）。
+ * 生成中的等待动画：**小圆点持续向内流**（2026-10-02 徐先：「节点生成等待界面为星星
+ * 汇聚的效果」；追问后定的落点与形态 —— 画在卡片正面这个框里、形态是"持续向内流动"）。
  *
  * 它跟上面那个静态图标是**互斥的两态**（`NodeCard` 里 `awaiting` 二选一），
  * 不叠加：一个动态一个静态叠在一起，谁也看不清。跑完 / 失败之后自动回落到图标。
  *
- * 🔴 运动只用 `transform` + `opacity`（走合成层，不触发布局与重绘）——
- *    画布上同时跑十几个节点时，这是唯一不卡的做法（别改成 rAF 逐帧算位置）。
- * 🔴 每颗星的**角度 / 半径 / 延迟**由行内样式喂进来（见 `NodeCard` 的 `STAR_SEEDS`），
- *    所以这里只写"怎么动"，不写"第几颗在哪"。
- * ⚠️ 半径是**固定 px**：框的宽度本来就随节点尺寸变，星星从框外飞入、
+ * 🔴 这一层只是**宿主**（定位 + 裁剪 + 颜色）。点本身、动画、种子表都不在这儿 ——
+ *    2026-10-03 徐先「这里的生成界面也改为小圆点的汇集」之后，图片生成页也用同一层，
+ *    于是公共那半边搬去了 `components/ui/star-flow.css` + `StarFlow.tsx`，两处共用一份。
+ *    这里**别再把 `.cv-star` 那几条加回来** —— 加回来就是两份，改一边忘一边。
+ * ⚠️ 半径是**固定 px**（118px）：框的宽度本来就随节点尺寸变，点从框外飞入、
  *    多出来的那一段被 `overflow: hidden` 切掉 —— 观感上就是"从边缘流进来"。
  */
 .cv-node-empty.stars {
@@ -1105,77 +1105,13 @@ html[data-theme='light'] .cv-skill-mask {
   overflow: hidden;
   /* 别让这层吃掉鼠标事件：框上的双击 / 右键菜单还得照常开。 */
   pointer-events: none;
+  /* 画布里的点走**节点自己的强调色**（不是页面强调色）。别处不写这条就回落 --accent。 */
+  --star-color: var(--cv-accent);
 }
 
-/*
- * 光点（2026-10-02 第二次改：徐先「改为光点（一个个小点）」—— 原来是四角星，
- * 那个 `clip-path` 已经去掉了）。
- * 就是一个**小圆点**：正方形 + `border-radius: 50%`。不引 SVG / 图标字体，
- * 也不给发光（box-shadow）—— 这点尺寸下加光晕只会糊成一团，而且"光点"靠的是
- * 亮度（白点压在深色地板上）不是光晕。
- * ⚠️ 判"圆"按几何判（正方形 + 圆角 ≥ 边长一半），别按字符串 —— 见探针 P-3。
- */
-.cv-star {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 7px;
-  height: 7px;
-  margin: -3.5px 0 0 -3.5px;
-  border-radius: 50%;
-  background: var(--cv-accent);
-  animation: cv-star-flow 1.7s linear infinite;
-  will-change: transform, opacity;
-}
-
-/*
- * `rotate(a) → translateX(r) → rotate(-a)`：先把坐标系转到那个角度、再把星推到半径上、
- * 最后把星自己转正（不转正的话四角星会跟着转，看着像在翻跟头）。
- * 于是一颗星就是一条**朝中心的直线**，而 12 条直线的角度各不相同。
- */
-@keyframes cv-star-flow {
-  /* 起点 0.5（3.5px）→ 终点 1（7px）：靠近中心时**变大一点**，
-     光点太小的话在中心那一下根本看不见，"流到了"这件事就没了。 */
-  0% {
-    transform: rotate(var(--cv-star-a)) translateX(calc(var(--cv-star-r) * 118px)) rotate(calc(var(--cv-star-a) * -1)) scale(0.5);
-    opacity: 0;
-  }
-  22% { opacity: 0.95; }
-  78% { opacity: 0.7; }
-  100% {
-    transform: rotate(var(--cv-star-a)) translateX(4px) rotate(calc(var(--cv-star-a) * -1)) scale(1);
-    opacity: 0;
-  }
-}
-
-/* 中心这颗不动的"靶心"：星星都朝它流 —— 没有它，只是一团往中间飘的点，读不出"汇聚"。 */
-.cv-star-core {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 5px;
-  height: 5px;
-  margin: -2.5px 0 0 -2.5px;
-  border-radius: 50%;
-  background: var(--cv-accent);
-  opacity: 0.3;
-  animation: cv-star-core 1.7s ease-in-out infinite;
-}
-@keyframes cv-star-core {
-  0%, 100% { opacity: 0.2; transform: scale(0.85); }
-  50% { opacity: 0.5; transform: scale(1.15); }
-}
-
-/* 系统开了「减少动效」就不转了：星星**铺成一个静态的星环**（不是消失 ——
-   完全不画的话，开了这个设置的人就不知道节点在跑；状态文字下面那条还在）。 */
-@media (prefers-reduced-motion: reduce) {
-  .cv-star {
-    animation: none;
-    transform: rotate(var(--cv-star-a)) translateX(calc(var(--cv-star-r) * 34px)) rotate(calc(var(--cv-star-a) * -1)) scale(0.7);
-    opacity: 0.5;
-  }
-  .cv-star-core { animation: none; opacity: 0.4; }
-}
+/* `.cv-star` / `.cv-star-core` / 那两条 @keyframes 已搬到
+   `src/components/ui/star-flow.css`（2026-10-03 起图片生成页也要用同一层）。
+   这个文件里**只留宿主**（上面 `.cv-node-empty.stars`）。 */
 
 .cv-node-status {
   margin-top: 6px;

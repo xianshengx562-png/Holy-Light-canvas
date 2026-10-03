@@ -37,6 +37,7 @@ import { customEngineVisible } from '@/lib/providers/custom-visible';
 import { refreshSiteAccount } from '@/lib/site-account';
 import { pollDelayMs } from '@/lib/taskPoll';
 import '@/app/image-studio.css';
+import StarFlow from '@/components/ui/StarFlow';
 
 /** `GET /api/workflows` 的一行 —— 这里只认 workflowId / 名字 / 来源三个字段。 */
 type WorkflowRow = { workflowId: string; name?: string; provider?: string };
@@ -459,7 +460,15 @@ export default function ImageStudio() {
         <div className="studio-empty" data-studio-empty="">
           {busy ? (
             <>
-              <Loader2 className="studio-spin" size={22} aria-hidden />
+              {/*
+                出图中的等待动效：**跟画布节点卡片上是同一层**「小圆点汇聚」
+                （2026-10-03 徐先：「这里的生成界面也改为小圆点的汇集」）。
+                原来是 `<Loader2>` 转圈 —— 一个通用转圈说明不了"在往里汇聚"这件事。
+                ⚠️ 只在**出图中**出现（跟画布一致：只有真在跑才汇）；空态还是底下那两行字。
+              */}
+              <div className="studio-stars" data-studio-stars="">
+                <StarFlow />
+              </div>
               <p className="muted">{status || '正在出图…'}</p>
             </>
           ) : (

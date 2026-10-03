@@ -1,0 +1,85 @@
+/*
+ * 「小圆点汇聚」等待动效 —— **跨页共用**（画布节点卡片 / 图片生成页）。
+ * 铺 DOM 的那半边在 `StarFlow.tsx`（含那张固定种子表）。
+ *
+ * 2026-10-02 先在画布节点卡片上做出来，2026-10-03 徐先「这里的生成界面也改为
+ * 小圆点的汇集」→ 图片生成页也用它，于是从 `canvas.css` 搬到这里，两边共用一份。
+ *
+ * 🔴 **类名和 CSS 变量名一律不动**（`cv-star` / `cv-star-core` / `--cv-star-a|r`）：
+ *    画布那几条回归探针是按这些名字写死的（`_probe-starframes.js` 数 `.cv-star`、
+ *    `_probe-dock.js` 数 `.cv-star-core`），改名就要连探针一起动，不值当。
+ *    前缀是 `cv-` 但现在已经不是画布专属了 —— 看到别奇怪，是历史。
+ *    ⚠️ 只有**动画名**改了（`cv-star-flow` → `star-flow`）：原来那个名字跟
+ *       `StarEdge` 里连线星那层 SVG 的 class `.cv-star-flow` **撞名**，
+ *       一个是 @keyframes、一个是 class，不冲突但极容易看错。
+ *
+ * 🔴 颜色走 `--star-color`，由**用它的那一层**给：画布节点是 `--cv-accent`
+ *    （节点自己的强调色，跟页面强调色不是一支），别处不写就回落 `--accent`。
+ * 🔴 **纯 CSS 动画 + 只动 `transform` / `opacity`**（走合成层，不触发布局与重绘）。
+ *    画布上同时跑的节点可能有十几个，每个都起 rAF 的话光调度就够卡了 ——
+ *    别改成 JS 逐帧算位置。
+ * 🔴 外面那层必须 `position: relative; overflow: hidden`：点是从半径 118px 处
+ *    往中心飞的（最远 1.10 × 118 ≈ 130px），**起点在框外**，多出来那段靠裁剪切掉，
+ *    观感上就是「从边缘流进来」。宿主框比 2×118px 还宽的话，点会凭空出现在半空。
+ */
+.cv-star {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  margin: -3.5px 0 0 -3.5px;
+  border-radius: 50%;
+  background: var(--star-color, var(--accent));
+  animation: star-flow 1.7s linear infinite;
+  will-change: transform, opacity;
+}
+
+/*
+ * `rotate(a) → translateX(r) → rotate(-a)`：先把坐标系转到那个角度、再把点推到半径上、
+ * 最后把点自己转正（不转正的话非圆形的标记会跟着转，看着像在翻跟头）。
+ * 于是一颗点就是一条**朝中心的直线**，而 16 条直线的角度各不相同。
+ */
+@keyframes star-flow {
+  /* 起点 0.5（3.5px）→ 终点 1（7px）：靠近中心时**变大一点**，
+     点太小的话在中心那一下根本看不见，「流到了」这件事就没了。 */
+  0% {
+    transform: rotate(var(--cv-star-a)) translateX(calc(var(--cv-star-r) * 118px)) rotate(calc(var(--cv-star-a) * -1)) scale(0.5);
+    opacity: 0;
+  }
+  22% { opacity: 0.95; }
+  78% { opacity: 0.7; }
+  100% {
+    transform: rotate(var(--cv-star-a)) translateX(4px) rotate(calc(var(--cv-star-a) * -1)) scale(1);
+    opacity: 0;
+  }
+}
+
+/* 中心这颗不动的「靶心」：点都朝它流 —— 没有它，只是一团往中间飘的点，读不出「汇聚」。 */
+.cv-star-core {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin: -2.5px 0 0 -2.5px;
+  border-radius: 50%;
+  background: var(--star-color, var(--accent));
+  opacity: 0.3;
+  animation: star-core 1.7s ease-in-out infinite;
+}
+@keyframes star-core {
+  0%, 100% { opacity: 0.2; transform: scale(0.85); }
+  50% { opacity: 0.5; transform: scale(1.15); }
+}
+
+/* 系统开了「减少动效」就不转了：点**铺成一个静态的环**（不是消失 ——
+   完全不画的话，开了这个设置的人就不知道还在跑；状态文字那一行还在）。 */
+@media (prefers-reduced-motion: reduce) {
+  .cv-star {
+    animation: none;
+    transform: rotate(var(--cv-star-a)) translateX(calc(var(--cv-star-r) * 34px)) rotate(calc(var(--cv-star-a) * -1)) scale(0.7);
+    opacity: 0.5;
+  }
+  .cv-star-core { animation: none; opacity: 0.4; }
+}
