@@ -1,22 +1,30 @@
 import 'server-only';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { ApiError } from '@/lib/api';
 import { openMediaAsset } from '@/lib/media';
+import { PROMPT_VIDEO_FRAMES, sampleFramesPng } from '@/lib/video-ffmpeg';
 
 /**
- * 把画布上的一张图变成**模型能读的字节**（2026-10-03：看图反推提示词）。
+ * 把画布上的一份媒体变成**模型能读的字节**（2026-10-03：看图 / 看视频反推提示词）。
  *
  * 与 `lib/referenceImages.ts` 是同一件事的两个归宿，别混：
  * - 那边要的是**对端平台的文件名**（上传到 RunningHub / 本机 ComfyUI，再把名字塞进工作流）；
  * - 这边要的是**字节本身** —— 文本模型那头访问不到我们本机的文件，
  *   所以只能内联成 `data:` 一起发过去。
  *
- * 只认两种来源（与 `nodeMeta.isResolvableUrl` 同一套判据）：
+ * 只认两种来源（与 `mediaChain.isResolvableUrl` 同一套判据）：
  *   1. `/api/assets/<id>/media.<ext>` —— 已落盘的资产，读盘即得；
  *   2. `http(s)://...` —— 上游留在结果里的远端地址，下载下来。
  * `blob:` 那种本地预览**不算**：它只活在渲染进程内存里，服务端取不到字节。
+ *
+ * 视频那条路多一步：**抽帧**。文本模型看不了视频文件，能看的是若干张图，
+ * 所以这里用内置 FFmpeg 均匀抽 `PROMPT_VIDEO_FRAMES` 张再一起发过去。
  */
 export const PROMPT_IMAGE_MAX_BYTES = 20 * 1024 * 1024;
+/** 视频整段的上限。抽帧用不到整段之外的东西，给宽一点是为了别把正常的成片挡在门外。 */
+export const PROMPT_VIDEO_MAX_BYTES = 300 * 1024 * 1024;
 
 /** 已落盘媒体的地址形状。 */
 const ASSET_PATH = /^\/api\/assets\/([0-9a-f-]{8,64})\/[^/]+$/i;
@@ -31,6 +39,8 @@ export type PromptImage = { mime: string; base64: string; bytes: number };
  * 而那种 400 报的是「图像解码失败」，用户只会以为是这张图坏了。
  * 本机没有图像处理库（见 `package.json`），转不了格式 —— 那就**提前说清**，
  * 让他在画布上换一张 PNG / JPG，而不是等一次必然失败、又指向错误方向的调用。
+ *
+ * 抽出来的帧一律是 PNG，所以视频那条路不会撞上这一条。
  */
 const SUPPORTED_MIME = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
 
@@ -61,23 +71,17 @@ function mimeOf(name: string, bytes: Uint8Array, declared?: string | null): stri
   return sniffMime(bytes) || EXT_MIME[ext] || String(declared || '').toLowerCase().split(';')[0].trim() || 'image/png';
 }
 
-/** 太大就别发：base64 会再涨三分之一，很多网关卡在 20MB 那条线上。 */
-function assertSize(size: number) {
-  if (size > PROMPT_IMAGE_MAX_BYTES) {
-    throw new ApiError(400, `这张图有 ${(size / 1024 / 1024).toFixed(1)} MB，超过 ${PROMPT_IMAGE_MAX_BYTES / 1024 / 1024} MB 的上限，发不出去了。换一张小一点的图片试试。`);
+function tooBig(size: number, limit: number, label: string) {
+  if (size > limit) {
+    throw new ApiError(400, `这份${label}有 ${(size / 1024 / 1024).toFixed(1)} MB，超过 ${limit / 1024 / 1024} MB 的上限，发不出去了。换一份小一点的试试。`);
   }
 }
 
-/**
- * 取一张图的字节。
- *
- * 失败一律是 `ApiError(400)` 且**说清是哪一步** —— 「反推失败」这五个字没有下一步，
- * 而「这张图还没落盘 / 下载不下来 / 格式不认」各自指的路完全不同。
- */
-export async function resolvePromptImage(value: unknown, userId: string): Promise<PromptImage> {
+/** 取一份媒体的字节 —— 图与视频共用这一段，差别只在体积上限与后面的处理。 */
+async function fetchBytes(value: unknown, userId: string, limit: number, label: string) {
   const source = String(value ?? '').trim();
-  if (!source) throw new ApiError(400, '这张图还没有地址 —— 先让上游那个节点跑出图来，再反推。');
-  if (source.startsWith('blob:')) throw new ApiError(400, '这张图还在上传中（本地预览地址），等它上传完再反推。');
+  if (!source) throw new ApiError(400, `这份${label}还没有地址 —— 先让上游那个节点跑出来，再反推。`);
+  if (source.startsWith('blob:')) throw new ApiError(400, `这份${label}还在上传中（本地预览地址），等它上传完再反推。`);
 
   let bytes: Uint8Array;
   let name = '';
@@ -86,19 +90,19 @@ export async function resolvePromptImage(value: unknown, userId: string): Promis
     const assetId = source.match(ASSET_PATH)?.[1];
     if (assetId) {
       const asset = await openMediaAsset(assetId, userId);
-      assertSize(asset.size);
+      tooBig(asset.size, limit, label);
       name = asset.name || `media.${asset.path.split('.').pop() || 'png'}`;
       declared = asset.mime;
       /* Buffer 是共享内存上的视图，交出去之前先拷成独立的一段。 */
       const buffer = await readFile(/*turbopackIgnore: true*/ asset.path);
       bytes = new Uint8Array(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength));
     } else if (/^https?:\/\//i.test(source)) {
-      const response = await fetch(source, { signal: AbortSignal.timeout(60_000) });
+      const response = await fetch(source, { signal: AbortSignal.timeout(120_000) });
       if (!response.ok) throw new Error(`下载失败（HTTP ${response.status}）`);
       const got = Number(response.headers.get('content-length') || 0);
-      if (got) assertSize(got);
+      if (got) tooBig(got, limit, label);
       const buffer = await response.arrayBuffer();
-      assertSize(buffer.byteLength);
+      tooBig(buffer.byteLength, limit, label);
       name = source.split('?')[0];
       declared = response.headers.get('content-type');
       bytes = new Uint8Array(buffer);
@@ -107,12 +111,46 @@ export async function resolvePromptImage(value: unknown, userId: string): Promis
     }
   } catch (error) {
     if (error instanceof ApiError) throw error;
-    throw new ApiError(400, `取不到这张图（${error instanceof Error ? error.message : '读取失败'}）。它可能是上游留下的远端地址、已经过期了 —— 换一次生成结果再试。`);
+    throw new ApiError(400, `取不到这份${label}（${error instanceof Error ? error.message : '读取失败'}）。它可能是上游留下的远端地址、已经过期了 —— 换一次生成结果再试。`);
   }
+  return { bytes, name, declared, source };
+}
 
-  const mime = mimeOf(name, bytes, declared);
+/** 一张图 → 模型能读的那一串。 */
+export async function resolvePromptImage(value: unknown, userId: string): Promise<PromptImage> {
+  const got = await fetchBytes(value, userId, PROMPT_IMAGE_MAX_BYTES, '图');
+  const mime = mimeOf(got.name, got.bytes, got.declared);
   if (!SUPPORTED_MIME.has(mime)) {
     throw new ApiError(400, `这张图是 ${mime}，视觉模型一般不认这个格式 —— 在画布上换成 PNG / JPG / WebP 再反推。`);
   }
-  return { mime, base64: Buffer.from(bytes).toString('base64'), bytes: bytes.byteLength };
+  return { mime, base64: Buffer.from(got.bytes).toString('base64'), bytes: got.bytes.byteLength };
 }
+
+/**
+ * 一段视频 → **若干张**模型能读的图。
+ *
+ * FFmpeg 只吃**本地文件**，所以远端地址要先落到一个临时文件里。
+ * 用完就删：这个临时目录在系统 temp 下，留着只会一天天涨。
+ */
+export async function resolvePromptVideo(value: unknown, userId: string): Promise<PromptImage[]> {
+  const got = await fetchBytes(value, userId, PROMPT_VIDEO_MAX_BYTES, '视频');
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'frame-prompt-video-'));
+  const file = path.join(dir, 'input.mp4');
+  try {
+    await writeFile(/*turbopackIgnore: true*/ file, got.bytes);
+    const frames = await sampleFramesPng({ file, cacheKey: `${userId}-${Date.now()}` });
+    return frames.map(buf => ({
+      mime: 'image/png',
+      base64: buf.toString('base64'),
+      bytes: buf.byteLength,
+    }));
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    throw new ApiError(400, `这段视频没能抽出帧（${error instanceof Error ? error.message : '解码失败'}）。换一段能正常播放的视频试试。`);
+  } finally {
+    await rm(/*turbopackIgnore: true*/ dir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+/** 抽帧张数（界面上要说清「看着 N 帧反推」）。 */
+export { PROMPT_VIDEO_FRAMES };

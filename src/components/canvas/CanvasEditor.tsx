@@ -43,8 +43,8 @@ import { ConfirmDialog } from '@/components/ui/ContextMenu';
 import { collectRuns } from './collectRuns';
 import { optimizeInputOf as optimizeInputIn, promptTextOf as promptTextIn, resolveTextChain } from './textChain';
 import type { TextChainEdge, TextChainNode } from './textChain';
-import { pickImageInput as pickImageInputIn } from './imageChain';
-import type { ImageChain, ImageChainEdge, ImageChainNode } from './imageChain';
+import { pickMediaInput as pickMediaInputIn } from './mediaChain';
+import type { MediaChain, MediaChainEdge, MediaChainNode } from './mediaChain';
 import { compositionPrompt, describeShot, readDirectorScene, type DirectorScene } from '@/lib/director';
 import { buildArchiveForm } from '@/lib/image-tools';
 import { NODE_CARD_COLORS } from '@/lib/appearance';
@@ -1538,14 +1538,17 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
   ), [edges, nameOfNode, nodes]);
 
   /**
-   * 优化节点左边**此刻连着的那张图**（2026-10-03：看图反推提示词）。
+   * 优化节点左边**此刻连着的那份媒体**（2026-10-03：看图 / 看视频反推提示词）。
    *
-   * 与 `optimizeInputOf` 是一对：一个给「把一句话扩写」，一个给「看着图写」。
-   * 返回 `null` = 左边没有可用的图 —— 那种情况照旧走改写那条路，
+   * 与 `optimizeInputOf` 是一对：一个给「把一句话扩写」，一个给「看着这份媒体写」。
+   * 返回 `null` = 左边没有可用的媒体 —— 那种情况照旧走改写那条路，
    * 于是**只接了文本的老画布一个字都不会变**。
+   *
+   * `kind` 由 `pickMediaInput` 定（视频优先于图），调用方不要再自己判一次 ——
+   * 两处各判一次的话，「界面说是视频、发出去的是图」这种差异没有任何界面会说。
    */
-  const describeInputOf = useCallback((id: string): ImageChain | null => pickImageInputIn(
-    nodes as ImageChainNode[], edges as ImageChainEdge[], id, nameOfNode,
+  const describeInputOf = useCallback((id: string): MediaChain | null => pickMediaInputIn(
+    nodes as MediaChainNode[], edges as MediaChainEdge[], id, nameOfNode,
   ), [edges, nameOfNode, nodes]);
 
   /**
@@ -1611,35 +1614,42 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
   const describePromptNode = useCallback(async (id: string) => {
     const node = nodesRef.current.find(item => item.id === id);
     if (!node || node.data.kind !== 'prompt-optimize') return;
-    const img = pickImageInputIn(
-      nodesRef.current as ImageChainNode[], edgesRef.current as ImageChainEdge[], id, nameOfNode,
+    const media = pickMediaInputIn(
+      nodesRef.current as MediaChainNode[], edgesRef.current as MediaChainEdge[], id, nameOfNode,
     );
-    if (!img) {
-      patch(id, { status: 'failed', result: '左边还没有一张能用的图 —— 先把一个图片节点连到它左边，并让那张图出来' });
+    if (!media) {
+      patch(id, { status: 'failed', result: '左边还没有一份能用的图或视频 —— 先连一个图片 / 视频节点，并让它出内容' });
       return;
     }
+    const isVideo = media.kind === 'video';
     const model = String(node.data.promptModel || '').trim();
     const skill = String(node.data.promptSkill || '').trim();
     const note = String(node.data.promptNote || '').trim();
     /*
-     * 🔴 **先**把「这一张已经在反推了」写进节点，再去发请求。
+     * 🔴 **先**把「这一份已经在反推了」写进节点，再去发请求。
      *
-     * 自动反推（下面那个 effect）的判据是「现在的图 ≠ `describedFrom`」：
+     * 自动反推（下面那个 effect）的判据是「现在的媒体 ≠ `describedFrom`」：
      * 等到成功再写的话，请求在飞的那几十秒里 `nodes` 会重渲染好几次，
-     * effect 每次都会「发现」这张图还没反推过 —— 于是同一张图被反复提交。
+     * effect 每次都会「发现」这份还没反推过 —— 于是同一份被反复提交。
      * 手动点按钮也走这一句，于是「刚点过」同样不会被自动那一路再撞一次。
      */
-    patch(id, { status: 'running', result: '正在看图反推提示词…', describedFrom: img.url, describedLabel: img.from });
+    patch(id, {
+      status: 'running',
+      result: isVideo ? '正在看视频反推提示词…' : '正在看图反推提示词…',
+      describedFrom: media.url,
+      describedLabel: media.from,
+    });
     try {
       const result = await apiPost<{ optimizedPrompt: string }>('/api/prompt/describe', {
-        image: img.url,
+        media: media.url,
+        kind: media.kind,
         ...(model ? { provider: model } : {}),
         ...(skill ? { skillId: skill } : {}),
         ...(note ? { note } : {}),
       });
       const described = String(result.optimizedPrompt || '').trim();
       if (!described) {
-        patch(id, { status: 'failed', result: '文本模型没为这张图写出提示词 —— 换一家再试' });
+        patch(id, { status: 'failed', result: `文本模型没为这份${isVideo ? '视频' : '图'}写出提示词 —— 换一家再试` });
         return;
       }
       patch(id, { status: 'success', result: '已反推', optimizedText: described });
@@ -1658,10 +1668,10 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
   const runPromptNode = useCallback(async (id: string) => {
     const node = nodesRef.current.find(item => item.id === id);
     if (!node || node.data.kind !== 'prompt-optimize') return;
-    const img = pickImageInputIn(
-      nodesRef.current as ImageChainNode[], edgesRef.current as ImageChainEdge[], id, nameOfNode,
+    const media = pickMediaInputIn(
+      nodesRef.current as MediaChainNode[], edgesRef.current as MediaChainEdge[], id, nameOfNode,
     );
-    if (img) await describePromptNode(id);
+    if (media) await describePromptNode(id);
     else await optimizePromptNode(id);
   }, [describePromptNode, edgesRef, nameOfNode, nodesRef, optimizePromptNode]);
 
@@ -1680,12 +1690,12 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
   useEffect(() => {
     for (const node of nodes) {
       if (node.data.kind !== 'prompt-optimize' || node.data.bypassed) continue;
-      const img = pickImageInputIn(nodes as ImageChainNode[], edges as ImageChainEdge[], node.id, nameOfNode);
-      if (!img) continue;
-      if (String(node.data.describedFrom || '').trim() === img.url) continue;
+      const media = pickMediaInputIn(nodes as MediaChainNode[], edges as MediaChainEdge[], node.id, nameOfNode);
+      if (!media) continue;
+      if (String(node.data.describedFrom || '').trim() === media.url) continue;
       if (node.data.status === 'running' || node.data.status === 'uploading') continue;
-      if (autoDescribeSeen.current.get(node.id) === img.url) continue;
-      autoDescribeSeen.current.set(node.id, img.url);
+      if (autoDescribeSeen.current.get(node.id) === media.url) continue;
+      autoDescribeSeen.current.set(node.id, media.url);
       void describePromptNode(node.id);
     }
   }, [describePromptNode, edges, nameOfNode, nodes]);
@@ -3590,8 +3600,8 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     const chain = isLatentKind(node.data.kind) ? latentChainOf(node.id) : null;
     /** 文本 / 优化节点这一刻要交给下游的那段文字（不写库）。 */
     const textChain = isTextValue ? textChainOf(node.id) : null;
-    /* 只有优化节点挑「左边那张图」—— 别的节点收图有 `imageUrls` 那条路（按数量收，不按一张）。 */
-    const imageChain = node.data.kind === 'prompt-optimize' ? describeInputOf(node.id) : null;
+    /* 只有优化节点挑「左边那份媒体」—— 别的节点收图有 `imageUrls` 那条路（按数量收，不按一张）。 */
+    const mediaChain = node.data.kind === 'prompt-optimize' ? describeInputOf(node.id) : null;
 
     /** 参数块自己不存工作流：往下游找它喂到的那个生成节点，问后者选的是哪一份。 */
     const paramWorkflow = node.data.kind === 'params' ? paramWorkflowOf(node.id) : null;
@@ -3625,11 +3635,12 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         textFrom: textChain?.from || undefined,
         textBroken: textChain?.broken || undefined,
         /**
-         * 左边那张图（看图反推用）：地址 + 来自哪个上游。
-         * 卡片据此显示缩略图、把「运行」按钮的措辞切成「按图反推」。
+         * 左边那份媒体（看图 / 看视频反推用）：地址 + 来自哪个上游 + 是图还是视频。
+         * 卡片据此显示缩略图、把文案与「运行」按钮的措辞切成反推那一套。
          */
-        imageValue: imageChain?.url || undefined,
-        imageFrom: imageChain?.from || undefined,
+        mediaValue: mediaChain?.url || undefined,
+        mediaFrom: mediaChain?.from || undefined,
+        mediaKind: mediaChain?.kind || undefined,
         /** 只有中转节点有：上游视频节点产出过的 latent，供「取自哪次生成」下拉用。 */
         latentPickOptions: node.data.kind === 'latent-relay' ? latentPickOptionsOf(node.id) : undefined,
         latentCount: isVideoGenerator

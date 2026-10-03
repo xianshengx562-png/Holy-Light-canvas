@@ -184,33 +184,37 @@ export default function NodeParamBar({ data }: { data: NodeData }) {
     const out = String(data.optimizedText || '').trim();
     const incoming = String(data.textValue || '').trim();
     /*
-     * 左边接了**图** = 走「看图反推」那条路（2026-10-03）：缩略图、文案、按钮名
+     * 左边接了**媒体**（图或视频）= 走「反推」那条路（2026-10-03）：缩略图、文案、按钮名
      * 三处都要跟着换。只换按钮不换文案的话，用户点完看到「已改写」会以为这句是
-     * 从自己那句话改出来的 —— 而它其实是看着图写的。
+     * 从自己那句话改出来的 —— 而它其实是看着图 / 视频写的。
      */
-    const img = String(data.imageValue || '').trim();
-    const imgFrom = String(data.imageFrom || '').trim();
+    const media = String(data.mediaValue || '').trim();
+    const mediaFrom = String(data.mediaFrom || '').trim();
+    const isVideo = data.mediaKind === 'video';
+    /** 「看图」还是「看视频」—— 这两句话的差别必须看得见，不然他不知道这次到底在看什么。 */
+    const what = isVideo ? '这段视频' : '这张图';
     return shell(
       <div className="cv-param-desc">
         <OptimizeOptions data={data} />
-        {img && <div className="cv-param-thumb static">
-          <img src={img} alt="待反推的图" />
+        {/* 视频不摆缩略图：拿一个 .mp4 地址去喂 `<img>` 得到的是一张打不开的坏图。 */}
+        {media && !isVideo && <div className="cv-param-thumb static">
+          <img src={media} alt="待反推的图" />
         </div>}
         <span className="cv-param-hint">{running
-          ? (img ? '正在看图反推…' : '正在改写提示词…')
+          ? (isVideo ? '正在看视频反推…' : media ? '正在看图反推…' : '正在改写提示词…')
           : out
-            ? (img ? '已反推 —— 下游拿到的是按这张图写的那句' : '已改写 —— 下游拿到的是改写后这句')
-            : img
-              ? '接上图片后会自动反推一次'
+            ? (media ? `已反推 —— 下游拿到的是按${what}写的那句` : '已改写 —— 下游拿到的是改写后这句')
+            : media
+              ? `接上${isVideo ? '视频' : '图片'}后会自动反推一次`
               : incoming
                 ? '还没改写 —— 现在交出去的还是上游原句'
-                : '还没接上游文本节点或图片节点'}</span>
-        {imgFrom && <span className="cv-param-hint">{`图片来自「${imgFrom}」`}</span>}
+                : '还没接上游文本节点或图片 / 视频节点'}</span>
+        {mediaFrom && <span className="cv-param-hint">{`${isVideo ? '视频' : '图片'}来自「${mediaFrom}」`}</span>}
         {linked && <span className="cv-param-hint">{`输入来自「${linked}」`}</span>}
       </div>,
       <>
         <button className="cv-btn sm" type="button" disabled={running} onClick={() => data.onOptimize?.()}>
-          {out ? (img ? '重新反推' : '再改写一次') : (img ? '反推提示词' : '改写提示词')}
+          {out ? (media ? '重新反推' : '再改写一次') : (media ? '反推提示词' : '改写提示词')}
         </button>
       </>,
     );

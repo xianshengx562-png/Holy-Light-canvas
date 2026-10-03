@@ -439,6 +439,42 @@ export async function framePng(input: { file: string; kind: 'video' | 'image'; f
   return readFile(/*turbopackIgnore: true*/ target);
 }
 
+/**
+ * 从一段视频里**均匀抽 N 帧**（2026-10-03：视频反推提示词）。
+ *
+ * 与 `framePng` 的差别：那边是「界面上拖到第几帧就抽第几帧」（要跟导出的帧号对得上），
+ * 这边是「把整段视频摊开看一遍」—— 反推要的是**画面怎么变化**，不是某一帧长什么样。
+ * 只发一帧等于把这段视频废掉：镜头运动和前后变化全都丢了，模型写出来的提示词跟看图一样。
+ *
+ * 抽多少帧：`PROMPT_VIDEO_FRAMES = 4`。再往上加，模型拿到的是一堆几乎一样的帧，
+ * 而每帧都要几百 KB 的 base64 —— 收益不涨、超时风险涨。
+ *
+ * 做法用 `fps=N/duration`（而不是 `select`）：不管这段多长，出来的**正好**是 N 张，
+ * 间隔也一定是均匀的。
+ */
+export const PROMPT_VIDEO_FRAMES = 4;
+
+export async function sampleFramesPng(input: { file: string; count?: number; cacheKey: string }): Promise<Buffer[]> {
+  const count = Math.max(1, Math.min(8, Math.floor(input.count || PROMPT_VIDEO_FRAMES)));
+  const { ffmpeg } = await requireBinaries();
+  const dir = path.join(PREVIEW_DIR, `sample-${input.cacheKey.replace(/[^a-zA-Z0-9_-]/g, '_')}`);
+  await mkdir(/*turbopackIgnore: true*/ dir, { recursive: true });
+  const probe = await probeFile(input.file);
+  /** 图片素材（fps / duration 都是 0）就只有一帧可抽，别按视频那套算。 */
+  const seconds = probe.duration > 0 ? probe.duration : 1;
+  const args = [
+    ffmpeg, '-y', '-i', input.file,
+    '-vf', `fps=${(count / seconds).toFixed(6)},scale='min(960,iw)':-2`,
+    '-frames:v', String(count),
+    path.join(dir, '%03d.png'),
+  ];
+  const result = await runCapture(args, 60_000);
+  if (result.code) throw new Error(result.stderr.trim() || '抽帧失败。');
+  const names = (await readdir(/*turbopackIgnore: true*/ dir)).filter(item => item.endsWith('.png')).sort();
+  if (!names.length) throw new Error('这段视频一帧都没抽出来 —— 它可能已经损坏，或者格式 FFmpeg 解不开。');
+  return Promise.all(names.map(name => readFile(/*turbopackIgnore: true*/ path.join(dir, name))));
+}
+
 /* ------------------------------------------------------------------ *
  * 导出
  * ------------------------------------------------------------------ */

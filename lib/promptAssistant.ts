@@ -17,7 +17,7 @@ import { readSkill, readSkillBody } from '@/lib/skills';
 import { providerLabel } from '@/lib/providers/registry';
 import { chatText, isLocalTextProvider, resolveTextCredentials, type TextCredentials } from '@/lib/providers/text';
 import { withLocalModel } from '@/lib/local-llm';
-import type { PromptImage } from '@/lib/promptImage';
+import type { PromptImage } from '@/lib/promptMedia';
 
 /** 优化提示词（AIFISHER 的 `gWe`）。 */
 export const PROMPT_OPTIMIZE_SYSTEM = [
@@ -181,25 +181,46 @@ export function loadSkillForPrompt(skillId: string | undefined) {
 }
 
 /**
- * 「看图反推提示词」（2026-10-03 徐先：「左边的接口输入了图片，就自动反推提示词」）。
+ * 视频反推时加在 system 末尾的那句（2026-10-03）。
+ *
+ * 🔴 非加不可：模型收到的只是**几张 png**，它不知道这几张是同一段视频的先后帧
+ * （还是用户随手丢的几张不相干的图）。不点破的话，常见的输出是「图一：…图二：…」
+ * 这种逐张解说 —— 那不是提示词，也没法拿去生成。
+ */
+const DESCRIBE_VIDEO_HINT = [
+  '',
+  '【这几张图的来历】它们是**同一段视频**按时间先后均匀抽出来的帧，不是几张不相干的图。',
+  '请把它们当成一段连续的画面来描述：主体在这段时间里做了什么、镜头怎么运动、',
+  '光线与场景有没有变化，最后合成**一段**提示词，不要逐张分开写。',
+].join('\n');
+
+/**
+ * 「看图 / 看视频反推提示词」（2026-10-03 徐先：
+ * 「左边的接口输入了图片，就自动反推」+「也支持视频，如果接入了视频，那进行视频反推」）。
  *
  * 与 `optimizePrompt` 是同一件事的两个方向：那边把一句话**扩写**成一段提示词，
- * 这边看着一张图**写出**那段提示词。所以除了 system（`PROMPT_DESCRIBE_SYSTEM`）
- * 与「多带一张图」之外，走的完全是同一条路 —— 凭据解析、技能规范、本地模型装卸、
+ * 这边看着一份媒体**写出**那段提示词。所以除了 system（`PROMPT_DESCRIBE_SYSTEM`）
+ * 与「多带几张图」之外，走的完全是同一条路 —— 凭据解析、技能规范、本地模型装卸、
  * 结果清理，一处都不另写。
  *
- * 🔴 用户那句（`note`）在这里是**补充**，不是改写对象：反推的输入是图，
+ * `images` 是**数组**而不是单张：视频那一路交的是抽出来的若干帧，
+ * 图片那一路只是「这个数组长度为 1」。别为两条路各开一个函数 ——
+ * 那样迟早出现「视频那边改了报错文案、图片这边没跟上」。
+ *
+ * 🔴 用户那句（`note`）在这里是**补充**，不是改写对象：反推的输入是媒体，
  * 把它当成「待优化的话」会让模型两头为难（既看图又顾着原话）。
  */
 export async function describePrompt(
   userId: string,
-  image: PromptImage,
+  images: PromptImage[],
   preferred?: string,
   skill?: { title: string; body: string } | null,
   /** `keepAliveSeconds` 与优化那条同一套语义（只有本地模型用得上）。 */
-  options?: { keepAliveSeconds?: number; note?: string },
+  options?: { keepAliveSeconds?: number; note?: string; video?: boolean },
 ): Promise<OptimizeResult> {
-  if (!image?.base64) throw new PromptAssistantError('没有拿到这张图的字节，反推不了。');
+  const shots = (images || []).filter(item => item && String(item.base64 || '').trim());
+  if (!shots.length) throw new PromptAssistantError('没有拿到这份媒体的字节，反推不了。');
+  const isVideo = !!options?.video && shots.length > 1;
   const creds = await resolveTextCredentials(userId, preferred);
   if (!creds) {
     throw new PromptAssistantError(
@@ -209,15 +230,17 @@ export async function describePrompt(
     );
   }
   const note = String(options?.note || '').trim();
-  const system = PROMPT_DESCRIBE_SYSTEM + skillInstruction(skill);
-  const ask = ['就看这张图，输出一段可以直接用于图片或视频生成的中文提示词。']
+  const system = PROMPT_DESCRIBE_SYSTEM + (isVideo ? DESCRIBE_VIDEO_HINT : '') + skillInstruction(skill);
+  const ask = [isVideo
+    ? '就看这几帧（同一段视频按顺序抽出来的），输出一段可以直接用于视频生成的中文提示词。'
+    : '就看这张图，输出一段可以直接用于图片或视频生成的中文提示词。']
     .concat(note ? [`补充要求：${note}`] : [])
     .join('\n');
   const call = () => chatText(creds, {
     system,
     user: ask,
     temperature: 0.7,
-    images: [{ mime: image.mime, base64: image.base64 }],
+    images: shots.map(item => ({ mime: item.mime, base64: item.base64 })),
   });
   /*
    * 「这个模型看不了图」必须单独说一句（2026-10-03）。
@@ -233,7 +256,7 @@ export async function describePrompt(
       const detail = error instanceof Error ? error.message : String(error);
       if (/image|vision|multimodal|图/i.test(detail)) {
         throw new PromptAssistantError(
-          `${creds.label} 好像看不了图（${detail}）—— 换一个支持图片的多模态模型再来反推。`,
+          `${creds.label} 好像看不了${isVideo ? '视频（这几帧）' : '图'}（${detail}）—— 换一个支持图片的多模态模型再来反推。`,
           400,
           'MODEL_NOT_VISION',
         );
@@ -253,7 +276,7 @@ export async function describePrompt(
     : await guarded();
   const described = cleanOptimizedPrompt(result.text);
   if (!described) {
-    throw new PromptAssistantError(`${creds.label} 没有为这张图写出提示词，换一家文本模型试试。`);
+    throw new PromptAssistantError(`${creds.label} 没有为这份${isVideo ? '视频' : '图'}写出提示词，换一家文本模型试试。`);
   }
   return {
     optimizedPrompt: described,

@@ -19,13 +19,16 @@ import { isRunningHubAppWorkflowId } from '@/lib/workflows/runninghubApp';
 /* 文本链那条取值规则在 `./textChain`（纯函数层），「哪些节点算文本」是它的一部分。 */
 import { isTextValueKind } from './textChain';
 /*
- * 图片链同理：哪些节点能给图、给的是哪几个地址、哪个地址服务端取得到字节 ——
- * **全部在 `./imageChain` 里定**（纯函数层，能单独跑断言）。
+ * 媒体链同理：哪些节点能给图 / 能给视频、给的是哪几个地址、哪个地址服务端取得到字节 ——
+ * **全部在 `./mediaChain` 里定**（纯函数层，能单独跑断言）。
  *
- * 🔴 这里一律**转出、不重写**：提交时收参考图与「看图反推提示词」必须用同一把尺子量，
+ * 🔴 这里一律**转出、不重写**：提交时收参考图与「看图 / 看视频反推提示词」必须用同一把尺子量，
  * 两处各写一份的后果是「卡片上看得到图，点反推却说没有图」，而全程不报错。
  */
-import { imageUrlsOf as referenceUrlsIn, isImageSourceKind, isResolvableUrl as isResolvableUrlIn } from './imageChain';
+import {
+  imageUrlsOf as referenceUrlsIn, isImageSourceKind, isVideoSourceKind,
+  isResolvableUrl as isResolvableUrlIn, isVideoUrl as isVideoUrlIn, isImageUrl as isImageUrlIn,
+} from './mediaChain';
 
 /**
  * 生成下拉里能选的工作流：**同用途，且工序是普通生成**。
@@ -380,11 +383,14 @@ export const ACCEPTS: Record<NodeKind, NodeKind[]> = {
    * 优化节点原来只接**文本**：上游文本节点，或者串在前面的另一个优化节点。
    *
    * 2026-10-03 徐先：「优化提示词节点也支持反推提示词，如果左边的接口输入了图片，
-   * 那么自动反推提示词」→ 于是**图片来源也能连进来**（就是 `isImageSourceKind` 那六种）。
-   * 接上之后的取值规则在 `./imageChain` 的 `pickImageInput()`：
-   * 左边有图就走「看图写提示词」，没图才走原来那条「把一句话扩写」的路。
+   * 那么自动反推提示词」→ **图片来源能连进来**；同一天追加「也支持视频，
+   * 如果接入了视频，那进行视频反推」→ **视频来源也能连进来**（`video-generate` / `video-input`）。
+   *
+   * 接上之后走哪条路由 `./mediaChain` 的 `pickMediaInput()` 定：
+   *   左边有视频 → 视频反推（抽若干帧）；有图 → 看图反推；都没有 → 原来那条「把一句话扩写」。
    */
-  'prompt-optimize': ['text', 'prompt-optimize', 'image', 'image-generate', 'image-out', 'video-input', 'frame-extract', 'director', 'app-generate'],
+  'prompt-optimize': ['text', 'prompt-optimize', 'image', 'image-generate', 'image-out',
+    'video-input', 'video-generate', 'frame-extract', 'director', 'app-generate'],
   video: ['video-generate'],
   'video-input': [],
   'audio-input': [],
@@ -503,10 +509,13 @@ export function normalizeNodeLabels<T extends { data: { label?: unknown; kind?: 
  *
  * 提交时收参考图、参数条上数「几张图」、输入槽算不算就绪、反推时挑「左边那张」，
  * 四处必须用同一个判断 —— 各写一份的后果是参数条写着 2 图、实际只提交 1 张，
- * 而界面上一句话都没有。所以正文在 `./imageChain`，这里只转出。
+ * 而界面上一句话都没有。所以正文在 `./mediaChain`，这里只转出。
+ *
+ * 🔴 `video-input` 在 `mediaChain` 里归到了**视频**那一组（连到优化节点上时走视频反推），
+ * 但它在**提交生成时仍然是参考图来源**（工作流收的是它的封面帧）—— 所以这里要把它加回来。
  */
 export function isReferenceSource(kind: unknown) {
-  return isImageSourceKind(kind);
+  return isImageSourceKind(kind) || kind === 'video-input';
 }
 
 /**
@@ -784,12 +793,13 @@ export type { RunningHubInstanceType } from '@/lib/workflows/instanceType';
 
 export const latentAssetPrefix = 'asset:';
 
+/* 地址后缀的三个判定同样搬去了 `./mediaChain`（反推要认「这是图还是视频」），这里只转出。 */
 export function isVideoUrl(value: unknown) {
-  return /\.(mp4|webm|mov)(\?|#|$)/i.test(String(value ?? ''));
+  return isVideoUrlIn(value);
 }
 
 export function isImageUrl(value: unknown) {
-  return /\.(png|jpe?g|webp|gif|avif)(\?|#|$)/i.test(String(value ?? ''));
+  return isImageUrlIn(value);
 }
 
 /**

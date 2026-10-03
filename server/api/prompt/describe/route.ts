@@ -3,26 +3,33 @@ import { api, apiUser, ApiError, checkOrigin, jsonBody } from '@/lib/api';
 import {
   PromptAssistantError, PROMPT_ASSISTANT_MAX, describePrompt, loadSkillForPrompt,
 } from '@/lib/promptAssistant';
-import { resolvePromptImage } from '@/lib/promptImage';
+import { resolvePromptImage, resolvePromptVideo } from '@/lib/promptMedia';
 import { recordCall } from '@/lib/providers/keys';
 
 /**
- * 看图反推提示词（2026-10-03 徐先）。
+ * 看图 / 看视频反推提示词（2026-10-03 徐先）。
  *
- * 与 `/api/prompt/optimize` 是一对：那边收一句话，这边收**一张图的地址**，
+ * 与 `/api/prompt/optimize` 是一对：那边收一句话，这边收**一份媒体的地址**，
  * 回来的都是一段能直接喂给生成模型的中文提示词。
  *
- * 🔴 客户端交的是**地址**不是字节：画布上那张图大概率是已落盘的资产
- * （`/api/assets/<id>/media.<ext>`），服务端读盘取字节（见 `lib/promptImage.ts`），
- * 一张 4MB 的图不至于在渲染进程里先转一次 5MB 的 base64 再发过来。
+ * 🔴 客户端交的是**地址**不是字节：画布上那份媒体大概率是已落盘的资产
+ * （`/api/assets/<id>/media.<ext>`），服务端读盘取字节（见 `lib/promptMedia.ts`），
+ * 一张 4MB 的图 / 一段几十 MB 的视频不至于在渲染进程里先转一次 base64 再发过来。
+ *
+ * `kind` 决定走哪条路：
+ * - `image` → 原样发一张；
+ * - `video` → **先用内置 FFmpeg 均匀抽几帧**，再把这几帧一起发给模型
+ *   （文本模型看不了视频文件，只看得懂图）。
  *
  * 三种失败要说清是谁的问题：
- * - 地址取不到字节 / 格式不认 → 指向「换一张图」（400，来自 `resolvePromptImage`）；
+ * - 地址取不到字节 / 格式不认 / 抽不出帧 → 指向「换一份媒体」（400，来自 `promptMedia`）；
  * - 一家文本模型都没配 → 指向「设置 · 模型服务」（503，照 AIFISHER）；
  * - 这家模型看不了图 → 指向「换一个多模态模型」（400，`MODEL_NOT_VISION`）。
  */
 const schema = z.object({
-  image: z.string().trim().max(2048),
+  media: z.string().trim().max(2048),
+  /** 图还是视频。不传按 `image` 处理。 */
+  kind: z.enum(['image', 'video']).default('image'),
   /** 设置页「测一下这家」时指定厂商；节点上不传，走用户设的那家。 */
   provider: z.string().trim().max(120).optional(),
   skillId: z.string().trim().max(160).optional(),
@@ -41,13 +48,16 @@ export async function POST(request: Request) {
     if (!parsed.success) throw new ApiError(400, parsed.error.issues[0]?.message || '请求体格式不对。');
     const startedAt = Date.now();
     try {
-      const image = await resolvePromptImage(parsed.data.image, user.id);
+      const isVideo = parsed.data.kind === 'video';
+      const shots = isVideo
+        ? await resolvePromptVideo(parsed.data.media, user.id)
+        : [await resolvePromptImage(parsed.data.media, user.id)];
       const result = await describePrompt(
         user.id,
-        image,
+        shots,
         parsed.data.provider,
         loadSkillForPrompt(parsed.data.skillId),
-        { keepAliveSeconds: parsed.data.keepAlive, note: parsed.data.note },
+        { keepAliveSeconds: parsed.data.keepAlive, note: parsed.data.note, video: isVideo },
       );
       /* 与优化那条同一套记账规矩：本地那一档不记（没有服务商、不花额度）。 */
       if (result.provider !== 'local') {
@@ -58,7 +68,7 @@ export async function POST(request: Request) {
           latencyMs: Date.now() - startedAt,
         }).catch(() => undefined);
       }
-      return Response.json(result);
+      return Response.json({ ...result, frames: shots.length });
     } catch (error) {
       if (error instanceof PromptAssistantError) {
         if (error.code !== 'LOCAL_MODEL_UNAVAILABLE') {

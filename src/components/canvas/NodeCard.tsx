@@ -170,15 +170,19 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
    * 所以「有图」也算「有得跑」；少这一档的话，接了图片的优化节点上那颗按钮是灰的，
    * 而用户看着卡片上明明有张图。
    */
-  const hasImageInput = !!String(data.imageValue || '').trim();
-  const canOptimize = kind === 'prompt-optimize' && (hasImageInput || !!optimizeInput) && !bypassed;
+  const hasMediaInput = !!String(data.mediaValue || '').trim();
+  /* 视频走的是「抽若干帧再看」那条路：界面上要说清，不然他不知道为什么这次会慢一点。 */
+  const isVideoInput = data.mediaKind === 'video';
+  const canOptimize = kind === 'prompt-optimize' && (hasMediaInput || !!optimizeInput) && !bypassed;
   const optimizeHint = bypassed
     ? '这个节点被绕过了 —— 按 B 取消绕过才跑得起来'
-    : hasImageInput
-      ? '运行：看着左边这张图，写出一段能直接喂给生成模型的提示词'
-      : optimizeInput
-        ? '运行：把上游这句改写成能直接喂给生成模型的提示词'
-        : '先接一个文本节点（改写）或图片节点（反推）到它左边';
+    : isVideoInput
+      ? '运行：看着左边这段视频抽出来的几帧，写出一段能直接喂给生成模型的提示词'
+      : hasMediaInput
+        ? '运行：看着左边这张图，写出一段能直接喂给生成模型的提示词'
+        : optimizeInput
+          ? '运行：把上游这句改写成能直接喂给生成模型的提示词'
+          : '先接一个文本节点（改写）或图片 / 视频节点（反推）到它左边';
 
   /**
    * 节点标题重命名（2026-09-27，徐先）：双击标题进入编辑态，写回 `data.label`。
@@ -415,17 +419,24 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
                   />
                 </div>
                 : data.status === 'running'
-                  ? placeholder(hasImageInput ? '正在看图反推…' : '正在改写提示词…')
+                  ? placeholder(isVideoInput ? '正在看视频反推…' : hasMediaInput ? '正在看图反推…' : '正在改写提示词…')
                   /* 左边接了图、还没反推过：画框里就放**那张图** —— 空框说明不了「这次看的是哪一张」。 */
-                  : hasImageInput
+                  : hasMediaInput && !isVideoInput
                     ? <div className="cv-thumb plain media">
                       <img
-                        src={String(data.imageValue)}
+                        src={String(data.mediaValue)}
                         alt="待反推的图"
-                        onClick={previewIfSelected(String(data.imageValue))}
+                        onClick={previewIfSelected(String(data.mediaValue))}
                       />
                     </div>
-                    : emptyFrame)
+                    /*
+                     * 🔴 视频**不能**拿地址去喂 `<img>` —— 那会得到一张打不开的坏图。
+                     * 这里给一句「按这段视频反推」：空框说明不了这次要看的是什么，
+                     * 而 `<video>` 塞进来只会是个黑框（还没有能播的封面）。
+                     */
+                    : hasMediaInput
+                      ? placeholder('按这段视频反推提示词')
+                      : emptyFrame)
                 : null;
 
   /**
