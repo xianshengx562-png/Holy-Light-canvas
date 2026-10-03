@@ -5,6 +5,7 @@ import { api, apiUser, checkOrigin, jsonBody } from '@/lib/api';
 import { refundGeneration } from '@/lib/wallet';
 import { abandonMessage } from '@/lib/taskPoll';
 import { failAndRefund } from '@/lib/taskSettle';
+import { remoteStatusOf } from '@/lib/taskRemote';
 import { queryTask } from '@/lib/providers/runninghub/client';
 import { queryWebAppOutputs } from '@/lib/providers/runninghub/webapp';
 import { webAppIdOf } from '@/lib/workflows/runninghubApp';
@@ -117,7 +118,12 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
         ? await queryWebAppOutputs(task.externalTaskId, apiKey, baseUrl)
         : await queryTask(task.externalTaskId, apiKey, baseUrl) as { status: string; results?: { url: string }[]; errorMessage?: string };
     }
-    const status = remote.status === 'SUCCESS' ? 'success' : remote.status === 'FAILED' ? 'failed' : remote.status === 'QUEUED' ? 'queued' : 'running';
+    /*
+     * 判定收在 `lib/taskRemote.ts`（2026-10-03，N-111）：除了 SUCCESS / FAILED / QUEUED，
+     * 它还会把「上游说这个任务不存在 / 已过期」判成 failed ——
+     * 那一类上游只给 errorMessage、不给 FAILED，漏掉它任务就永远停在 running（界面只转圈）。
+     */
+    const status = remoteStatusOf(remote);
     /*
      * 本机任务顺带回一份**实时进度**（跑到哪个节点、百分之几）。
      * 它只是给界面看的：`/history` 才是判定成功失败的根据，进度有没有都不影响上面的 status。
