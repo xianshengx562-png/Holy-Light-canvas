@@ -2177,6 +2177,8 @@ html[data-theme='light'] .cv-skill-mask {
 .cv-param-top { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .cv-param-desc { flex: 1; min-width: 0; display: grid; gap: 7px; align-content: start; }
 .cv-param-hint { font-size: 11px; color: var(--cv-mute); }
+/* 与底栏那条 `.cv-dock-hint.warn` 同一个令牌：同一句警告在两处要长得一样。 */
+.cv-param-hint.warn { color: var(--cv-warn); }
 /*
  * 「这么填不会生效」的警告（例如同步出图那档接了参考图）。
  * 必须用警示色而不是普通灰：它和上面那串说明文字长得一样就没人在读了。

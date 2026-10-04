@@ -23,7 +23,8 @@ import { ConfirmDialog } from '@/components/ui/ContextMenu';
 import { isDesktop } from '@/lib/edition';
 import { apiPost, useApi, useSession } from '@/lib/client';
 import { pollDelayMs } from '@/lib/taskPoll';
-import { upscaleWorkflowFor, upscaleEngineOf } from '@/lib/workflows/upscale';
+import { upscaleWorkflowForImported, upscaleEngineOf } from '@/lib/workflows/upscale';
+import { readLastUpscaleWorkflow, rememberLastUpscaleWorkflow } from '@/lib/upscaleMemory';
 import { useSearchParams } from 'next/navigation';
 
 type AssetProject = { id: string; name: string; count: number };
@@ -80,8 +81,10 @@ export default function Assets() {
 
   /* ── 超清（2026-10-03：导入的图 / 视频也能加工）────────────── */
   /*
-   * 用哪一份超清工作流：**与画布上那颗「超清」按钮同一个筛法**（`upscaleWorkflowFor`），
-   * 只是这里没有「节点引擎」那一档，所以按 `follow` + 不筛来源取最近的一份 ——
+   * 用哪一份超清工作流：**与画布上那颗「超清」按钮同一个筛法**（`upscaleWorkflowForImported`）。
+   *
+   * 灯箱这里的 asset 不在画布上、没有连线，所以「跟随」的三条里只剩后两条 ——
+   * 用**上一次超清用过的那份**，一份都没记过才取候选里最近改过的那份（2026-10-04）。
    * 两边各写一份挑法的话，迟早出现「画布点得动、资产页说没配」这种同文案两种结论。
    */
   const { data: flowData } = useApi<{
@@ -95,7 +98,8 @@ export default function Assets() {
     if (upscaling) return;
     const kind = item.type === 'video' ? 'video' : item.type === 'image' ? 'image' : null;
     if (!kind) { setUploadMsg('只有图片和视频能超清 —— latent 与音频没有这一道工序。'); return; }
-    const flow = upscaleWorkflowFor(upscaleFlows, kind);
+    /* 没有连线可跟（asset 不在画布上），所以 followedSide 传 null：「跟随」直接落到「上一次那份」。 */
+    const flow = upscaleWorkflowForImported(upscaleFlows, kind, 'follow', null, '', readLastUpscaleWorkflow(kind));
     if (!flow) {
       setUploadMsg(`还没有配${kind === 'video' ? '视频' : '图片'}超清工作流 —— 到「设置 · 工作流」新建一份工作流，`
         + '把「工序」改成「超清」，再把工作流里那个上传段的「画布绑定」选成「画布 · 参考图 1」（图）'
@@ -128,6 +132,8 @@ export default function Assets() {
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body?.error || '提交失败。');
+      /* 提交成功才记「上一次超清用的是这份」（画布那边同一份记录，两边共用）。 */
+      rememberLastUpscaleWorkflow(kind, flow.workflowId);
       setUpscaling({ assetId: item.id, taskId: String(body.taskId || ''), name: item.name });
       setUploadMsg(`已提交超清 · ${flow.name || flow.workflowId} —— 跑完会存成新的一份资产。`);
     } catch (e) {

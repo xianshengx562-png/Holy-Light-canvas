@@ -12,7 +12,22 @@ import { isTimeoutError } from '@/lib/requestContext';
  * `label` 是「哪一份东西没传上去」（`待超清的媒体` / `参考图` / `视频`）——
  * 它和「怎么补救」是同一件事：换一份小一点的素材、还是去看 Key。
  */
-export async function uploadOrExplain(label: string, send: () => Promise<string>): Promise<string> {
+/**
+ * `where` = 这一趟往哪儿传。
+ *
+ * 🔴 两边**不能共用同一句补救**（2026-10-04 徐先点超清撞出来的一次）：
+ *
+ *   传不到本机 ComfyUI（ComfyUI 没开 / 地址不对）时，界面上写的是
+ *   「…稍后重试，或到「设置 · 密钥中心」看一眼 Key 还对不对」——
+ *   ① 本机那一档一个字节都不往外发，**和 Key 一点关系都没有**；
+ *   ② 「密钥中心」那一页 2025-09-25 就整页撤了，现在的 key 都在「设置 · 模型服务」里。
+ *   等于把人指到一个既不相干、又已经不存在的地方。
+ */
+export async function uploadOrExplain(
+  label: string,
+  send: () => Promise<string>,
+  where: 'local' | 'runninghub' = 'runninghub',
+): Promise<string> {
   try {
     return await send();
   } catch (error) {
@@ -26,9 +41,15 @@ export async function uploadOrExplain(label: string, send: () => Promise<string>
      * 抛的是 `DOMException [TimeoutError]`，**没有 stack**，只能按 name 认。
      */
     if (isTimeoutError(error)) {
-      throw new ApiError(504, `${label}传到工作流那边等太久了，这一轮已经中断。素材越大要传越久 —— 换一份小一点的，或者等网络好一些再试。`);
+      throw new ApiError(504, `${label}传到${targetOf(where)}等太久了，这一轮已经中断。素材越大要传越久 —— 换一份小一点的${where === 'local' ? '，或到「设置 · ComfyUI」看一眼它是不是卡住了' : '，或者等网络好一些再试'}。`);
     }
     const reason = error instanceof Error && error.message ? error.message : '未知原因';
-    throw new ApiError(502, `${label}没能传到工作流那边：${reason}。稍后重试，或到「设置 · 密钥中心」看一眼 Key 还对不对。`);
+    throw new ApiError(502, where === 'local'
+      ? `${label}没能传到${targetOf(where)}：${reason}。本机那一档一个字节都不往外发 —— 到「设置 · ComfyUI」看一眼它开没开、地址对不对。`
+      : `${label}没能传到${targetOf(where)}：${reason}。稍后重试，或到「设置 · 模型服务」看一眼那把 Key 还对不对。`);
   }
+}
+
+function targetOf(where: 'local' | 'runninghub') {
+  return where === 'local' ? '本机 ComfyUI' : '工作流那边';
 }

@@ -41,6 +41,10 @@ import RunClock, { type RunClockState } from './RunClock';
 import GenerateDock, { type DockAnchor } from './GenerateDock';
 import { ConfirmDialog } from '@/components/ui/ContextMenu';
 import { collectRuns } from './collectRuns';
+/* 撤回 / 下一步（Ctrl+Z / Ctrl+Shift+Z）。只记结构改动、只给快捷键 —— 见文件头的注释。 */
+import { useCanvasHistory, type CanvasSnapshot } from './history';
+/* 「从工作流库中选择…」那条路也要挡住应用落到生成节点上（与底栏那个下拉同一个口径）。 */
+import { isRunningHubAppWorkflowId } from '@/lib/workflows/runninghubApp';
 import { optimizeInputOf as optimizeInputIn, promptTextOf as promptTextIn, resolveTextChain } from './textChain';
 import type { TextChainEdge, TextChainNode } from './textChain';
 import { pickMediaInput as pickMediaInputIn } from './mediaChain';
@@ -66,9 +70,10 @@ import {
   usesGenerateDock, workflowsForApp,
   canConnect, connectionHint, isAudioUrl, isGeneratorKind, isLatentKind, isLatentSourceKind, isVideoUrl, latentAssetPrefix,
   isRunnableKind, isTextValueKind, displayLabelOf, normalizeNodeLabels, resetTransientStatus,
-  latentBrokenHint, latentBrokenLabel, latentLabel, purposeOfNode, purposeForNode, workflowMismatchHint, upscaleWorkflowFor, upscaleEngineOf,
+  latentBrokenHint, latentBrokenLabel, latentLabel, purposeOfNode, purposeForNode, workflowMismatchHint, upscaleEngineOf,
   nodeEngineProvider, readUpscaleMode, readUpscaleSource, UPSCALE_SOURCE_LABELS,
   upscalePurposeOfNode, upscaleSourceOfNode, upscaleResultPatch,
+  upscaleFollowedSide, upscaleFollowsConnection, upscaleTargetOfNode,
   isRelayLatentSource, latentPicksOf, resolvePickedLatents,
   workflowDisplayName, generatorKindLabel, newNodeData, isReferenceSource, referenceUrlsOf, latentNodeIdOf,
   mediaReadyForRun, isResolvableUrl, workflowsForProvider, engineSwitchPatch, readInstanceType,
@@ -88,6 +93,8 @@ import {
   IMAGE2_DEFAULTS, IMAGE2_MAX_REFERENCES, IMAGE2_SIZE_AUTO, readImage2Params, validateImage2Params,
 } from '@/lib/workflows/image2Params';
 import { DEFAULT_IMAGE_ENGINE, imageEngineProvider, readImageEngine } from '@/lib/workflows/imageEngine';
+/* 「上一次超清用过的那份」—— 导入素材那一档「跟随」跟不到时的兜底（见 lib/workflows/upscale.ts）。 */
+import { readLastUpscaleWorkflow, rememberLastUpscaleWorkflow } from '@/lib/upscaleMemory';
 import { VIDEO_API_DEFAULTS, validateVideoApiParams } from '@/lib/workflows/videoApiParams';
 import { abandonMessage, pollDelayMs } from '@/lib/taskPoll';
 import { DEFAULT_VIDEO_ENGINE, readVideoEngine, videoEngineProvider } from '@/lib/workflows/videoEngine';
@@ -999,6 +1006,39 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
   /** `edges` 的最新值 —— 同上：`detachUpstreamOf` 要在同一次事件里读到刚改过的那份。 */
   const edgesRef = useRef<Edge[]>([]);
   edgesRef.current = edges;
+
+  /*
+   * 撤回 / 下一步（2026-10-04 徐先：「接上撤回和下一步的功能，ctrl+z撤回，ctrl+shift+z下一步」）。
+   *
+   * 🔴 只记**结构改动**：加 / 删节点、连线与断线、挪位置、改尺寸、粘贴、删除、导入素材。
+   *    参数区里敲的提示词与下拉**一步都不记**（每敲一个字就是一步，撤起来很吵）。
+   *    `patch()` 那条路（写提示词、写生成结果）一律不记 —— 跑出来的结果不受撤回影响。
+   * 🔴 只给快捷键，界面上不出任何入口；没有可撤 / 可进的时候 `undo` / `redo` 返回 null，
+   *    这里就**什么都不做、什么都不弹**（「没有下一步就什么都不显示」）。
+   *
+   * 这三个 callback 是稳的（`useCallback`），可以放心进下面那些函数的依赖数组。
+   */
+  const { record, beginGesture, endGesture, undo: undoStep, redo: redoStep } = useCanvasHistory({ nodesRef, edgesRef });
+
+  /** Ctrl+Z：整份换回上一步。换完顺手把参数条收掉 —— 它挂着的那个节点可能已经回来了。 */
+  const undoCanvas = useCallback(() => {
+    const snap = undoStep();
+    if (!snap) return;
+    setNodes(snap.nodes);
+    setEdges(snap.edges);
+    setSelected(prev => (prev && snap.nodes.some(node => node.id === prev) ? prev : null));
+    setNotice('已撤回');
+  }, [setEdges, setNodes, setNotice, undoStep]);
+
+  /** Ctrl+Shift+Z：把刚撤掉的那一步放回来。 */
+  const redoCanvas = useCallback(() => {
+    const snap = redoStep();
+    if (!snap) return;
+    setNodes(snap.nodes);
+    setEdges(snap.edges);
+    setSelected(prev => (prev && snap.nodes.some(node => node.id === prev) ? prev : null));
+    setNotice('已前进');
+  }, [setEdges, setNodes, setNotice, redoStep]);
 
   /**
    * 把一个文本节点**左边**的连线断开（2026-09-29）。
@@ -2726,10 +2766,19 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
      */
     const asked = readUpscaleSource(node.data.upscaleSource);
     const nodeProvider = nodeEngineProvider(node.data.kind, node.data.engine);
-    const target = upscaleWorkflowFor(
-      workflows, purpose, asked, nodeProvider,
-      node.data.upscaleWorkflowId,
-    );
+    /*
+     * 导入素材那一档的「跟随」跟的是**连出去的那个节点**的引擎（2026-10-04 徐先：
+     * 「超清工作流引擎跟随连接的节点；如果没有，默认使用上一次超清的工作流」）。
+     * 顺线找是纯函数（`lib/workflows/upscale.ts`），这里只要能读到 `edges`。
+     * 生成节点自己就有引擎，`upscaleTargetOfNode` 里第一支就把它花掉了。
+     */
+    const followedSide = upscaleFollowedSide(id, nodes, edges);
+    /*
+     * 🔴 候选列表要传 state 里那份 `workflows`，**不是 `node.data.workflows`**：
+     * `data.workflows` 只在渲染时被注进 `hydrated` 那份节点里，这里手上的是 state 里的
+     * `nodes`，那个字段是空的 —— 2026-10-04 因此把「明明配了工作流」报成「还没有配」。
+     */
+    const target = upscaleTargetOfNode(node.data, workflows, followedSide, readLastUpscaleWorkflow(purpose));
     if (!target) {
       /*
        * 指定了来源时要把「哪一边没有」说进句子里：只说「还没有配视频超清工作流」，
@@ -2741,7 +2790,14 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
        * 该说的话在配置那一刻就说过了 —— 胶囊弹层里就有一条「这一档还没有…超清工作流」。
        */
       if (auto) return;
-      const side = asked === 'follow' ? '' : `${UPSCALE_SOURCE_LABELS[asked]} 的`;
+      /*
+       * 🔴 「跟随」也要把**缺的是哪一边**写出来（2026-10-04）：他库里只配了本机那份图超清，
+       * 而下游「图片生成」走 RunningHub —— 只写「还没有配图片超清工作流」等于说他没配，
+       * 其实他配了，缺的是另一边的。跟到哪一边就说哪一边。
+       */
+      const side = asked === 'follow'
+        ? (followedSide ? `${UPSCALE_SOURCE_LABELS[followedSide]} 的` : '')
+        : `${UPSCALE_SOURCE_LABELS[asked]} 的`;
       return patch(id, {
         status: 'failed',
         result: `还没有配${side}${generatorKindLabel(purpose)}超清工作流 —— 到「设置 · 工作流」新建一份工作流，把「工序」改成「超清」，再把工作流里那个上传段的「画布绑定」选成「画布 · 参考图 1」（图）或「画布 · 视频输入 1」（视频）`,
@@ -2757,10 +2813,16 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
      * back to local ComfyUI": a sentence the user cannot act on, because his engine
      * *is* local ComfyUI already and this run has no engine dropdown.
      *
-     * The side here is whatever picked the workflow above (`upscaleWorkflowFor`), so it
+     * The side here is whatever picked the workflow above (`upscaleTargetOfNode`), so it
      * agrees with `target` by construction — that is *matching*, not bypassing.
+     *
+     * 🔴 导入素材那一档**只报挑中那份工作流自己那一边**（`nodeSide` 传 null）：
+     * 它「跟到的那一边」和「最终跑的那一边」可能因为兜底而不同（跟到的是本地，
+     * 而本机那份超清工作流没配 → 用了上一次那份云端的），报「跟到的那一边」必被拦。
      */
-    const upscaleSide = upscaleEngineOf(asked, nodeProvider, target.provider);
+    const upscaleSide = upscaleEngineOf(
+      asked, upscaleFollowsConnection(node.data.kind) ? null : nodeProvider, target.provider,
+    );
     patch(id, { status: 'running', result: `超清中 · ${workflowDisplayName(target)}` });
     try {
       const body = await json(await fetch(`/api/projects/${projectId}/generation`, {
@@ -2778,12 +2840,14 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
           bindingValues: { upscaleInput: source },
         }),
       }));
+      /* 提交成功之后才记「上一次超清用的是这份」—— 失败的那一份不算用过的。 */
+      rememberLastUpscaleWorkflow(purpose, target.workflowId);
       patch(id, { result: '超清任务已提交' });
       void poll(body.taskId, id, String(node.data.label || '超清'), { externalTaskId: body.externalTaskId, workflowId: target.workflowId, operation: 'upscale' });
     } catch (error) {
       patch(id, { status: 'failed', result: error instanceof Error ? error.message : '提交失败' });
     }
-  }, [nodes, patch, poll, projectId, workflows]);
+  }, [edges, nodes, patch, poll, projectId, workflows]);
 
   /**
    * 排掉「自动超清」的待办（见 `autoUpscaleQueue` 那条注释：必须等提交之后再跑）。
@@ -3022,6 +3086,8 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     const { screen, kind, typeTest } = options;
     const filtered = files.filter(typeTest);
     if (!filtered.length) return;
+    /* 导入素材是结构改动 —— 撤一步要把新加的这批卡片（以及顺手连上的线）一起撤掉。 */
+    record();
     const hitId = options.nodeId ?? (screen && typeof document !== 'undefined'
       ? (document.elementFromPoint(screen.x, screen.y)?.closest('.react-flow__node') as HTMLElement | null)?.dataset.id || null
       : null);
@@ -3076,7 +3142,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     }
     created.forEach(entry => void archiveMedia(entry.id, entry.file));
     if (added.length) setSelected(added[added.length - 1].id);
-  }, [archiveMedia, edges, nodes, pointFor, setEdges, setNodes]);
+  }, [archiveMedia, edges, nodes, pointFor, record, setEdges, setNodes]);
 
   /** Image files become 图片输入 nodes. */
   const addImages = useCallback((files: File[], options: { screen?: { x: number; y: number }; nodeId?: string | null }) =>
@@ -3104,6 +3170,8 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
   const addText = useCallback((values: string[], options: { screen?: { x: number; y: number }; nodeId?: string | null } = {}) => {
     const list = values.map(value => String(value ?? '')).filter(value => value.trim());
     if (!list.length) return;
+    /* 落成文本节点 / 填进空节点，都是结构改动。 */
+    record();
     const hitId = options.nodeId ?? (options.screen && typeof document !== 'undefined'
       ? (document.elementFromPoint(options.screen.x, options.screen.y)?.closest('.react-flow__node') as HTMLElement | null)?.dataset.id || null
       : null);
@@ -3147,7 +3215,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       setNotice('已添加文本节点 · 画布里有多个生成节点，请手动连线');
     }
     setSelected(created[created.length - 1]);
-  }, [edges, nodes, patch, pointFor, setEdges, setNodes, setNotice]);
+  }, [edges, nodes, patch, pointFor, record, setEdges, setNodes, setNotice]);
 
   /** 右键「上传文件」用的那个 input。原生 picker 才能拿到**本机文件名**——
    *  扩展名只能从文件名取（`.docx` 与 `.txt` 的 `type` 都是空串），自绘对话框拿不到。 */
@@ -3247,11 +3315,15 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       : '';
 
     if (reuse) {
+      /* 填进已有节点也是结构改动 —— 撤一步要把它变回那个空节点。 */
+      record();
       patch(reuse.id, part);
       setSelected(reuse.id);
       setNotice(`已把「${item.name}」放进选中的节点${relayNote}`);
       return;
     }
+    /* 从资产库往画布放一件 —— 跟「导入素材」同一档：撤一步要连人带线一起撤掉。 */
+    record();
     const id = crypto.randomUUID();
     /** 落在生成节点左边一整列（照 `addMedia` 的规矩）：新节点不该盖住它要连的那个节点。 */
     const asInput = !!(hit && canConnect(kind, hit.data.kind) && hit.data.kind !== kind);
@@ -3276,7 +3348,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       setNotice(`已把「${item.name}」放进画布${relayNote}`);
     }
     setSelected(id);
-  }, [edges, nodes, patch, pointFor, selected, setEdges, setNodes, setNotice]);
+  }, [edges, nodes, patch, pointFor, record, selected, setEdges, setNodes, setNotice]);
 
   /*
    * 内置浏览器送来的图 —— 网页上右键「发送到画布」、面板里的「本页图片」、
@@ -3353,6 +3425,8 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
   const pasteNodes = useCallback((anchor?: { x: number; y: number }) => {
     const source = clipboard.current;
     if (!source?.nodes.length) return 0;
+    /* 粘贴 / 原地复制（Ctrl+D 也走这里）是结构改动 —— 撤一步把粘出来的这批拿掉。 */
+    record();
     const map = new Map<string, string>();
     const created = source.nodes.map(node => {
       const id = crypto.randomUUID();
@@ -3379,7 +3453,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     }))]);
     setSelected(placed[placed.length - 1].id);
     return placed.length;
-  }, [screenToFlowPosition, setEdges, setNodes]);
+  }, [record, screenToFlowPosition, setEdges, setNodes]);
 
   /** Ctrl+D：不经过系统剪贴板，复制选中节点后直接在原地旁边粘一份。 */
   const duplicateNodes = useCallback(() => {
@@ -3399,11 +3473,12 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     const count = copyNodes();
     if (!count) return;
     const ids = new Set(nodes.filter(node => node.selected).map(node => node.id));
+    record();
     setNodes(ns => ns.filter(node => !ids.has(node.id)));
     setEdges(es => es.filter(edge => !ids.has(edge.source) && !ids.has(edge.target)));
     setSelected(null);
     setNotice(`已剪切 ${count} 个节点 · Ctrl+V 粘贴`);
-  }, [copyNodes, nodes, setEdges, setNodes]);
+  }, [copyNodes, nodes, record, setEdges, setNodes]);
 
   /**
    * 删掉一批节点。
@@ -3415,11 +3490,13 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
   const deleteNodes = useCallback((ids: string[]) => {
     if (!ids.length) return;
     const gone = new Set(ids);
+    /* 删掉之前先留一份：连带删掉的连线也在这份里，撤一步全都回来。 */
+    record();
     setNodes(ns => ns.filter(node => !gone.has(node.id)));
     setEdges(es => es.filter(edge => !gone.has(edge.source) && !gone.has(edge.target)));
     if (selected && gone.has(selected)) setSelected(null);
     setNotice(ids.length > 1 ? `已删除 ${ids.length} 个节点` : '已删除节点');
-  }, [selected, setEdges, setNodes]);
+  }, [record, selected, setEdges, setNodes]);
 
   /**
    * 让一颗节点「被选中并且看得见」（2026-10-02，历史浮层点一项时用）。
@@ -3454,9 +3531,10 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
   const disconnectNode = useCallback((id: string) => {
     const count = edges.filter(edge => edge.source === id || edge.target === id).length;
     if (!count) { setNotice('这个节点上没有连线'); return; }
+    record();
     setEdges(es => es.filter(edge => edge.source !== id && edge.target !== id));
     setNotice(`已断开 ${count} 条连线`);
-  }, [edges, setEdges]);
+  }, [edges, record, setEdges]);
 
   /**
    * 单键 X：断开连线。
@@ -3476,6 +3554,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     const picked = edges.filter(edge => edge.selected);
     if (picked.length) {
       const gone = new Set(picked.map(edge => edge.id));
+      record();
       setEdges(es => es.filter(edge => !gone.has(edge.id)));
       setNotice(gone.size > 1 ? `已断开 ${gone.size} 条连线` : '已断开连线');
       return;
@@ -3485,12 +3564,13 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       const ids = new Set(targets.map(node => node.id));
       const count = edges.filter(edge => ids.has(edge.source) || ids.has(edge.target)).length;
       if (!count) { setNotice('选中的节点上没有连线'); return; }
+      record();
       setEdges(es => es.filter(edge => !ids.has(edge.source) && !ids.has(edge.target)));
       setNotice(`已断开 ${count} 条连线`);
       return;
     }
     setNotice('先点一条连线，或选中一个节点，再按 X 断开');
-  }, [edges, nodes, setEdges]);
+  }, [edges, nodes, record, setEdges]);
 
   /**
    * 选中两个节点后按 `I`（或右键菜单里的「连接」）直接连起来 —— 不用去拖端口。
@@ -3537,12 +3617,14 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       return;
     }
     const name = (node: Node<NodeData>) => String(node.data.label || NODE_META[node.data.kind as NodeKind]?.label || node.data.kind);
+    /* 连线是结构改动：撤一步把这条线拆回去。 */
+    record();
     setEdges(es => addEdge(
       { id: `${source.id}-${target.id}`, source: source.id, target: target.id, type: 'default', animated: true } as Edge,
       es,
     ));
     setNotice(`已连接 ${name(source)} → ${name(target)}`);
-  }, [edges, nodes, setEdges]);
+  }, [edges, nodes, record, setEdges]);
 
   /**
    * 自动排列（L）：顺着连线把节点分成一层一层的，同一层竖着排。
@@ -3580,6 +3662,9 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
   }, [setNodes]);
 
   const autoLayout = useCallback(() => {
+    /* 自动排列会把**每一个**节点的位置都改掉 —— 这是最该能撤的一步。
+       空画布上按 L 什么都不会动，那种时候不记。 */
+    if (nodesRef.current.length) record();
     /* 在 setNodes 的 updater 里做完整件事：拿的是最新那一份 nodes，
        不会踩「刚加完节点立刻排、排的是上一帧」这种差一格的问题。 */
     setNodes(ns => {
@@ -3625,7 +3710,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     setNotice('已按连线自动排列');
     /* 排完肯定有节点跑到视口外面，等这一帧画完再收拢，不然 fitView 量到的是旧位置。 */
     window.setTimeout(() => fitView({ duration: 300, padding: 0.2 }), 30);
-  }, [edges, fitView, setNodes]);
+  }, [edges, fitView, record, setNodes]);
 
   /**
    * Ctrl+C / Ctrl+V 复制粘贴节点；剪贴板里的**媒体文件**优先走「加输入节点」那条路
@@ -3696,9 +3781,29 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
        * （React Flow 自己的删除键在下面的 JSX 里也一起摘掉了。）
        */
       if (overlay !== null) return;
+      /*
+       * 3D 导演台开着时键盘归它：它自己有一整套（Ctrl+Z 撤回 / Ctrl+Shift+Z 下一步 /
+       * Ctrl+D 复制 / Del / F 聚焦，见 `DirectorPanel`），而且它盖住了整块画布。
+       * 两边都响应的话，在导演台里按一次 Ctrl+Z 会**同时**撤掉画布的一步 ——
+       * 用户只是在调一个灰模的位置，画布却少了个节点。
+       */
+      if (directorFor) return;
       if (isEditingField()) return;
       const key = event.key.toLowerCase();
       if ((event.ctrlKey || event.metaKey) && !event.altKey) {
+        /*
+         * Ctrl+Z 撤回 / Ctrl+Shift+Z 下一步（2026-10-04 徐先）。
+         *
+         * 必须 `preventDefault()`：不拦的话浏览器会把这一下当成「撤销输入框里的内容」，
+         * 而焦点不在输入框里时它什么也不会做 —— 用户只看到按了没反应。
+         * 没有可撤 / 可进的那一步时，两个函数自己返回 null，这里就什么都不做、什么都不弹
+         * （他的原话：「没有下一步就什么都不显示」）。
+         */
+        if (key === 'z') {
+          event.preventDefault();
+          if (event.shiftKey) redoCanvas(); else undoCanvas();
+          return;
+        }
         if (key === 'd') { event.preventDefault(); duplicateNodes(); return; }
         if (key === 'x') { event.preventDefault(); cutNodes(); return; }
         /* Ctrl+S 走自动保存那个同样的函数。浏览器默认的「保存网页」在画布页毫无意义，
@@ -3738,7 +3843,8 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [autoLayout, connectSelected, cutNodes, disconnectSelection, duplicateNodes, fitView, overlay, toggleBypass]);
+  }, [autoLayout, connectSelected, cutNodes, directorFor, disconnectSelection, duplicateNodes, fitView, overlay,
+    redoCanvas, toggleBypass, undoCanvas]);
 
   const hydrated = useMemo(() => nodes.map(node => {
     const isGenerator = isGeneratorKind(node.data.kind);
@@ -3893,6 +3999,13 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
           if (node.data.width === width && node.data.height === undefined) return;
           patch(node.id, { width, height: undefined });
         },
+        /*
+         * 改尺寸这一下**开始 / 结束**（撤销栈用，见下面 `movedSince` 那段注释）。
+         * 开始留一份快照，松手才决定记不记：
+         * 真拖过（`changed`）才算一步，点一下把手就松开的不算。
+         */
+        onResizeBegin: () => beginGesture(),
+        onResizeFinish: (changed: boolean) => endGesture(changed),
         /** 参数条要显示「这段帧是从哪段视频取的」：自己带的，还是上游哪个节点。 */
         frameSourceVideo: isFrameExtract ? frameSourceOf(node) || undefined : undefined,
         frameSourceFrom: isFrameExtract
@@ -3937,8 +4050,8 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         onNotice: setNotice,
       },
     };
-  }), [collectParamRows, describeInputOf, edges, extractFrames, frameSourceOf, generate, latentChainOf,
-    latentPickOptionsOf, openWorkflowConfig, openWorkflowPicker, runPromptNode, runOne, textChainOf,
+  }), [beginGesture, collectParamRows, describeInputOf, edges, endGesture, extractFrames, frameSourceOf, generate,
+    latentChainOf, latentPickOptionsOf, openWorkflowConfig, openWorkflowPicker, runPromptNode, runOne, textChainOf,
     archiveMedia, latents, nodes, paramWorkflowOf, patch, sources, uploadFrameVideo, uploadLatentFile, workflows]);
 
   /*
@@ -3970,17 +4083,22 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
   /** Old edges were stored as smoothstep; render everything as bezier without rewriting persisted data. */
   const displayEdges = useMemo(() => edges.map(edge => ({ ...edge, type: 'star' })), [edges]);
 
-  const add = useCallback((kind: NodeKind) => setNodes(ns => [...ns, {
-    id: crypto.randomUUID(),
-    type: 'frame',
-    position: { x: 120 + ns.length * 30, y: 90 + ns.length * 24 },
-    data: newNodeData(kind),
-  }]), [setNodes]);
+  const add = useCallback((kind: NodeKind) => {
+    record();
+    setNodes(ns => [...ns, {
+      id: crypto.randomUUID(),
+      type: 'frame',
+      position: { x: 120 + ns.length * 30, y: 90 + ns.length * 24 },
+      data: newNodeData(kind),
+    }]);
+  }, [record, setNodes]);
 
   /** The right-click menu drops the new node where the pointer was. When the menu was opened by
    *  dropping a wire on empty canvas, the new node is also wired to the node that started the drag. */
   const addAt = useCallback((kind: NodeKind, screen: { x: number; y: number }) => {
     const id = crypto.randomUUID();
+    /* 右键菜单里落的节点（以及「把线拖到空白处」顺势连上的那条）也是结构改动。 */
+    record();
     setNodes(ns => [...ns, {
       id,
       type: 'frame',
@@ -3998,7 +4116,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     }
     setPendingLink(null);
     setMenu(null);
-  }, [nodes, pendingLink, screenToFlowPosition, setEdges, setNodes]);
+  }, [nodes, pendingLink, record, screenToFlowPosition, setEdges, setNodes]);
 
   useEffect(() => {
     if (!menu) return;
@@ -4026,6 +4144,43 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     return () => clearTimeout(timer);
   }, [notice, noticeSeq]);
 
+  /*
+   * 挪位置 / 改尺寸：这两样是**连续**手势，不能每帧记一步（拖一下就是几百步）。
+   * 做法是「开始留一份，松手才决定留不留」—— 点一下没动就不算一步。
+   *
+   * 🔴 判定「到底动没动」用**回调自己递过来的那批节点**，不读 `nodesRef`：
+   *    松手那一刻 React 还在批处理最后一次位置更新，`nodesRef` 可能还停在上一帧，
+   *    拿它比会得出「没动」而把真的一步吞掉。React Flow 直接把拖动的节点递给回调，那份是准的。
+   */
+  const movedSince = useCallback((before: CanvasSnapshot, dragged: Node<NodeData>[]) => dragged.some(node => {
+    const old = before.nodes.find(item => item.id === node.id);
+    return !old || old.position.x !== node.position.x || old.position.y !== node.position.y;
+  }), []);
+
+  const dragBegin = useCallback(() => beginGesture(), [beginGesture]);
+
+  /** 拖一个节点（React Flow 把被拖的那一个连带同批的一起递过来）。 */
+  const dragEnd = useCallback((_event: unknown, _node: Node<NodeData>, dragged: Node<NodeData>[]) => {
+    endGesture(before => movedSince(before, dragged));
+  }, [endGesture, movedSince]);
+
+  /** 多选后一起拖 —— 同上，只是回调签名少一个「哪一个」。 */
+  const selectionDragEnd = useCallback((_event: unknown, dragged: Node<NodeData>[]) => {
+    endGesture(before => movedSince(before, dragged));
+  }, [endGesture, movedSince]);
+
+  /**
+   * React Flow 自己的删除键（Backspace / Delete）走这一道。
+   *
+   * `onBeforeDelete` 是它删之前留的最后一道口 —— 我们的 `deleteNodes` 不经过它
+   * （那边是 `setNodes` 直接改），所以两条路各记各的，不会记重。
+   * 返回 `true` = 照它原本的意思删，不改变删除行为。
+   */
+  const beforeDelete = useCallback(() => {
+    record();
+    return Promise.resolve(true);
+  }, [record]);
+
   const connect: OnConnect = useCallback((connection: Connection) => {
     const source = nodes.find(node => node.id === connection.source);
     const target = nodes.find(node => node.id === connection.target);
@@ -4033,8 +4188,10 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       setNotice(connectionHint(target?.data.kind));
       return;
     }
+    /* 拖端口连出来的一条线 —— 撤一步要能拆回去。 */
+    record();
     setEdges(es => addEdge({ ...connection, type: 'default', animated: true } as Edge, es));
-  }, [nodes, setEdges]);
+  }, [nodes, record, setEdges]);
 
   const connectStart = useCallback((event: MouseEvent | TouchEvent) => {
     dragStart.current = 'clientX' in event ? { x: event.clientX, y: event.clientY } : null;
@@ -4612,6 +4769,15 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
           onConnect={connect}
           onConnectStart={connectStart}
           onConnectEnd={connectEnd}
+          /* 挪位置：开始留一份、松手才决定留不留（见上面 `movedSince` 那段注释）。
+             多选一起拖走 `onSelectionDrag*`，单选走 `onNodeDrag*` ——
+             两个都挂上，重复触发也不要紧：第二次进来时 `pending` 已经被清了，直接返回。 */
+          onNodeDragStart={dragBegin}
+          onNodeDragStop={dragEnd}
+          onSelectionDragStart={dragBegin}
+          onSelectionDragStop={selectionDragEnd}
+          /* React Flow 自己的删除键（Backspace / Delete）删之前留一份。 */
+          onBeforeDelete={beforeDelete}
           isValidConnection={connection => {
             const source = nodes.find(node => node.id === connection.source);
             const target = nodes.find(node => node.id === connection.target);
@@ -4892,6 +5058,18 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         pickSource={pickSource}
         onPickWorkflow={overlayPickNode
           ? (workflowId: string) => {
+            /*
+             * 🔴 应用不能落到生成节点上（2026-10-04）—— 和底栏那个「工作流」下拉同一个口径。
+             * 库里的「RunningHub 应用」那一档是人主动点过去的（挑给应用节点用），但站在一个
+             * 生成节点上点进来时也能点到它。不挡这一下的话，底栏刚清干净的列表会从这条路漏回来：
+             * 列表里没有、却选得上，正是「界面说的和实际不是一回事」。
+             */
+            const target = nodes.find(item => item.id === overlayPickNode);
+            if (isRunningHubAppWorkflowId(workflowId) && target?.data.kind !== 'app-generate') {
+              setNotice('这是一份 RunningHub 应用，不是工作流 —— 应用请用「RunningHub 应用」节点（那个节点的卡片上能直接改应用参数）。');
+              closeWorkflowOverlay();
+              return;
+            }
             patch(overlayPickNode, { workflowId });
             closeWorkflowOverlay();
           }

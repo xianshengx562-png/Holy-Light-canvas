@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { AudioLines, Braces, Check, FileBox, Film, ImageIcon, List, Plus, Save, Search, Trash2, Type, Upload, X } from 'lucide-react';
-import { fieldKey, normalizeFieldLabel, bindingsForFields, isUpscaleInputBinding, nextSeriesBinding, canvasBindingLabels, configurationSchema, toNodeInfoList, MAX_REFERENCE_IMAGES, type CanvasBinding, type WorkflowField } from '@/lib/workflows/configuration';
+import { CUSTOM_CLASS_TYPE, fieldKey, normalizeFieldLabel, bindingsForFields, isUpscaleInputBinding, mediaLoaderVerdict, nextSeriesBinding, canvasBindingLabels, configurationSchema, toNodeInfoList, MAX_REFERENCE_IMAGES, type CanvasBinding, type WorkflowField } from '@/lib/workflows/configuration';
 import { normalizeWorkflowName, readWorkflowName, WORKFLOW_NAME_MAX, workflowDisplayName } from '@/lib/workflows/label';
 import {
   categoriesFor,
@@ -225,7 +225,7 @@ export default function WorkflowConfigurator({ initialWorkflowId, initialKind = 
      * `key` 也走 `fieldKey()`，和图上扫出来的字段同一套 —— 手加的字段照样能改 ID / 字段名，
      * 用随机 UUID 的话它就成了唯一一个「改了名字 key 不跟着变」的特例。
      */
-    const field: WorkflowField = { key: fieldKey(nodeId, fieldName), nodeId, fieldName, label: label || normalizeFieldLabel(fieldName), kind: newKind, value: newKind === 'boolean' ? 'false' : '', enabled: false, binding: 'manual', recommended: true, classType: 'Custom' };
+    const field: WorkflowField = { key: fieldKey(nodeId, fieldName), nodeId, fieldName, label: label || normalizeFieldLabel(fieldName), kind: newKind, value: newKind === 'boolean' ? 'false' : '', enabled: false, binding: 'manual', recommended: true, classType: CUSTOM_CLASS_TYPE };
     setFields(current => [...current, field]); setSelectedKey(field.key); setFilter('all'); setQuery(''); setDirty(true); setAdding(false); setError(''); setNotice('');
   }
 
@@ -283,8 +283,26 @@ export default function WorkflowConfigurator({ initialWorkflowId, initialKind = 
           <div className="workflow-grid"><label>节点 ID<input value={selected.nodeId} onChange={e => patch(selected.key, { nodeId: e.target.value })} /></label><label>字段名<input value={selected.fieldName} onChange={e => patch(selected.key, { fieldName: e.target.value })} /></label><label>显示名称<input value={selected.label} onChange={e => patch(selected.key, { label: e.target.value })} /></label><label>输入类型<select value={selected.kind} onChange={e => { const kind = e.target.value as WorkflowField['kind']; patch(selected.key, { kind, value: kind === 'boolean' ? 'false' : selected.value, uploadedAt: undefined }); }}>{kinds.map(kind => <option key={kind} value={kind}>{kindLabels[kind]}</option>)}</select></label></div>
           <label className="workflow-value">{selected.kind === 'text' ? '文本内容' : selected.kind === 'number' ? '数值' : selected.kind === 'boolean' ? '参数开关' : '文件路径 / URL'}{selected.kind === 'text' ? <textarea rows={9} value={selected.value} onChange={e => patch(selected.key, { value: e.target.value })} /> : selected.kind === 'boolean' ? <input type="checkbox" checked={selected.value === 'true'} onChange={e => patch(selected.key, { value: String(e.target.checked) })} /> : <input type={selected.kind === 'number' ? 'number' : 'text'} step="any" value={selected.value} onChange={e => patch(selected.key, { value: e.target.value, uploadedAt: undefined })} />}</label>
           {['image', 'video', 'audio', 'latent'].includes(selected.kind) && <div className="workflow-upload"><label className="button secondary"><Upload size={16} />{busy === 'upload' ? '正在上传…' : '上传文件'}<input type="file" aria-label="上传素材文件" accept={selected.kind === 'image' ? 'image/*' : selected.kind === 'video' ? 'video/*' : selected.kind === 'audio' ? 'audio/*' : '.latent,.safetensors,.pt,.pth,.bin'} onChange={e => { const file = e.target.files?.[0]; if (file) void upload(file, selected); e.target.value = ''; }} /></label><span className="workflow-muted">最大 100 MB</span>{selected.uploadedAt && <p className="workflow-muted">上传于 {new Date(selected.uploadedAt).toLocaleString()}。RunningHub 上传链接有效期为 24 小时。</p>}</div>}
-          {selected.kind === 'video' && <p className="workflow-warning">当前导入的工作流没有视频加载节点。云端工作流中需存在对应节点和字段。</p>}
-          {selected.kind === 'audio' && <p className="workflow-warning">当前导入的工作流没有音频加载节点。云端工作流中需存在对应节点和字段。</p>}
+          {/*
+            媒体字段那句「当前导入的工作流没有 X 加载节点」。
+            原先它**只看字段类型、一句都不查**：选中的字段是音频就弹，于是从云端读回来的音频字段
+            （`MiniMaxH3AudioConditioningT8` 那一类，它本来就是这条工作流自己的音频输入节点）
+            和 RunningHub 应用的音频字段全都在弹「没有音频加载节点」—— 明明有，界面偏说没有
+            （2026-10-04 徐先：「不管是应用还是工作流，都有加载音频的功能啊」）。
+            现在改成真判断：字段是工作流自己带来的（classType 是真类名）就**不弹**，
+            只有手加的字段（Custom）才说「我们无从得知」。判定见 `mediaLoaderVerdict`。
+          */}
+          {(() => {
+            if (selected.kind !== 'video' && selected.kind !== 'audio') return null;
+            /* 工作流自己带来的字段 = 云端确实有这个节点，不用提醒。 */
+            const verdict = mediaLoaderVerdict(fields, selected);
+            if (!verdict.handAdded) return null;
+            const label = selected.kind === 'video' ? '视频' : '音频';
+            return <p className="workflow-warning">{verdict.nativeCount > 0
+              ? `这个${label}字段是你手动加的（Custom），云端有没有这个节点我们无从得知 —— 节点 ID 和字段名要和云端对得上。这份配置里另有 ${verdict.nativeCount} 个${label}字段是工作流自己带来的，拿不准就改绑到其中一个。`
+              : `当前导入的工作流没有${label}加载节点 —— 这个字段是你手动加的（Custom），云端工作流中需存在对应节点和字段（节点 ID、字段名都要对得上）。`}</p>;
+          })()}
+          {/* latent 那句是格式上的提醒（不是「有没有」），任何来源都成立，照旧显示。 */}
           {selected.kind === 'latent' && <p className="workflow-warning">文件格式需与云端 H3 latent 加载节点兼容。</p>}
           {selected.enabled && !parsed.success && <p className="workflow-error">{parsed.error.issues.filter(issue => issue.path[1] === fields.indexOf(selected)).map(issue => issue.message).join(' ')}</p>}
           <div className="workflow-editor-footer"><code>{selected.nodeId}.{selected.fieldName}</code>{selected.classType === 'Custom' && <button className="secondary workflow-icon" title="删除自定义字段" aria-label="删除自定义字段" onClick={() => { setFields(current => current.filter(f => f.key !== selected.key)); setSelectedKey(''); setDirty(true); }}><Trash2 size={16} /></button>}</div>
@@ -292,7 +310,7 @@ export default function WorkflowConfigurator({ initialWorkflowId, initialKind = 
       </section>
     </div>
     <dialog ref={dialogRef} className="workflow-dialog" onCancel={() => { setAdding(false); setPreview(false); }}><div className="workflow-dialog-head"><h2>{adding ? '添加节点字段' : '提交参数预览'}</h2><button className="secondary workflow-icon" title="关闭" aria-label="关闭" onClick={() => { setAdding(false); setPreview(false); }}><X size={18} /></button></div>
-      {adding ? <form ref={formRef} onSubmit={addField} className="workflow-add-form"><label>输入类型<select value={newKind} onChange={e => setNewKind(e.target.value as WorkflowField['kind'])}>{kinds.map(kind => <option key={kind} value={kind}>{kindLabels[kind]}</option>)}</select></label><label>节点 ID<input name="nodeId" required pattern="[A-Za-z0-9_:\-]+" maxLength={100} /></label><label>字段名<input name="fieldName" required maxLength={100} /></label><label>显示名称<input name="label" required maxLength={160} /></label>{newKind === 'video' && <p className="workflow-warning">需填写云端视频加载节点的实际 ID 和字段名。</p>}{error && <p role="alert" className="workflow-error">{error}</p>}<button type="submit"><Plus size={16} />添加字段</button></form> : <><p className="workflow-muted">工作流 {workflowId} / {enabledCount} 个覆盖参数</p>{parsed.success ? <pre>{JSON.stringify({ nodeInfoList: toNodeInfoList(parsed.data) }, null, 2)}</pre> : <p className="workflow-error">{parsed.error.issues[0].message}</p>}</>}
+      {adding ? <form ref={formRef} onSubmit={addField} className="workflow-add-form"><label>输入类型<select value={newKind} onChange={e => setNewKind(e.target.value as WorkflowField['kind'])}>{kinds.map(kind => <option key={kind} value={kind}>{kindLabels[kind]}</option>)}</select></label><label>节点 ID<input name="nodeId" required pattern="[A-Za-z0-9_:\-]+" maxLength={100} /></label><label>字段名<input name="fieldName" required maxLength={100} /></label><label>显示名称<input name="label" required maxLength={160} /></label>{(newKind === 'video' || newKind === 'audio' || newKind === 'latent') && <p className="workflow-warning">需填写云端{newKind === 'video' ? '视频' : newKind === 'audio' ? '音频' : 'H3 latent'}加载节点的实际 ID 和字段名。</p>}{error && <p role="alert" className="workflow-error">{error}</p>}<button type="submit"><Plus size={16} />添加字段</button></form> : <><p className="workflow-muted">工作流 {workflowId} / {enabledCount} 个覆盖参数</p>{parsed.success ? <pre>{JSON.stringify({ nodeInfoList: toNodeInfoList(parsed.data) }, null, 2)}</pre> : <p className="workflow-error">{parsed.error.issues[0].message}</p>}</>}
     </dialog>
   </div>;
 }

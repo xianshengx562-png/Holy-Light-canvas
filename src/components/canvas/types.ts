@@ -665,6 +665,15 @@ export type NodeData = {
    * 高度永远交给这张图自己的宽高比 —— 要的是「边框适应图片」，不是把图塞进框里。
    */
   onResizeWidth?: (width: number) => void;
+  /**
+   * 拖把手改尺寸**这一下开始**了（撤销栈留一份快照用，2026-10-04）。
+   *
+   * 开始 / 结束要成对给：改尺寸是连续手势，中间那几十帧不能每帧记一步，
+   * 得等松手才知道这一下到底改没改。
+   */
+  onResizeBegin?: () => void;
+  /** 改尺寸**这一下结束**了。`changed` = 这一拖有没有真的改到尺寸（点了没拖就是 false）。 */
+  onResizeFinish?: (changed: boolean) => void;
   onNotice?: (message: string) => void;
   [key: string]: unknown;
 };

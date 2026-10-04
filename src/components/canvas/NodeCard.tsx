@@ -1,16 +1,18 @@
 'use client';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { Handle, NodeResizeControl, Position } from '@xyflow/react';
+import { Handle, NodeResizeControl, Position, useNodeId, useStore } from '@xyflow/react';
 import { Move3d, Play, Sparkles, TriangleAlert } from 'lucide-react';
 import type { NodeData, ParamRow } from './types';
 import { nodeTintVars } from '@/lib/appearance';
 import {
   LATENT_SLOTS, NODE_META, NODE_SIZE,
   isAudioUrl, isGeneratorKind, isLatentKind, isVideoUrl, latentAssetPrefix, latentBrokenHint, latentLabel, paramRowLabel,
-  upscaleWorkflowFor, usesGenerateDock, workflowDisplayName, workflowIdNote, displayLabelOf,
-  nodeEngineProvider, readUpscaleMode, readUpscaleSource,
+  usesGenerateDock, workflowDisplayName, workflowIdNote, displayLabelOf,
+  readUpscaleMode, readUpscaleSource,
   upscalePurposeOfNode, upscaleSourceOfNode,
+  upscaleFollowsConnection, upscaleFollowedLabel, upscaleFollowedSide, upscaleTargetOfNode,
 } from './nodeMeta';
+import { readLastUpscaleWorkflow } from '@/lib/upscaleMemory';
 import type { NodeKind } from './nodeMeta';
 import { NodeGlyph } from './nodeIcons';
 import NodeParamBar from './NodeParamBar';
@@ -45,6 +47,8 @@ const isInnerGesture = (target: EventTarget | null) =>
 
 export default function NodeCard({ data, selected }: { data: NodeData; selected?: boolean }) {
   const kind = (data.kind || 'text') as NodeKind;
+  /** 自己的 id —— 「跟随连出去的那个节点」要从这里出发顺着线找（`useNodeId` 是 React Flow 给的）。 */
+  const nodeId = useNodeId() || '';
   const meta = NODE_META[kind];
   const running = data.status === 'running';
   const imageSource = data.imageUrl || data.previewUrl;
@@ -103,21 +107,28 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
   const sizedWidth = Number(data.width) > 0 ? Math.round(Number(data.width)) : undefined;
   const sizedHeight = Number(data.height) > 0 ? Math.round(Number(data.height)) : undefined;
   /**
+   * 导入素材那一档的「跟随」跟的是**连出去的那个节点**的引擎（徐先 2026-10-04）：
+   * 「超清工作流引擎跟随连接的节点；如果没有，默认使用上一次超清的工作流」。
+   * 顺线找在 `upscaleFollowedSide` / `upscaleFollowedLabel` 里（纯函数，在 lib）。
+   *
+   * ⚠️ 两个选择器**必须只返回字符串**（那边和节点名字）：返回对象的话每次 store 变化
+   * 都是新引用，拖一下节点就整屏重渲染。不是导入素材的节点直接短路，连 store 都不读。
+   */
+  const followsConnection = upscaleFollowsConnection(kind);
+  const followedSide = useStore(state => (followsConnection ? upscaleFollowedSide(nodeId, state.nodes, state.edges) : ''));
+  const followedFrom = useStore(state => (followsConnection ? upscaleFollowedLabel(nodeId, state.nodes, state.edges) : ''));
+  /**
    * 右上角「超清」按钮用不用得上。四个条件缺一不可：
    * 这个节点身上有一份能加工的媒体（生成节点是它自己的结果，**图片输入 / 视频输入节点是
    * 它自己那份图 / 视频** —— 2026-10-03 起导入的素材也能超清）、它确实有那份媒体、
    * 这一节点没把超清关掉（参数条上那个胶囊能选「关闭 / 手动 / 自动」，2026-10-02）、
-   * 以及配置里有**同用途且来源对得上**的超清工作流。
+   * 以及**这一趟真能挑出一份**工作流（挑法统一在 `upscaleTargetOfNode`）。
    */
   const upscalePurpose = upscalePurposeOfNode(kind);
   const upscaleSource = upscaleSourceOfNode(data);
   const upscaleMode = readUpscaleMode(data.upscaleMode);
   const upscaleTarget = upscalePurpose && upscaleSource && upscaleMode !== 'off'
-    ? upscaleWorkflowFor(
-      data.workflows || [], upscalePurpose,
-      readUpscaleSource(data.upscaleSource), nodeEngineProvider(kind, data.engine),
-      data.upscaleWorkflowId,
-    )
+    ? upscaleTargetOfNode(data, data.workflows || [], followedSide, readLastUpscaleWorkflow(upscalePurpose))
     : undefined;
 
   /**
@@ -143,6 +154,8 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
    * onPointerDown 里记一份「按下那一刻选中了没有」，click 只认这份快照。
    */
   const pressSelectedRef = useRef(false);
+  /** 改尺寸这一拖中间到底有没有真的调过 `onResize`（撤销栈的「这一下算不算一步」就看它）。 */
+  const resizing = useRef(false);
   /** 正面图片的点击门卫：第一击永远留给「选中 + 展开信息」，已选中的按压才开预览。 */
   const previewIfSelected = (url: string) => () => {
     if (!pressSelectedRef.current) return;
@@ -538,10 +551,18 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
            * 这样「边框适应图片」永远成立 —— 拖成什么样、画布缩放到多少，都在图上等比例长。
            */
           resizeDirection={mediaFace ? 'horizontal' : undefined}
+          /*
+           * 改尺寸是**连续**手势：开始留一份快照，松手才决定记不记这一步。
+           * `resizing` 记的是「这一拖中间到底有没有真的调过 `onResize`」——
+           * 点一下把手就松开的话一次都不会调，那就不该算一步。
+           */
+          onResizeStart={() => { resizing.current = false; data.onResizeBegin?.(); }}
           onResize={(_event, size) => {
+            resizing.current = true;
             if (mediaFace && data.onResizeWidth) { data.onResizeWidth(Math.round(size.width)); return; }
             data.onResize?.(Math.round(size.width), Math.round(size.height));
           }}
+          onResizeEnd={() => data.onResizeFinish?.(resizing.current)}
         >
           <span className="cv-resize-grip" aria-hidden />
         </NodeResizeControl>
@@ -723,7 +744,8 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
         判断走 nodeMeta 的 `usesGenerateDock` —— 与 CanvasEditor 抬出对话框用的是同一个判定，
         不然会出现「浮条收了、对话框也没出来」，这个节点就一个参数都改不了了。
       */}
-      {selected && kind !== 'text' && !usesGenerateDock(kind) && <NodeParamBar data={data} />}
+      {selected && kind !== 'text' && !usesGenerateDock(kind)
+        && <NodeParamBar data={data} followedSide={followedSide} followedFrom={followedFrom} />}
 
       {mediaFace && outputHandle}
     </div>

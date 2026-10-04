@@ -1,4 +1,9 @@
 import type { FramePick, InputSlot, LatentRecord, ParamRow, WorkflowOption, NodeData } from './types';
+import type { RunSide } from '@/lib/workflows/engineSide';
+/* 下面这几个名字末尾那批 `export ... from` 也会转出，但**本文件自己要读值**，
+   所以还得在本地建立绑定（同 `DEFAULT_IMAGE_ENGINE` 那几行）。 */
+import { nodeEngineProvider } from '@/lib/workflows/nodeEngine';
+import { upscaleWorkflowFor, upscaleWorkflowForImported } from '@/lib/workflows/upscale';
 import type { GeneratorKind } from '@/lib/workflows/purpose';
 /*
  * 本模块内部也要用 `generatorKindLabel`，而 `export ... from` 只转出、不在本地建立绑定，
@@ -9,10 +14,10 @@ import { generatorKindLabel } from '@/lib/workflows/purpose';
 import { workflowDisplayName } from '@/lib/workflows/label';
 /* 同上：**凡是要读值的**都得在本地建立绑定，光有末尾那批 `export ... from` 是不够的。 */
 import { defaultWorkflowIdFor } from '@/lib/workflows/defaults';
-import { DEFAULT_IMAGE_ENGINE, imageEngineProvider } from '@/lib/workflows/imageEngine';
+import { DEFAULT_IMAGE_ENGINE } from '@/lib/workflows/imageEngine';
 import { IMAGE2_DEFAULTS } from '@/lib/workflows/image2Params';
 import { VIDEO_API_DEFAULTS } from '@/lib/workflows/videoApiParams';
-import { DEFAULT_VIDEO_ENGINE, videoEngineProvider } from '@/lib/workflows/videoEngine';
+import { DEFAULT_VIDEO_ENGINE } from '@/lib/workflows/videoEngine';
 import { ASPECT_RATIOS, DEFAULT_RATIO, defaultImageRatioForEngine, IMAGE_DEFAULTS } from '@/lib/workflows/imageParams';
 import { initialDirectorScene } from '@/lib/director';
 import { isRunningHubAppWorkflowId } from '@/lib/workflows/runninghubApp';
@@ -38,15 +43,38 @@ import {
  * 而不是被超清的那份。所以这一层过滤不能少，而且参数条与属性面板必须走同一个函数。
  *
  * 老 `workflow` 节点没有用途（传 null），仍然列全部 —— 它是历史遗留节点，列全部才有意义。
+ *
+ * 另有第三道：**RunningHub 应用一律不列**（先过 `workflowsOnly`，见它那里的注释）。
  */
 export function workflowsForGeneration<T extends WorkflowOption>(
   workflows: T[], purpose: GeneratorKind | GeneratorKind[] | null,
 ): T[] {
-  if (!purpose) return workflows;
+  const onlyWorkflows = workflowsOnly(workflows);
+  if (!purpose) return onlyWorkflows;
   /* 「视频 / 音频生成」节点两种都列 —— 出什么由选中的那份工作流决定。 */
   const allowed = Array.isArray(purpose) ? purpose : [purpose];
-  if (!allowed.length) return workflows;
-  return workflows.filter(item => allowed.includes(item.kind) && item.operation === 'generate');
+  if (!allowed.length) return onlyWorkflows;
+  return onlyWorkflows.filter(item => allowed.includes(item.kind) && item.operation === 'generate');
+}
+
+/**
+ * 把 RunningHub **应用**挑出去，只留真正的工作流（2026-10-04 徐先）。
+ *
+ * 起因是一句问话：「这不是 runninghub 的应用吗？为什么会出现在…工作流中」。
+ * 应用和工作流共用 `WorkflowDraft` 一张表，只在 ID 上差一个 `app-` 前缀
+ * （见 `lib/workflows/runninghubApp.ts`）；而设置页的「工作流库」是**三档分开**的
+ * （本机 ComfyUI / RunningHub 应用 / 云端 RunningHub），画布的下拉原来没有这一层 ——
+ * 于是「RunningHub（云端）」那一组里混着应用，每行又都不标明身份。
+ * 他库里就有一对**完全同名**的（应用 `app-2103930820133220353` 与工作流
+ * `2103917510214119426` 都叫「（可调节动态-均衡版+高清化）MiniMax H3双采参考生视频V1」），
+ * 在下拉里根本分不出谁是谁。
+ *
+ * 🔴 应用有自己的节点（`app-generate`，卡片就叫「RunningHub 应用」），要用它去那里选。
+ * 注意「是不是应用」和「按不按用途筛」是两件事 —— 所以这一层放在最前面，
+ * `purpose` 传 null 那条（老 `workflow` 节点列全部）也照样过。
+ */
+export function workflowsOnly<T extends WorkflowOption>(workflows: T[]): T[] {
+  return workflows.filter(item => !isRunningHubAppWorkflowId(item.workflowId));
 }
 
 /**
@@ -125,17 +153,74 @@ export const UPSCALE_SOURCE_LABELS: Record<UpscaleSource, string> = {
 };
 
 /**
- * 这个节点**当前**会把活交给哪一边（`local` / `runninghub`）。
+ * 「跟随」在一个**没有引擎可跟**的节点上跟的是谁（图片输入 / 视频输入）：
+ * 顺着它连出去的那根线找下游第一个有引擎的节点（徐先 2026-10-04 定的：
+ * 「超清工作流引擎跟随连接的节点；如果没有，默认使用上一次超清的工作流」）。
  *
- * 视频网关 / 自定义接口那两档不经过工作流，返回 `null` = 「这一档不按来源筛」。
- * 抽出来是因为「引擎 ↔ 工作流来源」这道对账在生成、超清、按钮可见性三处都要用，
- * 各写一遍迟早会有一处漏掉应用节点（`app-generate` 没有引擎这一说）。
+ * 所以选项名不能再叫「跟随节点」—— 那四个字在这类节点上等于「跟它自己的引擎」，
+ * 而它压根没有引擎。改名之后，下拉里三档各自说的是什么就都站得住了。
  */
-export function nodeEngineProvider(kind: unknown, engine: unknown): 'local' | 'runninghub' | null {
-  if (kind === 'image-generate') return imageEngineProvider(engine);
-  if (kind === 'video-generate') return videoEngineProvider(engine);
-  return null;
+export const UPSCALE_FOLLOW_NO_ENGINE_LABEL = '跟随连接节点';
+
+export function upscaleSourceLabel(source: UpscaleSource, hasEngine: boolean): string {
+  return source === 'follow' && !hasEngine ? UPSCALE_FOLLOW_NO_ENGINE_LABEL : UPSCALE_SOURCE_LABELS[source];
 }
+
+/**
+ * 「这一边」在界面上的说法：`local` → 本地 ComfyUI、其余（含 `runninghub` / 认不出的值）→ RunningHub。
+ *
+ * 给「跟到的那一边」和「实际走的那一边」写提示用 —— 它们都是单值而不是「来源那一档」，
+ * 拿不到 `UPSCALE_SOURCE_LABELS`（那个表是按「跟随 / 云端 / 本地」三档编的）。
+ */
+export function upscaleSideLabel(side: unknown): string {
+  return String(side ?? '') === 'local' ? UPSCALE_SOURCE_LABELS.local : UPSCALE_SOURCE_LABELS.runninghub;
+}
+
+/** 这类节点的「跟随」要顺线找下游（`image` / `video-input`）—— 见 `UPSCALE_FOLLOW_NO_ENGINE_LABEL`。 */
+export function upscaleFollowsConnection(kind: unknown): boolean {
+  return kind === 'image' || kind === 'video-input';
+}
+
+/**
+ * 这一节点这一趟超清会用哪一份工作流。
+ *
+ * 🔴 卡片上那颗「超清」按钮显不显形、参数条上那一行提示写什么、以及真正提交用哪一份，
+ * **三处必须是同一个答案**（各写一遍迟早出现「按钮点得动、提交却说没配」这种同文案两种结论）。
+ * `followedSide` 由调用方顺线找好传进来（`upscaleFollowedSide`）；`lastUsedId` 是
+ * **上一次超清用过的那份**，只有导入素材那一档、且没跟到有效来源时才认它。
+ */
+export function upscaleTargetOfNode(
+  data: NodeData,
+  /**
+   * 候选工作流列表，**由调用方给** —— 不要在这里读 `data.workflows`。
+   *
+   * 🔴 `workflows` 是画布渲染时才注进 `data` 的（`CanvasEditor` 的 `hydrated`），
+   * 而 `upscale()` 拿的是**state 里那个 nodes**，它身上这个字段是空的 ——
+   * 2026-10-04 就是这么报了「还没有配图片超清工作流」（他明明配了）。画布那边要传 state 那份。
+   */
+  workflows: WorkflowOption[],
+  followedSide: RunSide | '' | null,
+  lastUsedId: unknown = '',
+): WorkflowOption | undefined {
+  const purpose = upscalePurposeOfNode(data.kind);
+  if (!purpose) return undefined;
+  const source = readUpscaleSource(data.upscaleSource);
+  if (upscaleFollowsConnection(data.kind)) {
+    return upscaleWorkflowForImported(
+      workflows, purpose, source, followedSide || null, data.upscaleWorkflowId, lastUsedId,
+    );
+  }
+  /* 生成节点：跟随 = 跟自己的引擎（这一档**不兜底** —— 换边跑要扣他账号里的钱）。 */
+  return upscaleWorkflowFor(
+    workflows, purpose, source, nodeEngineProvider(data.kind, data.engine), data.upscaleWorkflowId,
+  );
+}
+
+/*
+ * 节点引擎那一档（`nodeEngineProvider`）已经整块搬进 `lib/workflows/nodeEngine.ts`：
+ * 超清「跟随连出去的那个节点」也要认引擎，而 lib 不能 import src。这里只转出。
+ */
+export { nodeEngineProvider } from '@/lib/workflows/nodeEngine';
 
 /*
  * 「超清」按钮要用的那份工作流（同用途 + 工序是超清 + 来源对得上）。
@@ -145,7 +230,10 @@ export function nodeEngineProvider(kind: unknown, engine: unknown): 'local' | 'r
  * 「画布点得动、资产页说没配」这种同文案两种结论的事。
  * 这里只做转出：画布上的组件一律还从 nodeMeta 引，别再各写一份。
  */
-export { upscaleWorkflowsFor, upscaleWorkflowFor, upscaleEngineOf } from '@/lib/workflows/upscale';
+export {
+  upscaleWorkflowsFor, upscaleWorkflowFor, upscaleWorkflowForImported, upscaleEngineOf,
+  upscaleFollowedSide, upscaleFollowedLabel,
+} from '@/lib/workflows/upscale';
 
 export type { NodeData, InputSlot, LatentRecord, ParamRow, WorkflowOption } from './types';
 

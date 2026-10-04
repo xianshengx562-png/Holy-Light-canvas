@@ -47,6 +47,8 @@ import {
   UPSCALE_MODE_LABELS, UPSCALE_MODES, UPSCALE_SOURCE_LABELS, UPSCALE_SOURCES,
 } from './nodeMeta';
 import type { UpscaleMode, UpscaleSource } from './nodeMeta';
+/* 老画布上可能在生成节点上选着一份 RunningHub 应用 —— 那一行要说得出它是什么（2026-10-04）。 */
+import { isRunningHubAppWorkflowId } from '@/lib/workflows/runninghubApp';
 import type { ParamRow } from '@/lib/workflows/configuration';
 import DockCombo from './DockCombo';
 
@@ -249,6 +251,16 @@ export default function GenerateDock({ data, nodeId, anchor }: {
    */
   const workflowOptions = data.workflows || [];
   const chosenWorkflow = workflowOptions.find(item => item.workflowId === String(data.workflowId || ''));
+  /**
+   * 这个节点上选的是 **RunningHub 应用**，而它自己不是应用节点（2026-10-04）。
+   *
+   * 工作流下拉现在一律不列应用（`workflowsOnly`），所以这一种只可能来自老画布。
+   * 遇上了必须**说出它是什么**：这行原来会显示成「RunningHub（云端） · N 项启用」——
+   * 把一份应用说成云端工作流，正是他一直在防的那种「界面说的和实际不是一回事」。
+   * 生成**照跑不误**（他库里这两份应用的绑定是全的，参数真的送得进去），
+   * 所以这里只提示、不拦 —— 拦了等于把一张本来能跑的画布弄坏。
+   */
+  const appOnGenerateNode = !isApp && !!chosenWorkflow && isRunningHubAppWorkflowId(chosenWorkflow.workflowId);
   /*
    * 2026-10-02：视频 / 音频生成节点出什么，**跟着选中的那份工作流走**（应用节点那支同一套路）。
    * 写死成 'video' 的话，挑了音频工作流之后用途还报「视频」：提交会带上时长 / 比例 /
@@ -304,6 +316,16 @@ export default function GenerateDock({ data, nodeId, anchor }: {
    */
   const otherSourceCount = listedBase
     .filter(item => !listedWorkflows.some(mine => mine.workflowId === item.workflowId)).length;
+  /**
+   * 「同类但**是应用**」的那几份（2026-10-04）。
+   *
+   * 应用已经从生成下拉里挑出去了（`workflowsOnly`），于是「一份工作流都没有」这条提示
+   * 会变成一句假话 —— 他手上明明导了两份应用。所以空候选那一串里要专门有一支：
+   * **不是没有，是它们属于另一个节点**（「RunningHub 应用」），并说出去哪儿用。
+   */
+  const appPurposeCount = isApp
+    ? 0
+    : workflowsForApp(workflows).filter(item => purposesOfNode(data.kind).includes(item.kind)).length;
 
   /*
    * 「超清」这一道（2026-10-02 徐先）：触发方式（关闭 / 手动 / 自动）+ 用哪一份（来源）。
@@ -1112,7 +1134,9 @@ export default function GenerateDock({ data, nodeId, anchor }: {
                 value={String(data.workflowId || '')}
                 items={wfItems}
                 groups={wfGroups}
-                missingLabel={!chosenWorkflow && data.workflowId ? `${String(data.workflowId)} · 未保存配置` : null}
+                missingLabel={appOnGenerateNode
+                  ? `${String(data.workflowId)} · RunningHub 应用（不在「工作流」列表里）`
+                  : (!chosenWorkflow && data.workflowId ? `${String(data.workflowId)} · 未保存配置` : null)}
                 placeholder="— 输入名字或编号，自动找工作流 —"
                 action={{ label: '＋ 从工作流库中选择…', onPick: () => data.onPickWorkflow?.() }}
                 emptyHint={`没有名字或编号里含这段字的${generatorKindLabel(purpose)}工作流 —— 换个短一点的关键词，或点上面那颗「从工作流库中选择…」`}
@@ -1144,16 +1168,21 @@ export default function GenerateDock({ data, nodeId, anchor }: {
                   ? `RunningHub 应用 · ${chosenWorkflow.enabledCount} / ${chosenWorkflow.totalCount} 项启用`
                   : '还没有导入过 RunningHub 应用 —— 到「设置 · 工作流库」的「RunningHub 应用」那一档，填应用 ID（或粘详情页链接）导入一个')
                 : chosenWorkflow
-                ? `${chosenWorkflow.provider === 'local' ? '本地 ComfyUI' : 'RunningHub（云端）'} · ${chosenWorkflow.enabledCount} / ${chosenWorkflow.totalCount} 项启用`
+                ? `${appOnGenerateNode ? 'RunningHub 应用' : chosenWorkflow.provider === 'local' ? '本地 ComfyUI' : 'RunningHub（云端）'} · ${chosenWorkflow.enabledCount} / ${chosenWorkflow.totalCount} 项启用`
                 : listedWorkflows.length
                   ? `先选一个工作流（这里只列${generatorKindLabel(purpose)}生成用、且属于「${engineProvider === 'local' ? '本地 ComfyUI' : 'RunningHub'}」的已保存配置）`
                   : otherSourceCount
                     ? `${generatorKindLabel(purpose)}工作流存了 ${otherSourceCount} 份，但都属于「${engineProvider === 'local' ? 'RunningHub（云端）' : '本机 ComfyUI'}」—— 把上面「引擎」切到那一档就选得到`
-                    : engineProvider === 'local'
+                    : appPurposeCount
+                      ? `${generatorKindLabel(purpose)}应用倒是有 ${appPurposeCount} 份，但这个下拉只列工作流 —— 应用请用「RunningHub 应用」节点；要在这个节点上跑，先到设置页存一份${generatorKindLabel(purpose)}工作流`
+                      : engineProvider === 'local'
                       ? `还没有保存过本机 ComfyUI 的${generatorKindLabel(purpose)}工作流 —— 到「设置 · 工作流」的「本机 ComfyUI」那一档，把 ComfyUI「导出（API）」的 JSON 贴进去就有了`
                       : `还没有保存过${generatorKindLabel(purpose)}工作流配置，先到设置页保存一份`}</span>
               {chosenWorkflow && chosenWorkflow.kind !== purpose && (
                 <span className="cv-dock-hint warn">{workflowMismatchHint(purpose, chosenWorkflow)}</span>
+              )}
+              {chosenWorkflow && isRunningHubAppWorkflowId(chosenWorkflow.workflowId) && !isApp && (
+                <span className="cv-dock-hint warn">{`这份「${workflowDisplayName(chosenWorkflow)}」是 RunningHub 应用，不是工作流 —— 「工作流」下拉里不再列应用。它还能跑，但应用该用「RunningHub 应用」节点（那份节点的卡片上就能直接改应用参数）。要在这个节点上继续用，从上面的下拉里换一份工作流。`}</span>
               )}
               {chosenWorkflow && (
                 /*

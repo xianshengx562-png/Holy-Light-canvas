@@ -10,6 +10,15 @@ export const MAX_REFERENCE_IMAGES = 20;
 export const MAX_VIDEO_INPUTS = 10;
 export const MAX_AUDIO_INPUTS = 10;
 
+/**
+ * 「手加 / 认不出来」的字段类名（常量放在文件头：下面的 schema 在模块加载时就要用它）。
+ *
+ * 两种来源都落到这里：用户用「添加节点字段」手敲的，以及图上那个节点压根没写 `class_type`。
+ * 共同点是**我们不知道云端到底有没有这个节点**，这也是配置页那句「没有加载节点」警告
+ * 唯一该出现的地方（详见文件末尾的 `mediaLoaderVerdict`）。
+ */
+export const CUSTOM_CLASS_TYPE = 'Custom';
+
 /** 槽位号（1 起）。用模板字面量类型生成「参考图 N」这一串名字，省掉手写二十遍。 */
 type RefSlot = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20;
 type MediaSlot = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
@@ -340,7 +349,7 @@ export const fieldSchema = z.object({
    * 只用于界面：`toNodeInfoList` 不看它，提交的仍然只有 `value`。
    */
   options: z.array(z.string().max(80)).max(60).optional(),
-  classType: z.string().max(160).default('Custom'),
+  classType: z.string().max(160).default(CUSTOM_CLASS_TYPE),
   uploadedAt: z.string().datetime().optional(),
   /*
    * 下面三个是**画布输入节点**写在自己身上的展示信息（见 `CANVAS_META_FIELDS`）。
@@ -766,7 +775,7 @@ export function graphToFields(input: unknown): WorkflowField[] {
   const labelSeen = new Map<string, number>();
   for (const [nodeId, node] of Object.entries(graph)) {
     if (!node || typeof node !== 'object' || !node.inputs || typeof node.inputs !== 'object') continue;
-    const classType = typeof node.class_type === 'string' ? node.class_type : 'Custom';
+    const classType = typeof node.class_type === 'string' ? node.class_type : CUSTOM_CLASS_TYPE;
     /* 画布输入节点：先把节点上那几行说明读出来，它决定下面这个字段怎么展示。 */
     const canvas = isCanvasInputClass(classType) ? readCanvasMeta(node.inputs) : null;
     for (const [fieldName, raw] of Object.entries(node.inputs)) {
@@ -828,4 +837,38 @@ function inferFieldKind(classType: string, fieldName: string, value: string | nu
   if (typeof value === 'boolean') return 'boolean';
   if (typeof value === 'number') return 'number';
   return 'text';
+}
+
+export function isCustomField(field: WorkflowField): boolean {
+  return field.classType === CUSTOM_CLASS_TYPE;
+}
+
+/**
+ * 这份工作流到底有没有「这一档」的加载节点 —— 判断只认一件事：**字段是不是工作流自己带来的**。
+ *
+ * 起因（2026-10-04 徐先）：配置页原先写着
+ *   `selected.kind === 'audio' && <p>当前导入的工作流没有音频加载节点…</p>`
+ * —— 一句都不查，只要选中的字段类型是音频就弹。于是从 RunningHub 读回来的
+ * `MiniMaxH3AudioConditioningT8`（它就是那条工作流自己的音频输入节点）、`PreviewAudio`、
+ * 以及 RunningHub 应用那边 `RunningHubWebAppField` 的音频字段，全都在弹「没有音频加载节点」，
+ * 明明有、界面偏说没有。视频那边（`VHS_LoadVideo` / `VHS_VideoCombine` / `SaveVideo`）一模一样。
+ *
+ * 判据：`classType` 是从图上抄下来的真类名（或应用的 `RunningHubWebAppField`）→ 这个节点在
+ * 云端确实存在 → 不弹；`classType === 'Custom'` → 只有手加 / 类名缺失两种，无从得知 → 才弹。
+ *
+ * 🔴 **不要改成按 `classType` 的名字猜它像不像加载器**（`LoadAudio` / `VHS_LoadVideo` 那套）：
+ * 真库里音频字段来自 `MiniMaxH3AudioConditioningT8`，名字里既没有 load 也不是 audio-loader，
+ * 一猜就把「有」判成「没有」，等于把这个 bug 换个写法重新犯一遍。
+ * 🔴 同理**不要拿 `inferFieldKind` 反推「用户有没有手动改过类型」**：
+ * 真库里有个 latent 字段叫 `手动上传`（节点 `Yuan_H3MotionContextLoadLatent`），
+ * 按名字推出来是 text，但它的类型就是 latent —— 一推就是假警报。
+ */
+export function mediaLoaderVerdict(fields: WorkflowField[], selected: WorkflowField): {
+  /** 当前这个字段是手加的：云端有没有对应节点 / 字段，我们无从得知。 */
+  handAdded: boolean;
+  /** 这份配置里同一档、且是工作流自己带来的字段个数（含当前这个，不含手加的）。 */
+  nativeCount: number;
+} {
+  const native = fields.filter(field => field.kind === selected.kind && !isCustomField(field));
+  return { handAdded: isCustomField(selected), nativeCount: native.length };
 }

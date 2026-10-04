@@ -83,8 +83,11 @@ export async function resolveUpscaleInput(
   }
 
   const uploader = upload || ((file: File) => uploadMediaCached(file, apiKey).then(item => item.fileName));
-  /* 上传失败要说清「哪一步、为什么」（`uploadOrExplain` 那条注释里就是这一轮撞出来的事）。 */
-  return uploadOrExplain('待超清的媒体', () => uploader(new File([bytes], name)));
+  /*
+   * 上传失败要说清「哪一步、为什么」（`uploadOrExplain` 那条注释里就是这一轮撞出来的事）。
+   * 传了 `upload` 的就是本机那一档（见上面那条参数说明）：补救办法完全不同，必须分头说。
+   */
+  return uploadOrExplain('待超清的媒体', () => uploader(new File([bytes], name)), upload ? 'local' : 'runninghub');
 }
 
 function mimeExt(contentType: string | null) {

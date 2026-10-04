@@ -6,8 +6,15 @@ import {
   LATENT_ACCEPT, LATENT_SLOTS, NODE_META,
   groupWorkflowsByProvider, isAudioUrl, isLatentKind, isVideoUrl, latentAssetPrefix,
   LATENT_PICK_OFF, latentBrokenHint, latentLabel, latentSlotHint, workflowLabel, displayLabelOf,
-  latentPicksOf,
+  latentPicksOf, workflowDisplayName, workflowsOnly,
+  generatorKindLabel, nodeEngineProvider, readUpscaleSource, UPSCALE_SOURCES, UPSCALE_SOURCE_LABELS,
+  upscaleFollowsConnection, upscalePurposeOfNode, upscaleSideLabel, upscaleSourceLabel,
+  upscaleSourceOfNode, upscaleTargetOfNode, type UpscaleSource,
 } from './nodeMeta';
+import type { GeneratorKind } from '@/lib/workflows/purpose';
+import { readLastUpscaleWorkflow } from '@/lib/upscaleMemory';
+/* 老画布上可能在「工作流」那一栏选着一份 RunningHub 应用 —— 那一行要说得出它是什么（2026-10-04）。 */
+import { isRunningHubAppWorkflowId } from '@/lib/workflows/runninghubApp';
 import type { NodeKind } from './nodeMeta';
 import { NodeGlyph } from './nodeIcons';
 import ParamRowEditor from './ParamRowEditor';
@@ -34,7 +41,52 @@ const SLOT_ORDER: Record<string, number> = { text: 0, 'prompt-optimize': 0, imag
 /** 工作流下拉里那条「去库里挑」的哨兵值 —— 与 `GenerateDock` 同一个约定（不会撞真实 workflowId）。 */
 const LIBRARY_OPTION = '__library__';
 
-export default function NodeParamBar({ data }: { data: NodeData }) {
+/**
+ * 参数条上「超清来源」下面那一行提示。
+ *
+ * 它必须说全三件事：**现在走哪一边、为什么是它、以及跟不到时用的是「上一次那份」**。
+ * 静默换边是要扣他账号里的钱的（徐先 2026-10-04 就是为了这件事才要这一档），
+ * 所以宁可这行长一点也不许省。
+ */
+function upscaleNote(args: {
+  kind: NodeKind;
+  source: string;
+  purpose: GeneratorKind | null;
+  hasMedia: boolean;
+  target?: { provider?: unknown };
+  followedSide: string;
+  followedFrom: string;
+}): string {
+  if (!args.purpose || !args.hasMedia) return '';
+  if (!args.target) {
+    /* 🔴 「缺的是哪一边」必须写出来：只写「还没有配…」等于说用户没配，而他往往配了另一半。 */
+    const side = args.source !== 'follow'
+      ? `${UPSCALE_SOURCE_LABELS[args.source as UpscaleSource]} 的`
+      : args.followedSide ? `${upscaleSideLabel(args.followedSide)} 的` : '';
+    const who = args.followedFrom ? `「${args.followedFrom}」` : '连接的节点';
+    const why = args.source === 'follow' && args.followedSide
+      ? `（跟随的是${who}，它走${upscaleSideLabel(args.followedSide)}）`
+      : '';
+    return `还没有${side}${generatorKindLabel(args.purpose)}超清工作流${why} —— 到「设置 · 工作流」新建一份（工序选「超清」），或把上面的「超清来源」换成另一档`;
+  }
+  const where = upscaleSideLabel(args.target.provider);
+  /* 生成节点（跟自己的引擎）与指定来源那两档：挑中哪一份就走哪一边，没有第二层解释。 */
+  if (!upscaleFollowsConnection(args.kind) || args.source !== 'follow') return `超清走${where}`;
+  /* 跟不到（画布上它是孤立的）→ 走的就是「上一次超清那份」。 */
+  if (!args.followedSide) return `没连到生成节点 · 先用上一次超清那份（走${where}）`;
+  return `跟随${args.followedFrom ? `「${args.followedFrom}」` : '连接的节点'}的引擎 · 走${where}`;
+}
+
+export default function NodeParamBar({ data, followedSide = '', followedFrom = '' }: {
+  data: NodeData;
+  /**
+   * 「跟随」在**导入的素材**这一档跟到的那一边，以及跟到的那个节点叫什么 ——
+   * 由 `NodeCard` 顺着连线算好传进来（那边是唯一能读 React Flow store 的地方）。
+   * `''` = 没跟到（画布上它就是孤立的），此时「跟随」用上一次超清用过的那份。
+   */
+  followedSide?: 'local' | 'runninghub' | '';
+  followedFrom?: string;
+}) {
   const kind = (data.kind || 'text') as NodeKind;
   const meta = NODE_META[kind];
   const archived = data.latents || [];
@@ -46,6 +98,42 @@ export default function NodeParamBar({ data }: { data: NodeData }) {
   const outputImage = resultImage || String(data.passthroughImage || '');
   const latentOn = data.latentEnabled !== 'off';
   const running = data.status === 'running';
+  /*
+   * 超清来源（2026-10-04）：导入的素材（图片 / 视频输入节点）同样能超清，但这一档原先
+   * **只存在于生成节点** —— 那三颗胶囊长在底部对话框里，而对话框只为生成节点渲染。
+   * 于是这类节点只能吃默认的「跟随」，而「跟随」在它们身上（没有引擎可跟）等于
+   * 「谁最近被改过就跑谁」：那天挑到本机只是碰巧，改一下云端那份就静默改成扣积分。
+   *
+   * 现在这条下拉在它们身上也能选，而且「跟随」在这里有明确说法（徐先定的）：
+   * **跟连出去的那个节点** → 没连（或那一档没配）→ **上一次超清用过的那份**。
+   * 挑法统一在 `upscaleTargetOfNode`，和卡片上那颗「超清」按钮、以及真正提交同一份。
+   */
+  const upscalePurpose = upscalePurposeOfNode(kind);
+  const upscaleSide = nodeEngineProvider(kind, data.engine);
+  const upscaleSource = readUpscaleSource(data.upscaleSource);
+  /** 空串 = 这一刻没有能加工的媒体（`blob:` 不算），此时按钮也不出现。 */
+  const upscaleMedia = upscaleSourceOfNode(data);
+  const upscaleTarget = upscalePurpose && upscaleMedia
+    ? upscaleTargetOfNode(data, workflows, followedSide, readLastUpscaleWorkflow(upscalePurpose))
+    : undefined;
+  const upscaleField = upscalePurpose && upscaleMedia ? (
+    <div className="cv-field">
+      <span>超清来源</span>
+      <select
+        className="cv-select"
+        value={upscaleSource}
+        onChange={event => data.onField?.('upscaleSource', event.target.value)}
+      >
+        {UPSCALE_SOURCES.map(item => (
+          <option key={item} value={item}>{upscaleSourceLabel(item, upscaleSide !== null)}</option>
+        ))}
+      </select>
+    </div>
+  ) : null;
+  const upscaleHint = upscaleNote({
+    kind, source: upscaleSource, purpose: upscalePurpose,
+    hasMedia: Boolean(upscaleMedia), target: upscaleTarget, followedSide, followedFrom,
+  });
   const chosenWorkflow = workflows.find(item => item.workflowId === String(data.workflowId || ''));
   /**
    * The bar is wider than most cards, so a node near the right edge would push it off screen.
@@ -240,6 +328,9 @@ export default function NodeParamBar({ data }: { data: NodeData }) {
             : imageSource
               ? (data.remoteFile ? '已就绪' : '待重新上传')
               : '点击左侧方框上传，或选中本节点后 Ctrl+V 粘贴'}</span>
+          {/* 装在说明列里：它是 grid，字段与说明各占一行，不用为它新加一条 CSS。 */}
+          {upscaleField}
+          {upscaleHint && <span className="cv-param-hint">{upscaleHint}</span>}
         </div>
       </>,
       <>
@@ -278,6 +369,9 @@ export default function NodeParamBar({ data }: { data: NodeData }) {
             : videoSrc
               ? (data.remoteFile ? '首帧已就绪 · 可连到生成节点当首帧 / 参考图' : '视频已上传 · 正在取首帧')
               : '点击方框上传视频，或把视频文件拖到画布上'}</span>
+          {/* 装在说明列里：它是 grid，字段与说明各占一行，不用为它新加一条 CSS。 */}
+          {upscaleField}
+          {upscaleHint && <span className="cv-param-hint">{upscaleHint}</span>}
         </div>
       </>,
       <>
@@ -576,11 +670,13 @@ export default function NodeParamBar({ data }: { data: NodeData }) {
             <option value={LIBRARY_OPTION}>＋ 从工作流库中选择…</option>
             <option value="">— 选择工作流 —</option>
             {/*
-              老节点没有用途、也没有引擎（它是遗留节点），所以**两份都列**；
+              老节点没有用途、也没有引擎（它是遗留节点），所以本机与云端**两份都列**；
               每行带上用途标签，混着列时不标就分不清哪条能用在哪个生成节点上。
               这里同样按来源分组：这个下拉里云端与本机的混在一起，不分就说不出这行会跑在谁那儿。
+              ⚠️ 但**应用一份都不列**（2026-10-04，见 nodeMeta 的 `workflowsOnly`）：
+              「工作流」这个下拉里出现 RunningHub 应用，就是同一种分不清。
             */}
-            {groupWorkflowsByProvider(workflows).map(group => (
+            {groupWorkflowsByProvider(workflowsOnly(workflows)).map(group => (
               <optgroup key={group.provider} label={`${group.label} · ${group.items.length}`}>
                 {group.items.map(item => <option key={item.workflowId} value={item.workflowId}>{workflowLabel(item, true)}</option>)}
               </optgroup>
@@ -590,6 +686,9 @@ export default function NodeParamBar({ data }: { data: NodeData }) {
         <span className="cv-param-hint">{chosenWorkflow
           ? `${chosenWorkflow.isDefault ? '默认工作流' : '自定义工作流'} · ${chosenWorkflow.enabledCount} / ${chosenWorkflow.totalCount} 项启用`
           : '还没有可用的工作流配置，先到设置页保存一份'}</span>
+        {chosenWorkflow && isRunningHubAppWorkflowId(chosenWorkflow.workflowId) && (
+          <span className="cv-param-hint warn">{`当前选的「${workflowDisplayName(chosenWorkflow)}」是 RunningHub 应用 —— 这个下拉里不再列应用；应用请用「RunningHub 应用」节点。`}</span>
+        )}
         <span className="cv-param-hint">工作流配置已并入视频生成节点，这个节点只为老画布保留；连到生成节点后生成时仍优先用它</span>
       </div>,
       <>
