@@ -1841,6 +1841,9 @@ html[data-theme='light'] .cv-skill-mask {
   flex: none;
   display: flex;
   align-items: center;
+  /* 装不下就掉第二行（下面那个下拉给了 min-width，见它的注释）。 */
+  flex-wrap: wrap;
+  row-gap: 6px;
   gap: 6px;
   padding: 7px 10px;
   font-size: 11px;
@@ -1869,6 +1872,31 @@ html[data-theme='light'] .cv-skill-mask {
   border: 1px solid var(--cv-line);
   border-radius: 999px;
 }
+/*
+ * 模型下拉（2026-10-05）：换 Codex 用哪个模型。
+ *
+ * 它占的就是原来那行「已连接 · gpt-6.1-sol」里模型名那一小块 —— 去掉了边框与底色，
+ * 看起来还是这一栏的一行字，只是现在能点了（悬停会亮起来、原生也会带一个下拉箭头）。
+ *
+ * 🔴 **`min-width` 不能省**：这一行里其余的（状态点、工具标签、四颗按钮）都是 `flex: none`，
+ * 只有它是可压缩的 —— 不给下限，窗口一窄它就**被压成 0 宽**：控件还在 DOM 里、
+ * 探针也读得到选项，但屏幕上一个字都看不见（实测踩过，2026-10-05）。
+ * 有了下限就会顶到第二行，而不是消失。
+ */
+.cv-codex-model {
+  flex: 0 1 auto;
+  min-width: 62px;
+  max-width: 108px;
+  height: 18px;
+  padding: 0 2px;
+  font-size: 11px;
+  color: var(--cv-dim);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.cv-codex-model:hover { color: var(--cv-text); background: var(--cv-panel-2); }
 .cv-codex-list {
   flex: 1;
   min-height: 0;

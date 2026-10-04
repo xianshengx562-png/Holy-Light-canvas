@@ -254,6 +254,12 @@ contextBridge.exposeInMainWorld('api', {
   codexInterrupt: () => ipcRenderer.invoke('codex-interrupt') as Promise<{ ok: boolean; message: string }>,
   /** 开一个新会话（换项目、或上一轮说歪了想从头来）。 */
   codexNewThread: () => ipcRenderer.invoke('codex-new-thread') as Promise<CodexStatus>,
+  /**
+   * 换一个模型（2026-10-05）：只影响**这条会话接下来的回合**，聊天记录留着。
+   * 还没连上时也能选 —— 主进程记着，下次开会话就用它。
+   */
+  codexSetModel: (modelId: string) =>
+    ipcRenderer.invoke('codex-set-model', modelId) as Promise<{ ok: boolean; message: string }>,
   /** 登录 Codex：主进程拿 OAuth 地址交给系统浏览器，这里只是触发。 */
   codexLogin: () => ipcRenderer.invoke('codex-login') as Promise<{ ok: boolean; message: string }>,
   /**
@@ -401,7 +407,10 @@ export type CodexStatus = {
   account: { type: string; email: string | null; planType: string | null } | null;
   /** Codex 说要登录而账号又是空的 → 界面给「登录 Codex」入口。 */
   requiresAuth: boolean;
+  /** **当前这条会话实际在用的**模型（真值来自 codex 的 `thread/settings/updated`）。 */
   model: string | null;
+  /** 能选的模型（`model/list` 那一份，已滤掉 hidden）。界面用它画那个下拉。 */
+  models: { id: string; label: string; hint: string }[];
   mcp: { name: string; tools: number; status: string; error: string | null }[];
   busy: boolean;
   threadId: string | null;

@@ -4,8 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BookOpen, CornerDownLeft, LogIn, Loader2, Plus, Sparkles, Square, X } from 'lucide-react';
 import SkillLibrary from './SkillLibrary';
 import { workbuddyAvailable, workbuddyLaunch } from '@/lib/desktop-workbuddy';
+import { readCodexModel, rememberCodexModel } from '@/lib/codexMemory';
 import {
-  OFF_CODEX_STATUS, codexInterrupt, codexLogin, codexNewThread, codexSend, codexStart, codexStatus,
+  OFF_CODEX_STATUS, codexInterrupt, codexLogin, codexNewThread, codexSend, codexSetModel, codexStart, codexStatus,
   onCodexEvent, type CodexEvent, type CodexSkill, type CodexStatus,
 } from '@/lib/desktop-codex';
 
@@ -142,6 +143,41 @@ export default function CanvasCodexPanel({
     setStatus(await codexNewThread());
   }, []);
 
+  /**
+   * 换一个模型（2026-10-05 徐先：「可以切换 codex 使用的模型」）。
+   *
+   * 只影响**这条会话接下来的回合** —— 聊天记录留着，后面的话换个模型答。
+   * 成功之后才记进本地记忆（失败的那个不算「我在用的」）。
+   * 「现在到底是哪个」不听我们说，听 codex 回报的那条设置更新。
+   */
+  const switchModel = useCallback(async (modelId: string) => {
+    const hit = status.models.find(item => item.id === modelId);
+    const result = await codexSetModel(modelId);
+    if (!result.ok) {
+      setNotice(result.message);
+      return;
+    }
+    rememberCodexModel(modelId);
+    setNotice(result.message || `已换成 ${hit?.label || modelId} —— 这条会话接下来的话都用它。`);
+  }, [status.models]);
+
+  /*
+   * 回放上次选的模型。
+   *
+   * **只在连上之后做一次**，而且比较的是 codex 此刻实际在用的那个（`status.model`）：
+   * 一样就什么都不做，否则每开一次这一栏就会白发一条「切换」请求。
+   * 值不在目录里（模型下线了）也当没记过 —— 发过去只会换来一句报错。
+   */
+  const restoredModel = useRef(false);
+  useEffect(() => {
+    if (restoredModel.current || status.phase !== 'ready' || !status.model) return;
+    restoredModel.current = true;
+    const saved = readCodexModel();
+    if (!saved || saved === status.model) return;
+    if (!status.models.some(item => item.id === saved)) return;
+    void codexSetModel(saved).then(result => { if (!result.ok) setNotice(result.message); });
+  }, [status.phase, status.model, status.models]);
+
   const login = useCallback(async () => {
     const result = await codexLogin();
     setNotice(result.message);
@@ -162,17 +198,46 @@ export default function CanvasCodexPanel({
   const needsLogin = connected && status.requiresAuth;
   /** 这一版有没有「交给 WorkBuddy」那条通道 —— web 版没有，入口就不显示。 */
   const workbuddy = workbuddyAvailable();
+  /*
+   * 有下拉的时候，模型名就是下拉本身（状态文字再写一遍是重复的）；
+   * 没有目录可列（老 codex / `model/list` 拉失败）时退回写在一行文字里 —— 那点信息不能丢。
+   */
+  const modelNote = status.models.length ? '' : (status.model ? ` · ${status.model}` : '');
+  /** 在用的模型不在目录里（比如它已经下线了）：补一条选项，免得下拉显示成空白。 */
+  const modelMissing = Boolean(status.model) && !status.models.some(item => item.id === status.model);
+  /** 连上、而且有目录可列 —— 这时状态行显示的才是那个下拉。 */
+  const showModelPicker = status.phase === 'ready' && status.models.length > 0;
 
   return (
     <div className="cv-codex" data-codex-panel="">
       <div className="cv-codex-status">
         <span className={`cv-codex-dot ${status.phase}`} aria-hidden />
-        <span className="cv-codex-status-text">
-          {status.phase === 'ready' && `已连接${status.model ? ` · ${status.model}` : ''}`}
-          {status.phase === 'starting' && '正在连接 Codex…'}
-          {status.phase === 'off' && (status.message || '还没连接 Codex。')}
-          {status.phase === 'error' && status.message}
-        </span>
+        {/*
+          模型下拉（2026-10-05 徐先：「可以切换 codex 使用的模型」）。
+          它占的就是原来写着模型名的那一小块地方 —— 位置没变、还是用户看惯的地方，只是现在能点了。
+          选项来自 codex 自己报的那份目录，我们不维护第二份模型表。
+        */}
+        {showModelPicker ? (
+          <select
+            className="cv-codex-model"
+            data-codex-model=""
+            value={status.model ?? ''}
+            title="换一个模型 —— 只影响这条会话接下来的话，聊天记录留着"
+            onChange={event => void switchModel(event.target.value)}
+          >
+            {modelMissing && <option value={status.model ?? ''}>{status.model}</option>}
+            {status.models.map(item => (
+              <option key={item.id} value={item.id} title={item.hint}>{item.label}</option>
+            ))}
+          </select>
+        ) : (
+          <span className="cv-codex-status-text">
+            {status.phase === 'ready' && `已连接${modelNote}`}
+            {status.phase === 'starting' && '正在连接 Codex…'}
+            {status.phase === 'off' && (status.message || '还没连接 Codex。')}
+            {status.phase === 'error' && status.message}
+          </span>
+        )}
         {frameTools && (
           <span className="cv-codex-tag" title={frameTools.error ?? ''}>
             画布工具 {frameTools.tools} 个{frameTools.status === 'connected' ? '' : `（${frameTools.status}）`}

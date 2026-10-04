@@ -10,6 +10,15 @@
  * 一旦自己缓存一份，两边迟早会对不上（比如主进程那边已经换了新会话）。
  */
 
+/**
+ * 一个可选的模型（codex 的 `model/list` 那一份）。
+ *
+ * `id` 是**发给 codex 的取用名**（切换时传的就是它），`label` / `hint` 是给人看的。
+ * 三个字段都原样来自 codex —— 我们不维护自己的模型表：那份表一变，
+ * 写死的名单就会变成「选不了 / 选了个不存在的」。
+ */
+export type CodexModel = { id: string; label: string; hint: string };
+
 export type CodexStatus = {
   phase: 'off' | 'starting' | 'ready' | 'error';
   message: string;
@@ -17,6 +26,7 @@ export type CodexStatus = {
   account: { type: string; email: string | null; planType: string | null } | null;
   requiresAuth: boolean;
   model: string | null;
+  models: CodexModel[];
   mcp: { name: string; tools: number; status: string; error: string | null }[];
   busy: boolean;
   threadId: string | null;
@@ -68,6 +78,7 @@ type DesktopCodexApi = {
   codexSend?: (payload: { text: string; projectId: string; projectName: string; skill?: CodexSkill | null }) => Promise<{ ok: boolean; message: string }>;
   codexInterrupt?: () => Promise<{ ok: boolean; message: string }>;
   codexNewThread?: () => Promise<CodexStatus>;
+  codexSetModel?: (modelId: string) => Promise<{ ok: boolean; message: string }>;
   codexLogin?: () => Promise<{ ok: boolean; message: string }>;
   onCodexEvent?: (listener: (event: CodexEvent) => void) => () => void;
 };
@@ -90,6 +101,7 @@ export const OFF_CODEX_STATUS: CodexStatus = {
   account: null,
   requiresAuth: false,
   model: null,
+  models: [],
   mcp: [],
   busy: false,
   threadId: null,
@@ -166,6 +178,23 @@ export async function codexNewThread(): Promise<CodexStatus> {
     return await api.codexNewThread();
   } catch {
     return OFF_CODEX_STATUS;
+  }
+}
+
+/**
+ * 换一个模型（2026-10-05）。
+ *
+ * 只影响**这条会话接下来的回合** —— 聊天记录留着，后面的话换个模型答。
+ * 还没连上也能选：主进程会记着，下次开会话就用它。
+ * 返回的 `ok=false` 时 `message` 就是给用户看的原因（模型下线 / 额度不够 / 账号没这个权限）。
+ */
+export async function codexSetModel(modelId: string): Promise<{ ok: boolean; message: string }> {
+  const api = codexApi();
+  if (!api?.codexSetModel) return { ok: false, message: '只有桌面版能换 Codex 的模型。' };
+  try {
+    return await api.codexSetModel(modelId);
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : '切换模型失败。' };
   }
 }
 

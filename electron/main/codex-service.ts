@@ -63,12 +63,25 @@ export type CodexStatus = {
   account: { type: string; email: string | null; planType: string | null } | null;
   /** codex 说「必须 OpenAI 登录」而账号又是空的 → 界面给登录入口。 */
   requiresAuth: boolean;
+  /** **当前这条会话实际在用的**模型。真值来自 `thread/settings/updated`，不是我们猜的。 */
   model: string | null;
+  /** 这个账号能选的模型（`model/list` 那一份，已滤掉 hidden）。界面用它画下拉。 */
+  models: CodexModel[];
   mcp: CodexMcpServer[];
   busy: boolean;
   threadId: string | null;
   codexPath: string | null;
 };
+
+/**
+ * 一个可选的模型（2026-10-05 徐先：「可以切换 codex 使用的模型」）。
+ *
+ * `id` 是**发给 codex 的取用名**（`thread/settings/update` 的 `model` 收的就是它），
+ * `label` 是给人看的（`displayName`），`hint` 是它的自述（`description`），当 tooltip。
+ * 三个字段都从 `model/list` 原样搬 —— 我们不维护一份自己的模型表：
+ * 那个表一变（claude 之类接进来、老的退役），写死的名单就成了「选不了 / 选了个不存在的」。
+ */
+export type CodexModel = { id: string; label: string; hint: string };
 
 /**
  * 推给渲染层的事件。**只传界面画得出来的东西**：
@@ -294,11 +307,19 @@ export function createCodexService() {
   let threadId: string | null = null;
   let turnId: string | null = null;
   let busy = false;
+  /**
+   * 徐先在这一栏里选的模型（换会话、断开重连都留着）。
+   *
+   * 为什么要在主进程记一份，而不是每次问渲染层：线程的生命周期在这里 ——
+   * 「新会话」「断线重连」都会重新 `thread/start`，那一次必须把用户选的那个带上，
+   * 否则他切过的模型会**悄悄回到默认**（界面上的下拉还显示着他选的那个，更难看）。
+   */
+  let preferredModel = '';
   /** 当前回合里 frame 工具被调用过几次 —— 用来决定要不要通知画布刷新。 */
   let frameCalls = 0;
   let status: CodexStatus = {
     phase: 'off', message: '还没连接 Codex。', version: null, account: null,
-    requiresAuth: false, model: null, mcp: [], busy: false, threadId: null, codexPath: null,
+    requiresAuth: false, model: null, models: [], mcp: [], busy: false, threadId: null, codexPath: null,
   };
 
   const listeners = new Set<(event: CodexEvent) => void>();
@@ -442,6 +463,24 @@ export function createCodexService() {
         case 'account/login/completed':
           void refreshAccount();
           break;
+        /*
+         * 会话设置变了（2026-10-05，切模型走这条）。
+         *
+         * ⚠️ **别把这条当唯一真值**：实测它不总是及时到（`setModel` 里另有一手 `thread/read`
+         * 兜底）。但它是**最权威**的一条 —— codex 自己说「现在的设置是这个」，
+         * 比我们乐观写进去的值可信。
+         */
+        case 'thread/settings/updated': {
+          const id = String(params.threadId ?? '');
+          const settings = (params.threadSettings ?? {}) as Record<string, unknown>;
+          const next = String(settings.model ?? '').trim();
+          /*
+           * 只认**当前这条会话**：换会话时旧线程的设置通知会晚到一步，
+           * 照着它改会把下拉写成上一条会话的模型 —— 而用户此刻看到的是新会话。
+           */
+          if (id && id === threadId && next) patch({ model: next });
+          break;
+        }
         default:
           break;
       }
@@ -540,6 +579,21 @@ export function createCodexService() {
     }
   }
 
+  /**
+   * 开一条会话的参数（新会话与首次连接共用）。
+   *
+   * `model` **只在用户明确选过的时候才带** —— 不带就是 codex 自己的默认，
+   * 那才是「我什么都没选」该有的样子；随便填一个默认名等于把他按在某个特定模型上，
+   * 而那个名字哪天退役了就变成「连上了但什么都跑不了」。
+   */
+  function threadStartParams() {
+    return {
+      cwd: os.homedir(),
+      approvalPolicy: APPROVAL_POLICY,
+      ...(preferredModel ? { model: preferredModel } : {}),
+    };
+  }
+
   async function start() {
     if (status.phase === 'starting' || status.phase === 'ready') return status;
     const codexPath = findCodex();
@@ -589,11 +643,28 @@ export function createCodexService() {
       /* 握手最后一步是**通知**，不是请求：少了它，后面的 turn/start 会一直挂着。 */
       write({ method: 'initialized', params: {} });
 
-      const thread = await request('thread/start', { cwd: os.homedir(), approvalPolicy: APPROVAL_POLICY }) as { thread?: Record<string, unknown> };
+      const thread = await request('thread/start', threadStartParams()) as { thread?: Record<string, unknown> };
       threadId = String(thread.thread?.id ?? '') || null;
 
+      /*
+       * 能选哪些模型（2026-10-05）。`model/list` 返回的每一条都带 `displayName` 与
+       * `description`，直接搬给界面当选项与 tooltip。
+       *
+       * `hidden: true` 的那几档是 codex 自己藏起来不给选的（内部 / 实验），滤掉 ——
+       * 列出来只会让人踩坑。当前用哪个**不猜**：等 `thread/settings/updated` 那条通知来写。
+       */
       const models = await request('model/list', {}) as { data?: Record<string, unknown>[] };
-      const first = Array.isArray(models.data) ? models.data[0] : undefined;
+      const catalog: CodexModel[] = (Array.isArray(models.data) ? models.data : [])
+        .filter(item => item?.hidden !== true)
+        .map(item => ({
+          id: String(item.id ?? item.model ?? '').trim(),
+          label: String(item.displayName ?? item.model ?? item.id ?? '').trim(),
+          hint: String(item.description ?? '').trim(),
+        }))
+        .filter(item => item.id);
+      const current = catalog.find(item => item.id === preferredModel)
+        ?? catalog.find(item => item.id === status.model)
+        ?? catalog[0];
       patch({
         phase: 'ready',
         /*
@@ -604,7 +675,12 @@ export function createCodexService() {
         message: nodePath && mcpEntry
           ? '已连接 Codex。'
           : '已连接 Codex，但没挂上画布工具（找不到可用的 node 或 frame-mcp）。',
-        model: first ? String(first.model ?? first.id ?? '') : null,
+        /*
+         * 先用目录里那个默认垫上（列表为空时保持原来的 null）：真正的值会由
+         * `thread/settings/updated` 覆盖 —— 那时才算数。
+         */
+        model: status.model || current?.id || null,
+        models: catalog,
         threadId,
       });
       void refreshAccount();
@@ -706,10 +782,57 @@ export function createCodexService() {
   /** 重新开一个会话（换项目、或者上一轮说歪了想从头来）。 */
   async function newThread() {
     if (status.phase !== 'ready') await start();
-    const thread = await request('thread/start', { cwd: os.homedir(), approvalPolicy: APPROVAL_POLICY }) as { thread?: Record<string, unknown> };
+    const thread = await request('thread/start', threadStartParams()) as { thread?: Record<string, unknown> };
     threadId = String(thread.thread?.id ?? '') || null;
     patch({ threadId });
     return threadId;
+  }
+
+  /**
+   * 换一个模型（2026-10-05 徐先：「可以切换 codex 使用的模型」）。
+   *
+   * 走 `thread/settings/update`：它的语义是「**这条会话接下来的回合**用这个」——
+   * 聊天记录留着，只是后面的话换个模型答。这比「为了换模型重开一条会话」对得多：
+   * 用户常常是聊到一半发现这件事该交给更强的那个模型。
+   *
+   * 还没连上（或还没有会话）时**只记下来**：下次 `thread/start` 会带上它。
+   * 也就是说在没连上的时候选，选了也不会白选。
+   */
+  async function setModel(modelId: string) {
+    const id = String(modelId || '').trim();
+    if (!id) throw new Error('没给要换的模型。');
+    const before = status.model;
+    preferredModel = id;
+    if (status.phase !== 'ready' || !threadId) {
+      patch({ model: id });
+      return id;
+    }
+    /*
+     * 先乐观写一次（下拉立刻跟手），失败再退回去。
+     *
+     * 🔴 **切换成不成，只认 `thread/read` 读回来的那个 `model`**（2026-10-05 实测）：
+     *   - `thread/settings/update` 的返回**永远是空对象 `{}`**，而且它**不校验** ——
+     *     拿一个根本不存在的模型名去试，它照收不误（会话上就记着那个名字）；
+     *   - `thread/settings/updated` 那条通知**实测没有及时到**（第一刀等了 6 秒一条都没有，
+     *     换一个不存在的名字那刀才来了一条）。
+     * 所以「更新成功」这个信号谁都给不了，能给的只有读回来对一次。
+     */
+    patch({ model: id });
+    try {
+      await request('thread/settings/update', { threadId, model: id });
+    } catch (error) {
+      patch({ model: before });
+      preferredModel = before || '';
+      throw error;
+    }
+    try {
+      const read = await request('thread/read', { threadId }) as { thread?: Record<string, unknown> };
+      const confirmed = String((read.thread ?? {}).model ?? '').trim();
+      if (confirmed) patch({ model: confirmed });
+    } catch {
+      /* 读不回来就用上面那个乐观值 —— 更新本身已经发出去了，没必要因此报错。 */
+    }
+    return id;
   }
 
   /** 登录：拿 OAuth 地址交给系统浏览器，Codex 那边完成后会推 `account/login/completed`。 */
@@ -730,6 +853,7 @@ export function createCodexService() {
     interrupt,
     newThread,
     login,
+    setModel,
     /** 订阅事件，返回取消函数。 */
     onEvent(listener: (event: CodexEvent) => void) {
       listeners.add(listener);

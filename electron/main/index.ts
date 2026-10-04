@@ -979,7 +979,7 @@ function readCodex() {
 }
 
 function codexOff() {
-  return { phase: 'off', message: 'Codex 还没准备好。', version: null, account: null, requiresAuth: false, model: null, mcp: [], busy: false, threadId: null, codexPath: null };
+  return { phase: 'off', message: 'Codex 还没准备好。', version: null, account: null, requiresAuth: false, model: null, models: [], mcp: [], busy: false, threadId: null, codexPath: null };
 }
 
 ipcMain.handle('codex-status', () => {
@@ -1045,6 +1045,26 @@ ipcMain.handle('codex-new-thread', async () => {
     await codex.newThread();
   } catch { /* 建会话失败时状态里已经有原因，下面照旧回状态 */ }
   return codex.status();
+});
+
+ipcMain.handle('codex-set-model', async (_event, modelId: string) => {
+  const codex = readCodex();
+  if (!codex) return { ok: false, message: 'Codex 还没准备好。' };
+  if (!codex.status().models.length) {
+    /* 还没连上（或这一版没给模型目录）时，先把选择记在它那边，连上就用这个。 */
+    try {
+      await codex.setModel(String(modelId ?? ''));
+      return { ok: true, message: '下次连上 Codex 就用这个模型。' };
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : '记不下这个模型。' };
+    }
+  }
+  try {
+    await codex.setModel(String(modelId ?? ''));
+    return { ok: true, message: '' };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : '切换模型失败。' };
+  }
 });
 
 ipcMain.handle('codex-login', async () => {
