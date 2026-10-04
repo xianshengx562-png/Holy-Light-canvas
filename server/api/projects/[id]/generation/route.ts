@@ -22,6 +22,7 @@ import {
   type CanvasBindingValues, type Configuration, type LatentNodeIds,
 } from '@/lib/workflows/configuration';
 import { validateImageParams, validateOutputSize } from '@/lib/workflows/imageParams';
+import { mismatchedSides } from '@/lib/workflows/engineSide';
 import { readWorkflowProvider, workflowIdError } from '@/lib/workflows/local';
 import { readWorkflowName } from '@/lib/workflows/label';
 import { GENERATOR_KINDS, generatorKindNoun, readGeneratorKind } from '@/lib/workflows/purpose';
@@ -61,8 +62,9 @@ const schema = z.object({
     fine: z.string().trim().max(40).regex(/^[\w:-]*$/).optional(),
   }).optional(),
   /**
-   * 这个节点上用哪个「引擎」跑的。**可选**：老画布 / MCP 建出来的节点没有这个字段，
-   * 缺省按 RunningHub（跟加引擎之前一样）。
+   * The "engine" picked on this node. **Optional**: old canvases, MCP-created nodes and
+   * every upscale run leave it out — those fall back to **the workflow's own side**
+   * (`useLocal`) and skip the reconciliation below.
    *
    * 它的作用只有一个 —— 把界面上那句「这份工作流跑在本机 / 云端」与本机实际走哪条链路**对上**。
    * 光看 `workflowId` 的前缀是不够的：前缀只说「这份工作流存在哪边」，
@@ -278,14 +280,29 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
      * 用户以为没扣钱、其实扣了积分；反过来选了 RunningHub 却跑了本机，用户会以为
      * 云端出了什么怪问题（本地那份图跟云端那份根本不是同一份）。
      *
-     * 位置与用途 / 工序那两条一致：**在扣分之前、在取字节之前**。引擎只填了「网关」那一档
-     * （videoapi / custom）时不查 —— 那条路压根不经过工作流，也就不存在「哪一边的工作流」这个问题。
+     * Same place as the purpose / operation checks: **before charging, before reading
+     * bytes**. A gateway engine (`videoapi` / `custom`) is skipped — that path never
+     * touches a workflow, so "which workflow's side" is not a question that exists.
+     *
+     * 🔴 **An empty engine is skipped too** (fixed 2026-10-04). It used to count as
+     * "a workflow engine", i.e. as RunningHub — and none of the upscale submitters
+     * (canvas button, asset page, MCP) send `engine` at all: an upscale has one input
+     * (the media to process) and no engine dropdown. So **every local upscale hit this
+     * gate** and got:
+     *
+     *     The engine on this node is "RunningHub", but workflow local-mut7m7n56wispiyp is a
+     *     local ComfyUI one — not the same pipeline. …or switch the engine back to
+     *     "local ComfyUI".
+     *
+     * A sentence the user cannot act on: his engine *was* already local ComfyUI
+     * (`engine: 'local'` on the node), and the run offers no engine dropdown to change.
+     * What the check compares is "what the user **chose**" against "where the workflow
+     * lives"; with no engine there is no choice, and guessing one only produces
+     * false positives — `useLocal` already follows the workflow's own provider.
      */
-    const engineText = String(parsed.data.engine || '').trim();
-    const engineWantsLocal = engineText === 'local';
-    const engineIsWorkflow = !engineText || engineText === 'local' || engineText === 'runninghub' || engineText === 'workflow';
-    if (engineIsWorkflow && engineWantsLocal !== draftIsLocal) {
-      throw new ApiError(400, engineWantsLocal
+    const mismatch = mismatchedSides(parsed.data.engine, draft?.provider);
+    if (mismatch) {
+      throw new ApiError(400, mismatch.engine === 'local'
         ? `这个节点上的引擎选的是「本地 ComfyUI」，但工作流 ${input.workflowId} 是 RunningHub（云端）的 —— 两者不是同一条链路。请换一份本机的工作流，或把引擎改回「RunningHub」。`
         : `这个节点上的引擎选的是「RunningHub」，但工作流 ${input.workflowId} 是本地 ComfyUI 的 —— 两者不是同一条链路。请换一份云端的工作流，或把引擎改成「本地 ComfyUI」。`);
     }

@@ -66,7 +66,7 @@ import {
   usesGenerateDock, workflowsForApp,
   canConnect, connectionHint, isAudioUrl, isGeneratorKind, isLatentKind, isLatentSourceKind, isVideoUrl, latentAssetPrefix,
   isRunnableKind, isTextValueKind, displayLabelOf, normalizeNodeLabels, resetTransientStatus,
-  latentBrokenHint, latentBrokenLabel, latentLabel, purposeOfNode, purposeForNode, workflowMismatchHint, upscaleWorkflowFor,
+  latentBrokenHint, latentBrokenLabel, latentLabel, purposeOfNode, purposeForNode, workflowMismatchHint, upscaleWorkflowFor, upscaleEngineOf,
   nodeEngineProvider, readUpscaleMode, readUpscaleSource, UPSCALE_SOURCE_LABELS,
   upscalePurposeOfNode, upscaleSourceOfNode, upscaleResultPatch,
   isRelayLatentSource, latentPicksOf, resolvePickedLatents,
@@ -2713,8 +2713,9 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
      * 少了后半句，用户会以为这是个没实现的功能，而不是一个两分钟就能配好的选项。
      */
     const asked = readUpscaleSource(node.data.upscaleSource);
+    const nodeProvider = nodeEngineProvider(node.data.kind, node.data.engine);
     const target = upscaleWorkflowFor(
-      workflows, purpose, asked, nodeEngineProvider(node.data.kind, node.data.engine),
+      workflows, purpose, asked, nodeProvider,
       node.data.upscaleWorkflowId,
     );
     if (!target) {
@@ -2734,6 +2735,20 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         result: `还没有配${side}${generatorKindLabel(purpose)}超清工作流 —— 到「设置 · 工作流」新建一份工作流，把「工序」改成「超清」，再把工作流里那个上传段的「画布绑定」选成「画布 · 参考图 1」（图）或「画布 · 视频输入 1」（视频）`,
       });
     }
+    /*
+     * 🔴 Which side this run goes to **must be reported** (fixed 2026-10-04).
+     *
+     * This request used to carry no `engine` at all — an upscale has a single input
+     * (the media to process) and looks unrelated to engines. But the server read the
+     * missing field as RunningHub, so **every local upscale was rejected** with "the
+     * engine is RunningHub, but workflow … is a local ComfyUI one — switch the engine
+     * back to local ComfyUI": a sentence the user cannot act on, because his engine
+     * *is* local ComfyUI already and this run has no engine dropdown.
+     *
+     * The side here is whatever picked the workflow above (`upscaleWorkflowFor`), so it
+     * agrees with `target` by construction — that is *matching*, not bypassing.
+     */
+    const upscaleSide = upscaleEngineOf(asked, nodeProvider, target.provider);
     patch(id, { status: 'running', result: `超清中 · ${workflowDisplayName(target)}` });
     try {
       const body = await json(await fetch(`/api/projects/${projectId}/generation`, {
@@ -2745,6 +2760,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
           workflowId: target.workflowId,
           kind: purpose,
           operation: 'upscale',
+          engine: upscaleSide,
           /* 超清跑的同样是一份 RunningHub 工作流，所以要跟节点上选的规格一致（本机那一档用不上它，服务端会跳过）。 */
           instanceType: readInstanceType(node.data.instanceType),
           bindingValues: { upscaleInput: source },

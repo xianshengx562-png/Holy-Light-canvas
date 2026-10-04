@@ -145,7 +145,7 @@ export function nodeEngineProvider(kind: unknown, engine: unknown): 'local' | 'r
  * 「画布点得动、资产页说没配」这种同文案两种结论的事。
  * 这里只做转出：画布上的组件一律还从 nodeMeta 引，别再各写一份。
  */
-export { upscaleWorkflowsFor, upscaleWorkflowFor } from '@/lib/workflows/upscale';
+export { upscaleWorkflowsFor, upscaleWorkflowFor, upscaleEngineOf } from '@/lib/workflows/upscale';
 
 export type { NodeData, InputSlot, LatentRecord, ParamRow, WorkflowOption } from './types';
 

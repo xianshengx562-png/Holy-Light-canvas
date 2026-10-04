@@ -23,7 +23,7 @@ import { ConfirmDialog } from '@/components/ui/ContextMenu';
 import { isDesktop } from '@/lib/edition';
 import { apiPost, useApi, useSession } from '@/lib/client';
 import { pollDelayMs } from '@/lib/taskPoll';
-import { upscaleWorkflowFor } from '@/lib/workflows/upscale';
+import { upscaleWorkflowFor, upscaleEngineOf } from '@/lib/workflows/upscale';
 import { useSearchParams } from 'next/navigation';
 
 type AssetProject = { id: string; name: string; count: number };
@@ -115,6 +115,13 @@ export default function Assets() {
           workflowId: flow.workflowId,
           kind,
           operation: 'upscale',
+          /*
+           * 🔴 Which side this run goes to has to be reported (fixed 2026-10-04): without
+           * `engine` the server's "engine ↔ workflow" check reads it as RunningHub and
+           * rejects every local upscale (see `upscale()` in CanvasEditor). The asset page
+           * has no "node engine" to follow, so the side is the chosen workflow's own.
+           */
+          engine: upscaleEngineOf('follow', null, flow.provider),
           /* 超清唯一的输入就是这份素材本身；服务端会把它换成对端认得的文件名。 */
           bindingValues: { upscaleInput: item.url },
         }),

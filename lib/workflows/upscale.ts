@@ -1,3 +1,4 @@
+import { workflowSideOf, type RunSide } from './engineSide';
 import { readWorkflowOperation } from './operation';
 import type { GeneratorKind } from './purpose';
 
@@ -54,6 +55,30 @@ export function upscaleWorkflowsFor<T extends UpscaleWorkflowLike>(
  * 点名的那份不在了就退回自动挑（`pool[0]`）—— 那一刻界面那一行会说出「不在了」，
  * 所以这里安静退回不算静默失败。
  */
+/**
+ * Which side this upscale run goes to — reported to the server as `engine`.
+ *
+ * 🔴 The upscale submitter **must** send it (2026-10-04): without it the server's
+ * "engine ↔ workflow" check reads the engine as absent, and every local upscale gets
+ * rejected with a message telling the user to switch the engine to the value it
+ * already has (see `lib/workflows/engineSide.ts`).
+ *
+ * The side is whatever picked the workflow in the first place: an explicit
+ * `local` / `runninghub` upscale source wins; "follow" means the node's current
+ * engine, and a node with no engine dropdown (imported media) falls back to the
+ * side the chosen workflow itself belongs to — which is exactly what the server
+ * derives from that workflow, so the two can never disagree.
+ */
+export function upscaleEngineOf(
+  source: unknown,
+  nodeSide: RunSide | null,
+  workflowProvider: unknown,
+): RunSide {
+  const asked = String(source ?? '').trim();
+  if (asked === 'local' || asked === 'runninghub') return asked;
+  return nodeSide ?? workflowSideOf(workflowProvider);
+}
+
 export function upscaleWorkflowFor<T extends UpscaleWorkflowLike>(
   workflows: T[],
   purpose: GeneratorKind,
