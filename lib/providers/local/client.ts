@@ -1,7 +1,9 @@
 import 'server-only';
+import { localCancelNote, localQueueState, type LocalCancelState } from '@/lib/cancelPlan';
 import {
-  LOCAL_HISTORY_PATH, LOCAL_PROBE_TIMEOUT_MS, LOCAL_PROMPT_PATH, LOCAL_QUERY_TIMEOUT_MS,
-  LOCAL_STATS_PATH, LOCAL_SUBMIT_TIMEOUT_MS, LOCAL_UPLOAD_PATH, LOCAL_UPLOAD_TIMEOUT_MS, LOCAL_VIEW_PATH,
+  LOCAL_HISTORY_PATH, LOCAL_INTERRUPT_PATH, LOCAL_PROBE_TIMEOUT_MS, LOCAL_PROMPT_PATH, LOCAL_QUEUE_PATH,
+  LOCAL_QUERY_TIMEOUT_MS, LOCAL_STATS_PATH, LOCAL_SUBMIT_TIMEOUT_MS, LOCAL_UPLOAD_PATH, LOCAL_UPLOAD_TIMEOUT_MS,
+  LOCAL_VIEW_PATH,
 } from './config';
 import type { LocalGraph } from './graph';
 
@@ -355,6 +357,56 @@ export async function queryLocalHistory(promptId: string, credentials: LocalCred
   }
   if (!results.length) return { status: 'RUNNING' };
   return { status: 'SUCCESS', results };
+}
+
+export type LocalCancelResult = { ok: boolean; state: LocalCancelState; note: string };
+
+/**
+ * 让本机 ComfyUI 把我们这一条停掉（2026-10-04）。
+ *
+ * ComfyUI **没有**「按 prompt_id 打断」这个接口，能用的只有两件事：
+ *   1. `POST /queue` `{"delete":[...]}` —— 把**还在排队**的那条撤掉；
+ *   2. `POST /interrupt` —— 打断**正在执行**的那条。
+ *
+ * 所以顺序是「先问队列、再动手」，而不是直接 interrupt：
+ *
+ * 🔴 `/interrupt` 是**全局**的，停的是这台机器上此刻在跑的那一份。不先确认
+ *    「正在跑的就是我们这条」就调它，会把用户在 ComfyUI 界面上另外点的活一起打断 ——
+ *    那是一次我们看不见的破坏（他只会觉得 ComfyUI 莫名其妙断了）。
+ *
+ * 读不懂队列（老版本 / 返回不是预期形状）时按 `gone` 处理，**不动手**：
+ * 「没停成」比「停错了一份」好收拾。
+ *
+ * 抛异常只在连不上时发生，调用方（`lib/taskCancel.ts`）会把它翻成一句人话。
+ */
+export async function cancelLocalPrompt(promptId: string, credentials: LocalCredentials): Promise<LocalCancelResult> {
+  const base = assertBaseUrl(credentials);
+  const headers = authHeaders(credentials);
+  const queueResponse = await fetch(`${base}${LOCAL_QUEUE_PATH}`, {
+    method: 'GET',
+    headers,
+    cache: 'no-store',
+    signal: AbortSignal.timeout(LOCAL_QUERY_TIMEOUT_MS),
+  });
+  if (!queueResponse.ok) {
+    throw new Error(`读不到本机 ComfyUI 的队列（HTTP ${queueResponse.status} / ${LOCAL_QUEUE_PATH}）。`);
+  }
+  const state = localQueueState(await queueResponse.json().catch(() => null), promptId);
+  if (state === 'gone') return { ok: false, state, note: localCancelNote('gone') };
+
+  const path = state === 'queued' ? LOCAL_QUEUE_PATH : LOCAL_INTERRUPT_PATH;
+  const body = state === 'queued' ? JSON.stringify({ delete: [promptId] }) : '{}';
+  const response = await fetch(`${base}${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...headers },
+    body,
+    cache: 'no-store',
+    signal: AbortSignal.timeout(LOCAL_QUERY_TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    throw new Error(`本机 ComfyUI 没能撤下这一条（HTTP ${response.status} / ${path}）。`);
+  }
+  return { ok: true, state, note: localCancelNote(state) };
 }
 
 /**

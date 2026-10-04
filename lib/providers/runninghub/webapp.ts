@@ -1,6 +1,7 @@
 import 'server-only';
 import { sharedKeyAllowed } from './config';
 import { RUNNINGHUB_SITES } from './connection';
+import { runningHubSiteHost } from './urls';
 
 /**
  * RunningHub **应用**（WebApp / AI App）这一条路。
@@ -17,9 +18,14 @@ import { RUNNINGHUB_SITES } from './connection';
 
 const DEFAULT_BASE_URL = process.env.RUNNINGHUB_API_BASE_URL || RUNNINGHUB_SITES.cn.defaultBaseUrl;
 
-/** 站点根地址：剥掉 `/openapi/v2`（工作流那套用的前缀），再去掉末尾斜杠。 */
+/**
+ * 站点根地址：剥掉 `/openapi/v2`（工作流那套用的前缀），再去掉末尾斜杠。
+ * 实现在 `urls.ts` —— 2026-10-04 抽出去的：取消任务那条路（`client.ts` 的 `cancelTask`）
+ * 也要同一个「剥前缀」规则，两份写迟早有一份忘了剥，症状就是上面说的那种
+ * 「看着像鉴权失败、其实只是前缀多了一层」。
+ */
 function host(baseUrl?: string) {
-  return (baseUrl?.trim() || DEFAULT_BASE_URL).replace(/\/+$/, '').replace(/\/openapi\/v2\/?$/, '');
+  return runningHubSiteHost(baseUrl, DEFAULT_BASE_URL);
 }
 
 /** 与 `client.ts` 的 `bearer()` 同一条规矩：共享关着的时候不传 key 就直接报错。 */

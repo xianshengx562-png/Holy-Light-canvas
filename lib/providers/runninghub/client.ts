@@ -1,7 +1,9 @@
 import 'server-only';
+import { RUNNINGHUB_CANCEL_PATH, runningHubCancelVerdict } from '@/lib/cancelPlan';
 import { sharedKeyAllowed } from './config';
 import { RUNNINGHUB_SITES } from './connection';
 import { bytesDigest, readUploadCache, rememberUpload, uploadCacheKey } from './upload-cache';
+import { runningHubSiteHost } from './urls';
 
 /**
  * ⚠️ 2026-09-21：地址不再是**全局常量**了。
@@ -25,11 +27,17 @@ function endpoint(baseUrl?: string) {
  * 光在 `resolveApiKey` 里加开关根本拦不住。现在接同一个开关：共享关着的时候不传 key 就直接报错，
  * 绝不静默改用站点 key。生成 / 查询 / 上传三条链路都走这里，这正是开关要管住的地方。
  */
-function bearer(apiKey?: string) {
+/**
+ * The bare key. Split out of `bearer()` on 2026-10-04: the cancel endpoint is one of the
+ * **old site-root** interfaces, and those take the key in the request **body**
+ * (`{apiKey, taskId}`) as well as in the header — so both spellings are needed.
+ */
+function plainKey(apiKey?: string) {
   const key = apiKey?.trim() || (sharedKeyAllowed() ? process.env.RUNNINGHUB_API_KEY?.trim() : '');
   if (!key) throw new Error('尚未配置 RunningHub API Key，请在「设置 · 模型服务」中填写。');
-  return `Bearer ${key}`;
+  return key;
 }
+function bearer(apiKey?: string) { return `Bearer ${plainKey(apiKey)}`; }
 function authHeaders(apiKey?: string) { return { 'content-type': 'application/json', authorization: bearer(apiKey) }; }
 /**
  * 🔴 一律带超时（2026-10-03，N-112）：这一层原来**没有任何超时**，上游不回就一直挂着 ——
@@ -45,6 +53,32 @@ export type RunningHubResult = { url?: string; nodeId?: string; outputType?: str
 export type RunningHubResponse = { taskId?: string; status?: string; errorCode?: string; errorMessage?: string; results?: RunningHubResult[] | null; [key: string]: unknown };
 export async function submitWorkflow(input: { workflowId: string; nodeInfoList: unknown[]; instanceType?: string; usePersonalQueue?: boolean }, apiKey?: string, baseUrl?: string) { return request(`/run/workflow/${encodeURIComponent(input.workflowId)}`, { method: 'POST', body: JSON.stringify({ addMetadata: true, nodeInfoList: input.nodeInfoList, instanceType: input.instanceType || 'default', usePersonalQueue: input.usePersonalQueue ?? false }) }, apiKey, baseUrl, SUBMIT_TIMEOUT_MS); }
 export async function queryTask(taskId: string, apiKey?: string, baseUrl?: string) { return request('/query', { method: 'POST', body: JSON.stringify({ taskId }) }, apiKey, baseUrl); }
+
+/**
+ * Ask the upstream to stop this task (2026-10-04 — 徐先: 放弃 must not keep burning his
+ * credits / GPU; see `lib/cancelPlan.ts` for the measured reply codes).
+ *
+ * ⚠️ The endpoint sits at the **site root**, not under `/openapi/v2`:
+ *    `/openapi/v2/task/openapi/cancel` answers `errorCode 1001 Invalid URL` (measured).
+ *    Both auth spellings (body `apiKey` + `Authorization`) are sent — this family of
+ *    endpoints is documented as body-authenticated while the newer ones use the header.
+ *
+ * It **throws only on transport failure**; a refusal is a normal answer the caller reads
+ * with `runningHubCancelVerdict()`. Abandoning the run must never be blocked by this.
+ */
+export async function cancelTask(taskId: string, apiKey?: string, baseUrl?: string) {
+  const key = plainKey(apiKey);
+  const response = await fetch(`${runningHubSiteHost(baseUrl, DEFAULT_BASE_URL)}${RUNNINGHUB_CANCEL_PATH}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
+    body: JSON.stringify({ apiKey: key, taskId }),
+    cache: 'no-store',
+    signal: AbortSignal.timeout(QUERY_TIMEOUT_MS),
+  });
+  const body = await response.json().catch(() => null) as { code?: unknown; msg?: unknown } | null;
+  if (!response.ok || !body) throw new Error(`RunningHub HTTP ${response.status}`);
+  return runningHubCancelVerdict(body.code, body.msg);
+}
 
 /**
  * 上传给多少时间 —— **按体积算，不写死**（2026-10-03，N-113）。

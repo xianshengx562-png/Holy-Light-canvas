@@ -5,6 +5,7 @@ import { api, apiUser, checkOrigin, jsonBody } from '@/lib/api';
 import { refundGeneration } from '@/lib/wallet';
 import { abandonMessage } from '@/lib/taskPoll';
 import { failAndRefund } from '@/lib/taskSettle';
+import { cancelUpstreamTask } from '@/lib/taskCancel';
 import { pollTaskOnce } from '@/lib/taskQuery';
 import { queryTask } from '@/lib/providers/runninghub/client';
 import { queryWebAppOutputs } from '@/lib/providers/runninghub/webapp';
@@ -83,6 +84,10 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
  * 「我不看了」，而任务算不算失败只有掌握状态的这一边说了算 ——
  * 以前前端自己标灰了事，服务端这边还一直是 running。
  *
+ * 2026-10-04 起还多一件事：**真去把上游停掉**（云端 `/task/openapi/cancel`、
+ * 本机 ComfyUI 的队列 / 打断）。在那之前「放弃」只是一句我们自己说的话 ——
+ * 云端照烧积分、本机照占显卡。判定与读法在 `lib/cancelPlan.ts`。
+ *
  * ⚠️ 这个 `POST` 与上面的 `GET` 在**同一个文件**里：桌面版那份路由表是按请求方法
  *    从模块里取导出的（`dispatch.ts` 的 `hit.mod[method]`），所以不用去重新生成路由表。
  */
@@ -103,8 +108,22 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const given = typeof (body as { reason?: unknown }).reason === 'string'
       ? String((body as { reason?: unknown }).reason).trim().slice(0, 200)
       : '';
+    /*
+     * 🔴 **先去把上游停掉，再结单**（2026-10-04）。
+     *
+     * 原来这一趟只结我们自己的账：轮询停了、库里判了失败，而云端那条**照跑**
+     * （烧他的积分）、本机 ComfyUI 那条**照跑**（占他的显卡）。徐先报的原话是
+     * 「现在选择放弃，云端和本地的任务还不会停」。
+     *
+     * 顺序不能反：结单之后 `status` 就是终态了，那时再去取消等于对着一条已经结掉的任务
+     * 补一刀 —— 而且以后有人重看这段代码会以为取消是可选的收尾。它**是**放弃的一部分。
+     *
+     * `cancelUpstreamTask()` 自己吞掉所有异常（放弃不该因为上游不搭话而失败），
+     * 带回来的是一句给用户看的说明，跟着响应回前端、写在节点上。
+     */
+    const cancel = await cancelUpstreamTask({ userId: user.id, provider: task.provider, externalTaskId: task.externalTaskId });
     /* 没带 reason 就是前端那句默认的「放弃」 —— 这是现在唯一一种结单原因。 */
     const settled = await failAndRefund(user.id, task, given || abandonMessage());
-    return NextResponse.json(settled);
+    return NextResponse.json({ ...settled, cancel });
   });
 }

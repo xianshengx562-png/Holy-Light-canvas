@@ -57,8 +57,19 @@ export const LOCAL_SCAN_TIMEOUT_MS = 2_500;
 export const LOCAL_WS_PATH = '/ws';
 /** 节点信息，用来诊断「图里有没有 ComfyUI 不认得的节点 / 找不到的模型」。 */
 export const LOCAL_OBJECT_INFO_PATH = '/object_info';
-/** 队列：还剩几个在跑、几个在排。 */
+/**
+ * 队列：还剩几个在跑、几个在排。**放弃任务时也用它** ——
+ * 先从这份名单里确认我们那条还在不在，再决定撤队列还是打断（见 `client.ts` 的 `cancelLocalPrompt`）。
+ */
 export const LOCAL_QUEUE_PATH = '/queue';
+/**
+ * 打断**正在执行**的那一条。
+ *
+ * 🔴 它是**全局**的：停的是这台机器上此刻在跑的那一份，ComfyUI 没有「按 prompt_id 打断」这个接口。
+ * 所以只有在 `/queue` 的 `queue_running` 里确认那条就是我们的时候才敢调它 ——
+ * 否则会把用户在 ComfyUI 界面上另外点的活一起打断了。
+ */
+export const LOCAL_INTERRUPT_PATH = '/interrupt';
 /**
  * 读 `/object_info` 的超时。
  *

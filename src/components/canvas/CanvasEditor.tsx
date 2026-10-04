@@ -1389,6 +1389,10 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
    * 却没有任何地方能说「我不等了」。点放弃时两件事同时发生：
    *   1. 通知服务端把它判失败 —— 结单是服务端的事，前端说了不算；
    *   2. 掐掉本地这一轮轮询 —— 不然它继续打接口、继续往节点上写状态。
+   *
+   * 2026-10-04 起服务端顺带**真去把上游停掉**（云端 / 本机 ComfyUI），并把一句说明带回来；
+   * 这里把它拼在节点上 —— 那句「已按失败处理」只说了我们这边，用户想知道的是
+   * 「云端那条停了没有」（徐先的原话：以前点了放弃，云端和本地的任务还不会停）。
    */
   const abandonNode = useCallback(async (id: string) => {
     const taskId = String(taskOfNode.current[id] || '');
@@ -1398,15 +1402,15 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       try { handle.controller?.abort(); } catch { /* 已经在别处掐掉了 */ }
       delete pollAbort.current[taskId];
     }
-    if (taskId) {
-      await fetch(`/api/tasks/${taskId}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ abandon: true, reason: abandonMessage() }),
-      }).catch(() => null);
-    }
     delete taskOfNode.current[id];
     const why = abandonMessage();
+    /*
+     * 🔴 先当场把它标成失败，再等服务端那句「上游停没停」（2026-10-04）。
+     *
+     * 顺序反过来的话，点完「放弃」要盯着节点继续转圈 —— 服务端现在会真的去问上游
+     * （云端那条的超时是 30 秒），而用户在点下去的那一刻就认为这一轮结束了。
+     * 说明回来之后补在句尾即可；没回来也不影响结单。
+     */
     patch(id, { status: 'failed', result: why });
     pushRun(id, {
       id: taskId || `abandoned-${Date.now()}`,
@@ -1419,6 +1423,14 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       error: why,
       results: [],
     });
+    if (!taskId) return;
+    const answer = await fetch(`/api/tasks/${taskId}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({ abandon: true, reason: why }),
+    }).then(response => response.json()).catch(() => null) as { cancel?: { note?: unknown } } | null;
+    const cancelNote = String(answer?.cancel?.note || '').trim();
+    if (cancelNote) patch(id, { result: `${why}${cancelNote}` });
   }, [nodes, patch, pushRun]);
 
   /* 离开画布页：把还在跑的轮询全部掐掉（2026-09-29）。 */
