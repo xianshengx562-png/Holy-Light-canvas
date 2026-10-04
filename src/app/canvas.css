@@ -1268,6 +1268,19 @@ html[data-theme='light'] .cv-skill-mask {
 .cv-audio audio { display: block; width: 100%; }
 .cv-param-audio { width: 100%; padding: 8px; background: var(--cv-media-solid); border-radius: var(--cv-radius-sm); }
 .cv-param-audio audio { display: block; width: 100%; }
+/* ---------- 文字结果的正面（2026-10-04） ----------
+   出文本的应用 / 节点没有文件可以画，正面不能留空框。
+   换行与空格原样保留（`pre-wrap`），内容多了在自己里面滚 —— 卡片高度是用户拖出来的，
+   不给它滚动条的话这段文字会把底栏和视口条一起顶下去。 */
+.cv-text-result {
+  display: block; width: 100%; max-height: 160px; overflow: auto;
+  padding: 10px 8px; background: var(--cv-media-solid); border-radius: var(--cv-radius-sm);
+}
+.cv-text-result pre {
+  margin: 0; white-space: pre-wrap; word-break: break-word;
+  font-family: inherit; font-size: calc(12px * var(--ui)); line-height: 1.5;
+  color: var(--cv-text); user-select: text;
+}
 
 /* ---------- 首尾帧节点：一张卡片里并排两张帧 ----------
    两张都画出来，但被「取用」开关排除掉的那张要看得出来它不参与下游 ——
@@ -1597,6 +1610,12 @@ html[data-theme='light'] .cv-skill-mask {
 .cv-results-media .cv-video { width: 100%; border-radius: 8px; border: 1px solid var(--cv-line); }
 /* 音频：一条窄条就够了 —— 用 16:9 的黑框装一段只有波形的声音，既难看也看不出进度。 */
 .cv-results-media .cv-audio { width: 100%; border-radius: 8px; border: 1px solid var(--cv-line); }
+/* 文本结果在历史栏里只给一条入口（见 CanvasResultsPanel 那段注释）。 */
+.cv-results-text {
+  display: block; width: 100%; padding: 10px 12px; text-decoration: none;
+  border: 1px solid var(--cv-line); border-radius: 8px;
+  background: var(--cv-field); color: var(--cv-text); font-size: calc(13px * var(--ui));
+}
 
 /* ---------- 画布右侧抽屉（内置浏览器 / Codex 共用外壳） ----------
    两个侧栏的形状完全一样（一条头 + 一块内容区，从右边滑出来），

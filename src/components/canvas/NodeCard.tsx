@@ -93,6 +93,18 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
    * 漏了音频那一支的话，出音频之后卡片正面是一张**打不开的坏图**（零报错）。
    */
   const audioFace = <div className="cv-audio nodrag"><audio src={resultValue} controls preload="metadata" /></div>;
+  /**
+   * 文字结果的正面（2026-10-04）。
+   *
+   * 出文本的应用 / 节点根本没有文件可以画，正面留个空框等于「跑完了但什么都没发生」。
+   * 用 `<pre>`（换行、空格原样保留）而**不是** `<textarea>`：这一份只给人看和选，
+   * `<textarea>` 会让人以为能在这里改，改完却不会进结果。
+   * `nodrag` 不能省 —— 不然一选中文字就把节点拖走了。
+   */
+  const textResult = String(data.textResult || '').trim();
+  const textFace = textResult
+    ? <div className="cv-text-result nodrag" title="本次结果是一段文字（资产库里另存了一份 .txt）"><pre>{textResult}</pre></div>
+    : null;
   const outputImage = resultImage || String(data.passthroughImage || '');
   const text = String(data.text || '').trim();
   const paramRows = (data.paramRows || []) as ParamRow[];
@@ -362,7 +374,7 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
                     <img src={resultValue} alt="生成结果" onClick={previewIfSelected(resultValue)} />
                     <span className="cv-badge">生成结果</span>
                   </div>)
-              : (frameStrip() || slotGrid()))
+              : (textFace || frameStrip() || slotGrid()))
             : kind === 'image-generate' || kind === 'app-generate'
               ? (resultValue
                 ? (resultIsVideo
@@ -373,7 +385,7 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
                       <img src={resultValue} alt="生成结果" onClick={previewIfSelected(resultValue)} />
                       <span className="cv-badge">生成结果</span>
                     </div>)
-                : (frameStrip() || slotGrid()))
+                : (textFace || frameStrip() || slotGrid()))
             : kind === 'video-input'
               ? (videoSource
                 ? <video className="cv-video nodrag" src={videoSource} controls preload="metadata" />

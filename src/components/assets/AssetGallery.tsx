@@ -3,10 +3,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
-  Check, Download, Eye, FileArchive, ImageIcon, Music, Pencil, Sparkles, Trash2, Video, X,
+  Check, Download, Eye, FileArchive, FileText, ImageIcon, Music, Pencil, Sparkles, Trash2, Video, X,
 } from 'lucide-react';
 import { apiPatch, apiPost } from '@/lib/client';
 import type { AssetCategoryItem } from '@/lib/asset-kinds';
+/* 类型清单只认 `AssetFilters` 那一份（见那边的注释）：抄第二份迟早两边不同步。 */
+import type { Kind } from './AssetFilters';
 import { ConfirmDialog, ContextMenu, type MenuItem } from '@/components/ui/ContextMenu';
 import { SelectionBar, SelectionEnter } from '@/components/ui/SelectionBar';
 
@@ -24,7 +26,6 @@ import { SelectionBar, SelectionEnter } from '@/components/ui/SelectionBar';
  * 菜单与确认框在 `components/ui/ContextMenu.tsx`：它们跟项目页共用一份
  * （位置计算、贴边回弹、键盘、Esc 那些跟「菜单里有什么」无关，抄第二份就是两处各修各的 bug）。
  */
-type Kind = 'video' | 'image' | 'audio' | 'latent';
 
 export type GalleryItem = {
   id: string;
@@ -40,7 +41,7 @@ export type GalleryItem = {
   projectName: string;
 };
 
-const KIND_TEXT: Record<Kind, string> = { video: '视频', image: '图片', audio: '音频', latent: 'Latent' };
+const KIND_TEXT: Record<Kind, string> = { video: '视频', image: '图片', audio: '音频', latent: 'Latent', text: '文本' };
 /* 分类列表由页面从 `/api/assets` 传下来（`categories`），这里不再自带一份写死的表。 */
 
 type Notice = { text: string; ok?: boolean } | null;
@@ -49,6 +50,7 @@ function Glyph({ kind }: { kind: Kind }) {
   if (kind === 'video') return <Video size={22} strokeWidth={1.5} aria-hidden />;
   if (kind === 'image') return <ImageIcon size={22} strokeWidth={1.5} aria-hidden />;
   if (kind === 'audio') return <Music size={22} strokeWidth={1.5} aria-hidden />;
+  if (kind === 'text') return <FileText size={22} strokeWidth={1.5} aria-hidden />;
   return <FileArchive size={22} strokeWidth={1.5} aria-hidden />;
 }
 
@@ -115,6 +117,26 @@ export default function AssetGallery({ items, categories, onChanged, onUpscale, 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, close]);
+
+  /*
+   * 文本资产在灯箱里要**把那一段话显示出来**，而不是只摆一个图标 —— 图标等于什么都没看到。
+   * `.txt` 是我们自己落的（上限 512MB，实际就几 KB）。
+   *
+   * ⚠️ 只在这儿按 URL 直接取文件，**不走 `apiGet`**：那个 helper 一律 `res.json()`，
+   *    而这里的响应体是纯文本。取失败就退回「一层指向下载链接的提示」，不把灯箱搞崩。
+   */
+  const [textBody, setTextBody] = useState<string | null>(null);
+  useEffect(() => {
+    if (open?.type !== 'text') { setTextBody(null); return; }
+    const url = open.url;
+    let alive = true;
+    setTextBody(null);
+    fetch(url)
+      .then(res => (res.ok ? res.text() : Promise.reject(new Error(String(res.status)))))
+      .then(body => { if (alive) setTextBody(body); })
+      .catch(() => { if (alive) setTextBody(''); });
+    return () => { alive = false; };
+  }, [open?.id, open?.type, open?.url]);
 
   /* 改名输入框一出现就聚焦并全选：右键点「重命名」的人下一步一定是打字。 */
   useEffect(() => {
@@ -431,8 +453,8 @@ export default function AssetGallery({ items, categories, onChanged, onUpscale, 
               >
                 {item.type === 'image' && <img src={item.url} alt={item.name} loading="lazy" />}
                 {item.type === 'video' && <video src={item.url} preload="metadata" muted playsInline />}
-                {/* 音频和 latent 一样没有画面：格子中间放一个图标，试听在灯箱里做 */}
-                {(item.type === 'latent' || item.type === 'audio') && (
+                {/* 音频、文本和 latent 一样没有画面：格子中间放一个图标，看内容在灯箱里做 */}
+                {(item.type === 'latent' || item.type === 'audio' || item.type === 'text') && (
                   <span className="asset-thumb-icon"><Glyph kind={item.type} /></span>
                 )}
                 <span className={`asset-kind asset-kind-${item.type}`}>{KIND_TEXT[item.type]}</span>
@@ -499,6 +521,15 @@ export default function AssetGallery({ items, categories, onChanged, onUpscale, 
                 <div className="asset-lightbox-note">
                   <Glyph kind="latent" />
                   <p>latent 是给「接续上一段」用的中间态，不能预览。下载后到画布的接续节点里上传即可。</p>
+                </div>
+              )}
+              {open.type === 'text' && (
+                <div className="asset-lightbox-note asset-lightbox-text">
+                  {textBody ? (
+                    <pre>{textBody}</pre>
+                  ) : (
+                    <p>内容没能读出来，可以直接下载这份 .txt 打开。</p>
+                  )}
                 </div>
               )}
             </div>

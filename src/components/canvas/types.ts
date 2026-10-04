@@ -254,6 +254,14 @@ export type NodeData = {
   status?: string;
   result?: string;
   resultUrl?: string;
+  /**
+   * 只吐文字的那次结果（2026-10-04：应用 / 节点不管输出什么都要能保存）。
+   *
+   * 上游给了 `text` 而没有文件地址时写在**这里**，不能塞进 `resultUrl` —— 那是**地址**，
+   * 卡片正面会拿它去当图片画（`blob:` / 空串那两条注释说的就是同一类事）。
+   * 落盘之后资产库里还会有一份同名 `.txt`，两者的内容一样，一个给看、一个给存。
+   */
+  textResult?: string;
   referenceCount?: number;
   latentCount?: number;
   latentEnabled?: 'on' | 'off';

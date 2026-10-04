@@ -9,7 +9,11 @@
  * 服务端那边的调用方什么都不用改。
  */
 
-export type AssetKind = 'video' | 'image' | 'audio' | 'latent';
+/**
+ * `text` 是 2026-10-04 加的：**只吐文字**的应用 / 节点，那段文字也落成本项目下的一份资产
+ * （一个 `.txt`）。没有这一档的话，那种任务成功之后资产库里什么都找不到。
+ */
+export type AssetKind = 'video' | 'image' | 'audio' | 'latent' | 'text';
 
 export const ASSET_KINDS: { value: AssetKind | 'all'; label: string }[] = [
   { value: 'all', label: '全部' },
@@ -17,6 +21,7 @@ export const ASSET_KINDS: { value: AssetKind | 'all'; label: string }[] = [
   { value: 'video', label: '视频' },
   { value: 'audio', label: '音频' },
   { value: 'latent', label: 'Latent' },
+  { value: 'text', label: '文本' },
 ];
 
 export const KIND_LABEL: Record<string, string> = {
@@ -24,6 +29,7 @@ export const KIND_LABEL: Record<string, string> = {
   image: '图片',
   audio: '音频',
   latent: 'Latent',
+  text: '文本',
 };
 
 /* ------------------------------------------------------------------ *

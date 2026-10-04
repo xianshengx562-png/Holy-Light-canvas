@@ -43,6 +43,7 @@ import {
   validateCustomSize, videoEngineLabel,
   videoEngineProvider, workflowDisplayName, workflowLabel, workflowMismatchHint, upscaleWorkflowsFor,
   workflowsForApp, workflowsForGeneration, workflowsForProvider, purposeForNode, purposeOfNode, purposesOfNode,
+  appPurposeOf,
   nodeEngineProvider, readUpscaleMode, readUpscaleSource, upscaleWorkflowFor,
   UPSCALE_MODE_LABELS, UPSCALE_MODES, UPSCALE_SOURCE_LABELS, UPSCALE_SOURCES,
 } from './nodeMeta';
@@ -268,7 +269,13 @@ export default function GenerateDock({ data, nodeId, anchor }: {
    * 而它明明是下拉里列出来让人选的。
    */
   const purpose: 'image' | 'video' | 'audio' = isApp
-    ? (chosenWorkflow?.kind === 'video' ? 'video' : 'image')
+    /*
+     * 应用节点跟着**选中的那份应用自己报的用途**走，不能在这里再筛一遍 ——
+     * 原先这里写的是 `chosenWorkflow?.kind === 'video' ? 'video' : 'image'`，
+     * 音频应用被归成图片，面板上就挂一条「这个节点是图片生成…生成会被服务端拦下」，
+     * 而它说的是真的（提交体真的带 `kind: 'image'`）。判定只有一处：`appPurposeOf`。
+     */
+    ? appPurposeOf(workflowOptions, String(data.workflowId || ''))
     : (purposeForNode(data.kind, workflowOptions, data.workflowId) ?? (isImage ? 'image' : 'video'));
   /*
    * 音频那一档：**画面那几组参数全都不成立**（2026-10-02）。

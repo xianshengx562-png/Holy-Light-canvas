@@ -9,7 +9,7 @@ import type { GeneratorKind } from '@/lib/workflows/purpose';
  * 本模块内部也要用 `generatorKindLabel`，而 `export ... from` 只转出、不在本地建立绑定，
  * 所以这一条 import 是必需的（少写它会得到 "Cannot find name"）。
  */
-import { generatorKindLabel } from '@/lib/workflows/purpose';
+import { GENERATOR_KINDS, generatorKindLabel } from '@/lib/workflows/purpose';
 /* 同上：`workflowLabel` 内部要用 `workflowDisplayName`，所以得在本地也建立绑定。 */
 import { workflowDisplayName } from '@/lib/workflows/label';
 /* 同上：**凡是要读值的**都得在本地建立绑定，光有末尾那批 `export ... from` 是不够的。 */
@@ -439,8 +439,17 @@ export const ACCEPTS: Record<NodeKind, NodeKind[]> = {
    * 提交时 `imageUrls` 自动收，连线一拉上就生效，不用额外配置。
    */
   'image-generate': ['text', 'prompt-optimize', 'image', 'video-input', 'frame-extract', 'workflow', 'params', 'director', 'image-generate', 'image-out'],
-  /* 应用节点：吃提示词与参考图（它的参数位由应用自己公开），但不吃 latent —— 接续是视频链路的概念。 */
-  'app-generate': ['text', 'prompt-optimize', 'image', 'video-input', 'frame-extract', 'workflow', 'params', 'director'],
+  /*
+   * 应用节点：吃提示词、参考图、整段视频，**以及音频**（它的参数位由应用自己公开），
+   * 但不吃 latent —— 接续是视频链路的概念。
+   *
+   * 🔴 `audio-input` 是 2026-10-04 补进来的（徐先：「节点为什么输入不了音频」——
+   * 拖音频输入节点到应用节点上被弹「只能连接：…」，列表里根本没有音频）。
+   * 漏它的后果不是报错而是**选择被拿掉**：音频早就跟着 `audioInputs` 提交上去了
+   * （见 `CanvasEditor` 里那段收集），RunningHub 应用里也确实有音频参数位
+   * （`RunningHubWebAppField` 的 audio 字段），偏偏连线这一步不放行。
+   */
+  'app-generate': ['text', 'prompt-optimize', 'image', 'video-input', 'audio-input', 'frame-extract', 'workflow', 'params', 'director'],
   /*
    * 优化节点原来只接**文本**：上游文本节点，或者串在前面的另一个优化节点。
    *
@@ -609,6 +618,39 @@ export function mediaReadyForRun(data: NodeData) {
   return Boolean(String(data.videoRemoteFile || '').trim())
     || isResolvableUrl(data.videoRemoteUrl)
     || isResolvableUrl(data.videoUrl);
+}
+
+/**
+ * 这个生成节点**手上已经有结果了**（2026-10-04 徐先：「点启动会跳过已经生成完成的节点」）。
+ *
+ * 「完成」**不能只看 `status`**：生成回来但一个产出都没有的那一次也是 `success`
+ * （`CanvasEditor` 里 `'本次结果没有图片输出'` 那一支），拿它当完成，下游会在上游其实是空的时候
+ * 被跳过 —— 产出和素材无关，界面上还一路成功。所以两条都得成立：状态是成功，
+ * **而且手上真有一份能看的产出**（`resultUrl`，或只吐文字那次的 `textResult`）。
+ *
+ * ⚠️ `blob:` 不算数（跟 `isResolvableUrl` 同一条规矩）：那种地址只活在这一次会话的内存里，
+ * 重开软件之后就是一个打不开的字符串 —— 拿它当「已完成」，用户会得到一张空白卡片，
+ * 而「启动」又永远跳过它，再也跑不回来。
+ */
+export function hasFinishedOutput(data: NodeData) {
+  if (String(data.status || '') !== 'success') return false;
+  if (isResolvableUrl(data.resultUrl)) return true;
+  return Boolean(String(data.textResult || '').trim());
+}
+
+/**
+ * 音频输入节点那一份准备好了没有（2026-10-04）。
+ *
+ * 和 `mediaReadyForRun` 是同一件事的另一半：音频交出去的是 `audioInput`（绑到工作流 /
+ * 应用里 LoadAudio 那类节点），既不在参考图里、也不在视频里，所以按别的尺子量永远是空的。
+ * 少了这一条，用户「连了音频节点、但那段音频还没上传完」时会**照跑不误**：
+ * 提交体里那份音频被静默跳过，产出和他给的那段素材毫无关系，而界面上一个字都不说。
+ */
+export function audioReadyForRun(data: NodeData) {
+  if (data.kind !== 'audio-input') return false;
+  return Boolean(String(data.audioRemoteFile || '').trim())
+    || isResolvableUrl(data.audioRemoteUrl)
+    || isResolvableUrl(data.audioUrl);
 }
 
 export function canConnect(sourceKind: unknown, targetKind: unknown) {
@@ -877,10 +919,19 @@ export function workflowsForApp<T extends WorkflowOption>(workflows: T[]): T[] {
  * 服务端会拿它跟草稿的用途对账（选错的症状是「任务成功、产出另一种媒体」，全程不报错），
  * 所以这里不能写死成一个值。没选 / 选的那份不在清单里时回落到「图片」：
  * 大多数应用是出图的，而回落成视频会把一次出图跑成出片。
+ *
+ * 🔴 **不能把返回值收窄成 `'image' | 'video'`**（2026-10-04 徐先：应用导出的音频用不了）。
+ * 原先这里写的是 `hit?.kind === 'video' ? 'video' : 'image'` —— 音频应用（比如
+ * 「Breeze TTS 2 声音设计」）被判成**图片**，于是提交体带的是 `kind: 'image'`，
+ * 服务端拿草稿的 `kind: 'audio'` 一对账直接 400：
+ *   「工作流 … 是音频，而这个节点是图片…」
+ * 现场表现就是配置面板上挂着一条警告（`workflowMismatchHint`）说「生成会被服务端拦下」，
+ * 而且**它说的是真的** —— 应用节点上什么都跑不出来。用途枚举本身就有 audio（`GENERATOR_KINDS`），
+ * 这里跟着应用自己的 kind 走即可，不需要（也不该）自己筛一遍。
  */
-export function appPurposeOf<T extends WorkflowOption>(workflows: T[], workflowId: string): 'image' | 'video' {
+export function appPurposeOf<T extends WorkflowOption>(workflows: T[], workflowId: string): GeneratorKind {
   const hit = workflows.find(item => item.workflowId === workflowId);
-  return hit?.kind === 'video' ? 'video' : 'image';
+  return hit && (GENERATOR_KINDS as readonly string[]).includes(hit.kind) ? hit.kind : 'image';
 }
 
 /*

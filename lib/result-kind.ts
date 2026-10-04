@@ -8,7 +8,7 @@
  * 所以这里只放三个正则 + 一个函数，**不引 `server-only`、不碰数据库**，两边都能 import。
  */
 
-export type ResultKind = 'video' | 'image' | 'audio';
+export type ResultKind = 'video' | 'image' | 'audio' | 'text';
 
 /** 视频。与加音频之前那两份逐字相同，别顺手改宽 —— 改了会认错老数据。 */
 export const VIDEO_RESULT_RE = /mp4|webm|mov/i;
@@ -26,10 +26,23 @@ export const IMAGE_RESULT_RE = /png|jpe?g|webp|gif|avif/i;
  */
 export const AUDIO_RESULT_RE = /(?<![\w/])audio|\b(mp3|wav|m4a|aac|ogg|flac)(?![\w])/i;
 
+/**
+ * 文本输出（2026-10-04）。
+ *
+ * 上游出文本的节点（以及 RunningHub 应用里那些只吐一段文字的应用）在结果里**没有文件地址**，
+ * 归档之后落成本地的一份 `.txt`（`/api/assets/{id}/media.txt`）。判据用落盘后的扩展名为主，
+ * 兼顾 `outputType: 'text'` 那一档。
+ *
+ * 🔴 `text` 那个词前面不能是字母数字或斜杠：`/audio/text_to_speech.mp3` 这种路径里带着
+ * `text` 的**是音频**，不加这个限制就会被判成文本（和 `AUDIO_RESULT_RE` 同一套防呆）。
+ */
+export const TEXT_RESULT_RE = /(?<![\w/])text\b|\.txt(?![\w])/i;
+
 /** 从 `outputType + ' ' + url` 的那串拼串里认出它是哪一类；认不出返回 null。 */
 export function resultKindOf(text: string): ResultKind | null {
   if (AUDIO_RESULT_RE.test(text)) return 'audio';
   if (VIDEO_RESULT_RE.test(text)) return 'video';
   if (IMAGE_RESULT_RE.test(text)) return 'image';
+  if (TEXT_RESULT_RE.test(text)) return 'text';
   return null;
 }

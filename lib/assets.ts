@@ -74,7 +74,7 @@ function metaOf(value: Prisma.JsonValue | null) {
 }
 
 function isKind(value: string): value is AssetKind {
-  return value === 'video' || value === 'image' || value === 'audio' || value === 'latent';
+  return value === 'video' || value === 'image' || value === 'audio' || value === 'latent' || value === 'text';
 }
 
 export async function listAssets(input: {

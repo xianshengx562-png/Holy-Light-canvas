@@ -64,7 +64,7 @@ import { extractEdgeFrames, firstFrameBlob } from './videoFrames';
 import { isDocumentFile, readDocumentText } from './docText';
 import { browserSupported, grabBrowserImage, onBrowserImage, onBrowserImageDrop, onBrowserImageError } from '@/lib/desktop-browser';
 import { codexSupported } from '@/lib/desktop-codex';
-import { AUDIO_RESULT_RE, IMAGE_RESULT_RE, VIDEO_RESULT_RE, resultKindOf } from '@/lib/result-kind';
+import { AUDIO_RESULT_RE, IMAGE_RESULT_RE, TEXT_RESULT_RE, VIDEO_RESULT_RE, resultKindOf } from '@/lib/result-kind';
 import {
   appPurposeOf, CREATE_KINDS, DEFAULT_RATIO, IMAGE_DEFAULTS, LATENT_SLOTS, NODE_META, resolveImageSize,
   usesGenerateDock, workflowsForApp,
@@ -76,7 +76,7 @@ import {
   upscaleFollowedSide, upscaleFollowsConnection, upscaleTargetOfNode,
   isRelayLatentSource, latentPicksOf, resolvePickedLatents,
   workflowDisplayName, generatorKindLabel, newNodeData, isReferenceSource, referenceUrlsOf, latentNodeIdOf,
-  mediaReadyForRun, isResolvableUrl, workflowsForProvider, engineSwitchPatch, readInstanceType,
+  mediaReadyForRun, audioReadyForRun, hasFinishedOutput, isResolvableUrl, workflowsForProvider, engineSwitchPatch, readInstanceType,
 } from './nodeMeta';
 import type { NodeKind } from './nodeMeta';
 import { validateImageParams } from '@/lib/workflows/imageParams';
@@ -1320,21 +1320,30 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         patch(id, { result: describeLocalProgress(task.progress) });
       }
       if (task.status === 'success') {
-        const list: { url?: string; outputType?: string }[] = Array.isArray(task.result) ? task.result : [];
+        const list: { url?: string; outputType?: string; text?: string }[] = Array.isArray(task.result) ? task.result : [];
         const urls = list.filter(item => item?.url);
         const pick = (pattern: RegExp) => urls.find(item => pattern.test(`${item.outputType || ''} ${item.url}`));
-        /* 三个正则与 `lib/runs.ts` 共用同一份（见 `lib/result-kind.ts`）：
+        /* 四个正则与 `lib/runs.ts` 共用同一份（见 `lib/result-kind.ts`）：
            两边判得不一样的话，同一条结果在历史里是音频、回到节点上却画成了图片。 */
         const videoItem = pick(VIDEO_RESULT_RE);
         const imageItem = pick(IMAGE_RESULT_RE);
         const audioItem = pick(AUDIO_RESULT_RE);
+        /*
+         * 文本（2026-10-04）。两种形状都认：
+         *   - 上游只给了一段文字、**没有任何文件地址**（出文本的应用就是这一种，取 `text`）；
+         *   - 归档之后那条结果的 `url` 变成了本地 `.txt`（取扩展名那一支）。
+         */
+        const textItem = list.find(item => item?.text && !item.url) ?? pick(TEXT_RESULT_RE);
         /** 既认不出 outputType 也没有扩展名时退回第一个结果，保持旧行为。 */
-        const ambiguous = !videoItem && !imageItem && !audioItem ? urls[0] : undefined;
+        const ambiguous = !videoItem && !imageItem && !audioItem && !textItem ? urls[0] : undefined;
         const results: RunResult[] = [];
         if (videoItem?.url) results.push({ url: String(videoItem.url), kind: 'video' });
         if (imageItem?.url && imageItem.url !== videoItem?.url) results.push({ url: String(imageItem.url), kind: 'image' });
         if (audioItem?.url && audioItem.url !== videoItem?.url && audioItem.url !== imageItem?.url)
           results.push({ url: String(audioItem.url), kind: 'audio' });
+        /* 只有落了盘的文本才有地址可记（没落盘的那一份原样留在 `textResult` 上）。 */
+        if (textItem?.url && !results.some(item => item.url === String(textItem.url)))
+          results.push({ url: String(textItem.url), kind: 'text' });
         if (!results.length && ambiguous?.url)
           results.push({
             url: String(ambiguous.url),
@@ -1365,15 +1374,24 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
          * 不然卡片正面还是超清前那一张 —— 用户点了超清却像什么都没发生。
          * 写哪些字段只有 `upscaleResultPatch` 一处知道。
          */
+        /*
+         * 只吐文字的那种结果（出文本的应用）：节点上要有东西可看。
+         * 写成 `textResult` 而不是塞进 `resultUrl` —— 后者是**地址**，卡片正面会拿它去当图片画。
+         */
+        const textValue = String(textItem?.text || '').trim();
+        const textOnly = Boolean(textValue) && !videoItem && !imageItem && !audioItem;
         const settled = {
           status: 'success' as const,
-          result: imageOnly
-            ? (primary ? '生成完成' : '本次结果没有图片输出')
-            : videoItem || audioItem ? '生成完成' : imageItem ? '只返回了图片' : '生成完成',
+          result: textOnly
+            ? '已产出文本'
+            : imageOnly
+              ? (primary ? '生成完成' : '本次结果没有图片输出')
+              : videoItem || audioItem ? '生成完成' : imageItem ? '只返回了图片' : '生成完成',
         };
         patch(id, meta.operation === 'upscale'
           ? { ...settled, ...upscaleResultPatch(runKind, primary?.url || '') }
-          : { ...settled, resultUrl: primary?.url });
+          /* `textResult` 每次都写：这一轮没文本就写 undefined，把上一轮留下的清掉。 */
+          : { ...settled, resultUrl: primary?.url, textResult: textValue || undefined });
         /** Push the media each downstream node can actually show: image output takes the image, video output takes the video. */
         edges.filter(edge => edge.source === id).forEach(edge => {
           const target = nodes.find(node => node.id === edge.target);
@@ -2026,6 +2044,19 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       promptTextOf(upstream),
       ...directorShots,
     ].filter(Boolean).join('\n') || String(node.data.text || '').trim();
+    /*
+     * 🔴 提示词**不是一道闸**（2026-10-04 徐先：「视频音频生成以及图片生成节点就算不写提示词
+     * 也没关系，照样提交上游」）。
+     *
+     * 原来往下三处分流（自定义视频 / 视频网关 / 工作流那条主路）各有一句
+     * `if (!prompt) return patch(… '请输入提示词或连接文字节点')`，预检里还有一条，
+     * 把「没写字」整条路堵死。现在一律不拦：空提示词照常提交。
+     *
+     * 空着并不会往上游塞一个空值 —— 工作流那条路的字段绑定为空时根本进不了
+     * `nodeInfoList`（`toNodeInfoList` 跳过没有值的那几项），也就是**交给工作流自己的默认值**。
+     * 抽卡、跑带内置提示词的工作流、只想验一下链路通不通，这些场景本来就不需要写字。
+     * **别再把这句加回来。**
+     */
     /** A connected workflow node wins; otherwise fall back to the id typed on the generator node itself. */
     const workflowNode = upstream.find(item => item.data.kind === 'workflow');
     /**
@@ -2072,7 +2103,6 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
      */
     if (node.data.kind === 'video-generate' && videoEngine === 'custom') {
       const customModel = String(node.data.customModel || '').trim();
-      if (!prompt) return patch(id, { status: 'failed', result: '请输入提示词或连接文字节点' });
       if (!customModel) return patch(id, { status: 'failed', result: '还没选模型 —— 在「自定义接口」那个下拉里挑一个（接口在「设置 · 模型服务」里加）' });
       const customVideoValues = {
         duration: String(node.data.videoApiDuration || VIDEO_API_DEFAULTS.duration),
@@ -2102,7 +2132,6 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       return;
     }
     if (node.data.kind === 'video-generate' && videoEngine === 'videoapi') {
-      if (!prompt) return patch(id, { status: 'failed', result: '请输入提示词或连接文字节点' });
       /*
        * 图生视频：上游第一张图当首帧。
        * **传的是能取到字节的地址，不是 `remoteFile`** —— 视频网关认不出 RunningHub 的远端文件名，
@@ -2151,16 +2180,23 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
      * 用户会一直重新上传那段本来就没问题的视频，而且怎么传都不会好。
      */
     const frameMissing = upstream.find(item => item.data.kind === 'frame-extract' && referenceUrlsOf(item.data).length === 0);
+    /*
+     * 连了音频输入节点、但那段音频还没上传完（2026-10-04）。**必须单独说**：
+     * 它既不是参考图、也不是 videoInput，报「参考图或 latent 尚未上传完成」会让人去翻图，
+     * 而这里缺的是音频；不报的话提交体里那份音频被静默跳过，产出与素材无关。
+     */
+    const audioMissing = upstream.find(item => item.data.kind === 'audio-input' && !audioReadyForRun(item.data));
     if (pending || latentDeadEnd) {
       return patch(id, {
         status: 'failed',
         result: latentBrokenHint(latentIssue)
           || (frameMissing
             ? `上游「${String(frameMissing.data.label || '首尾帧')}」还没有提取出帧 —— 选中它点「提取首尾帧」`
-            : '参考图或 latent 尚未上传完成'),
+            : audioMissing
+              ? `上游「${String(audioMissing.data.label || '音频输入')}」还没有可用的音频 —— 选中它重新选一次音频，等它传完再跑`
+              : '参考图或 latent 尚未上传完成'),
       });
     }
-    if (!prompt) return patch(id, { status: 'failed', result: '请输入提示词或连接文字节点' });
     /*
      * 自定义接口出图（2026-09-21）。**同步**形状（一次请求拿回图），
      * 所以**在「请先选择一个工作流」之前分出去** —— 这一档根本没有工作流。
@@ -2594,12 +2630,12 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       const isImage = node.data.kind === 'image-generate' || (isApp && purpose === 'image');
       const imageEngine = readImageEngine(node.data.engine);
       const videoEngine = readVideoEngine(node.data.engine);
-      /* 提示词：与 `generate()` 同一套算法 —— 上游文字节点 + 导演台，都没有才看节点自己填的。 */
-      const prompt = [
-        promptTextOf(upstream),
-        ...upstream.filter(item => item.data.kind === 'director')
-          .map(item => String(item.data.directorPrompt || '').trim()).filter(Boolean),
-      ].filter(Boolean).join('\n') || String(node.data.text || '').trim();
+      /*
+       * 🔴 这里原来算了一次提示词、并把「没填」当成一个毛病挡在启动之前。**已删**
+       * （2026-10-04 徐先：「就算不写提示词也没关系，照样提交上游」）—— 理由与 `generate()`
+       * 里那段注释同一条：空提示词交给工作流自己的默认值，不是错误。
+       * 预检仍然只管「用户必须自己动手填、与上游无关」的那几样（工作流 / 模型 / 首尾帧）。
+       */
       /*
        * 优化节点只查「有没有输入」—— 工作流 / 模型那几样它一概没有，
        * 接着往下查会指着一句它身上不存在的东西让用户去改。
@@ -2625,7 +2661,6 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       const frameMissing = upstream.find(item => item.data.kind === 'frame-extract' && referenceUrlsOf(item.data).length === 0);
 
       /* 一个节点只报头一个毛病：列一长串反而看不出先改哪个。 */
-      if (!prompt) { problems.push({ id: node.id, label, why: '还没填提示词（也没连文字节点）' }); continue; }
       if (needsWorkflow && !workflowId) { problems.push({ id: node.id, label, why: '还没选工作流' }); continue; }
       if (isImage && imageEngine === 'custom' && !customModel) {
         problems.push({ id: node.id, label, why: '自定义接口还没选模型' }); continue;
@@ -2692,6 +2727,31 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       return;
     }
     const labelOf = (id: string) => String(nodesRef.current.find(node => node.id === id)?.data.label || '这个节点');
+    /*
+     * 「启动」**跳过已经有结果的生成节点**（2026-10-04 徐先：「这边点启动了，会跳过已经生成完成的节点」）。
+     *
+     * 为什么需要有这一条：画布上往下改一点东西就整条重跑，前面那些早就出好图的节点会**再花一遍积分**
+     * （云端是真的扣钱），而它们的结果一点都不会变。改了下半段只想重跑下半段的场景，
+     * 在原来那套「全都从头跑」里根本做不到。
+     *
+     * 🔴 **名单必须在开跑之前定下、之后所有遍数共用同一份**。每轮现算的话，第 1 轮跑出来的节点
+     * 在第 2 轮就会被算成「已完成」而不再跑 —— 「跑 N 遍」这个功能当场失效：第 2 遍起什么都不发生，
+     * 而界面还报「跑完了 3 遍」。
+     *
+     * 只认**生成节点**（视频 / 图片 / 音频 / 应用）：它们才是最贵的那一步。优化提示词节点照旧每轮都跑 ——
+     * 它是文本模型、便宜，而且「改写没生效」这种错觉的代价比省那点 token 高得多。
+     */
+    const settledBefore = new Set(
+      order.filter(id => {
+        const node = nodesRef.current.find(item => item.id === id);
+        if (!node || !isGeneratorKind(node.data.kind)) return false;
+        return hasFinishedOutput(node.data);
+      }),
+    );
+    if (settledBefore.size && settledBefore.size === order.length) {
+      setNotice(`画布上这 ${order.length} 个生成节点都已经有结果了 —— 没跑。想重跑某一个，选中它点底栏那颗发送。`);
+      return;
+    }
     setRunAllBusy(true);
     runAllStop.current = false;
     let halted = '';
@@ -2701,6 +2761,8 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
           if (runAllStop.current) { halted = '用户停了'; break; }
           const id = order[index];
           setRunProgress({ round, times, done: index, total: order.length });
+          /* 开跑前就有结果的那些：这一趟不提交（理由见上面那段注释）。 */
+          if (settledBefore.has(id)) continue;
           runStatus.current[id] = '';
           try {
             await runOneRef.current(id);
@@ -2708,7 +2770,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
             /* generate 自己会把失败写在节点上，这里只需要不再往下跑。 */
           }
           if (!runStatus.current[id]) {
-            halted = `「${labelOf(id)}」没跑起来（多半是提示词没填、或上游还没出图）`;
+            halted = `「${labelOf(id)}」没跑起来（多半是上游还没出图）`;
             break;
           }
           const settled = await waitNodeSettled(id);
@@ -2730,7 +2792,9 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       }
       if (halted === '用户停了') setNotice('已停止。');
       else if (halted) setNotice(`${halted} —— 就停在这一步，后面的没跑（继续跑只会拿着空上游）。`);
-      else setNotice(times > 1 ? `跑完了 ${times} 遍。` : '跑完了一遍。');
+      /* 跳过的那几个要说出来：不然「点了启动却没见它动」看起来就像坏了。 */
+      else setNotice(`${times > 1 ? `跑完了 ${times} 遍` : '跑完了一遍'}`
+        + (settledBefore.size ? `（跳过了 ${settledBefore.size} 个已经有结果的节点）` : '') + '。');
     } finally {
       setRunAllBusy(false);
       setRunProgress(null);

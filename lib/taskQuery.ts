@@ -14,7 +14,7 @@ import { readLocalCredentials } from '@/lib/providers/local/connection';
 import { queryLocalHistory } from '@/lib/providers/local/client';
 import { clearLocalProgress, readLocalProgress } from '@/lib/providers/local/progress';
 import { archiveTaskLatents } from '@/lib/latents';
-import { archiveTaskMedia, type ArchivedMedia } from '@/lib/media';
+import { archiveTaskMedia, textResultKey, type ArchivedMedia } from '@/lib/media';
 
 /**
  * 查一次上游、把结果落库 —— 「轮询一个任务」这件事**只有这一份**（2026-10-03，N-112）。
@@ -61,13 +61,18 @@ export type PollOutcome = {
  * 必须整条替换后再写库——画布侧把 `result` 原样存进 `data.runs`，只在这里改写，
  * 前端一行都不用动。落盘失败的项留在原样（24 小时内还能用），不会被抹掉。
  */
-function rewriteResultUrls(results: unknown, archived: ArchivedMedia[]) {
+function rewriteResultUrls(results: unknown, archived: ArchivedMedia[], taskId: string) {
   if (!Array.isArray(results)) return results as Prisma.InputJsonValue;
   const map = new Map(archived.map(item => [item.originalUrl, item.url]));
-  return results.map(item => {
+  return results.map((item, index) => {
     if (!item || typeof item !== 'object') return item;
     const url = (item as { url?: unknown }).url;
-    const next = typeof url === 'string' ? map.get(url) : undefined;
+    /*
+     * 纯文本结果**没有 url**，归档时用的键是按位置算出来的（`textResultKey`）——
+     * 这里必须重算出同一个键才找得到它，否则那条结果永远停在「没有地址」上：
+     * 文字在结果里躺着、资产库里也有一份，可两边连不起来（2026-10-04）。
+     */
+    const next = typeof url === 'string' && url ? map.get(url) : map.get(textResultKey(taskId, index));
     return next ? { ...(item as Record<string, unknown>), url: next } : item;
   }) as Prisma.InputJsonValue;
 }
@@ -172,7 +177,7 @@ export async function pollTaskOnce(userId: string, task: PollableTask): Promise<
     where: { id: task.id },
     data: {
       status,
-      result: done ? rewriteResultUrls(remote.results, media) : (remote.results ?? undefined),
+      result: done ? rewriteResultUrls(remote.results, media, task.id) : (remote.results ?? undefined),
       /*
        * 🔴 失败原因要取**详细的那份**（2026-10-04）：上游的 `failedReason` 里写着哪个节点、
        * 什么异常、以及一句「该怎么办」（显存不足会给四条调整建议）—— 原来只存外层那句

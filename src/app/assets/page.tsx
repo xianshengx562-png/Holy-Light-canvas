@@ -374,7 +374,7 @@ export default function Assets() {
               <p className="muted">
                 {filtered
                   ? '换个类型或项目试试。'
-                  : '每次生成成功，视频、图片和接续用的 latent 都会自动存到这里。'}
+                  : '每次生成成功，视频、图片、音频、文本，以及接续用的 latent 都会自动存到这里。'}
               </p>
               {!filtered && <Link className="button" href="/projects/new">新建项目</Link>}
             </div>

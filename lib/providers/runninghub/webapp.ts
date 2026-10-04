@@ -103,6 +103,9 @@ export async function submitWebApp(input: {
   results?: { url?: string; outputType?: string }[];
 }> {
   const payload = await postJson('/task/openapi/ai-app/run', {
+    // 🔴 RH 的 ai-app/run 要求 apiKey 放在**请求体**里（必填），只带 Bearer 头会被
+    //    打回 "param apiKey is required"（2026-10-04 实测）。
+    apiKey: bearer(apiKey),
     webappId: input.webAppId,
     nodeInfoList: input.nodeInfoList,
     instanceType: input.instanceType || 'default',
@@ -127,8 +130,9 @@ export async function queryWebAppOutputs(
   taskId: string,
   apiKey?: string,
   baseUrl?: string,
-): Promise<{ status: string; results?: { url: string; outputType?: string }[]; errorMessage?: string; failedReason?: unknown }> {
-  const payload = await postJson('/task/openapi/outputs', { taskId }, apiKey, baseUrl);
+): Promise<{ status: string; results?: { url: string; outputType?: string; text?: string }[]; errorMessage?: string; failedReason?: unknown }> {
+  // 🔴 outputs 同样要求 apiKey 在请求体里（与 ai-app/run 同一套规矩，2026-10-04 补）
+  const payload = await postJson('/task/openapi/outputs', { apiKey: bearer(apiKey), taskId }, apiKey, baseUrl);
   const data = payload.data;
   const list = Array.isArray(data)
     ? data
@@ -139,10 +143,23 @@ export async function queryWebAppOutputs(
   const status = String(raw?.taskStatus ?? raw?.status ?? (list.length ? 'SUCCESS' : 'RUNNING')).toUpperCase();
   const failed = status === 'FAILED' || status === 'ERROR' || status === 'CANCELLED' || status === 'CANCELED' || Boolean(raw?.failedReason);
   const results = list.map(item => {
-    const row = (item || {}) as { fileUrl?: unknown; url?: unknown; fileType?: unknown; outputType?: unknown };
+    const row = (item || {}) as { fileUrl?: unknown; url?: unknown; fileType?: unknown; outputType?: unknown; text?: unknown };
     const url = String(row.fileUrl ?? row.url ?? '').trim();
-    return { url, outputType: String(row.fileType ?? row.outputType ?? '').trim() || undefined };
-  }).filter(item => item.url);
+    /*
+     * 文本输出（2026-10-04 徐先：应用节点不管输出什么都要能保存）。
+     *
+     * 上游一个结果项里可能**只有 `text`、没有任何文件地址** —— 出文本的应用就是这个形状。
+     * 原来这里收尾一句 `.filter(item => item.url)` 把它们全丢了：任务成功、结果数组为空，
+     * 界面显示「生成完成」、资产库里什么都没有，**一句提示都没有**。
+     */
+    const text = typeof row.text === 'string' ? row.text : '';
+    return {
+      url,
+      outputType: String(row.fileType ?? row.outputType ?? '').trim() || undefined,
+      ...(text ? { text } : {}),
+    };
+    /* 只丢掉「既没有文件、也没有文字」的空项。 */
+  }).filter(item => item.url || item.text);
   return {
     status: failed ? 'FAILED' : (status || 'RUNNING'),
     results: results.length ? results : undefined,

@@ -16,8 +16,24 @@ import { mediaRoot, resolveStoredPath } from '@/lib/output-dir';
  * 总比把「生成成功」变成「生成失败」强。
  */
 /** 音频也在里面：画布上往里粘 / 拖一段音频，同样要落成本项目下的一份资产。 */
-export type MediaKind = 'video' | 'image' | 'audio';
+/**
+ * `text` 也在里面（2026-10-04）：应用 / 节点**只吐一段文字**时，那段文字同样要落成本项目下的
+ * 一份资产（写成一个 `.txt`），否则任务成功、结果却什么地方都没有 —— 这正是徐先说的
+ * 「不管输出的是什么，都能保存」里最靠后、也最容易被漏掉的一档。
+ */
+export type MediaKind = 'video' | 'image' | 'audio' | 'text';
 export type ArchivedMedia = { originalUrl: string; url: string; kind: MediaKind; size: number };
+
+/**
+ * 纯文本结果在那个没法当 URL 用的「原始地址」里长什么样。
+ *
+ * 文本没有 URL 可下载，但归档的缓存 / 回写这两处都按 `originalUrl` 找条目
+ * （`archiveTaskMedia` 用它去重、`rewriteResultUrls` 用它把结果里的地址换成落盘地址）。
+ * 给它一个**按位置算出来、两边都能重算**的键，这两套逻辑就完全不用为文本分叉。
+ */
+export function textResultKey(taskId: string, index: number) {
+  return `text:${taskId}:${index}`;
+}
 
 /*
  * ⚠️ 根目录**不能**在模块加载时算死：桌面版允许用户在设置里换产出目录，
@@ -44,6 +60,8 @@ const MIME: Record<string, { mime: string; media: MediaKind }> = {
   m4a: { mime: 'audio/mp4', media: 'audio' },
   ogg: { mime: 'audio/ogg', media: 'audio' },
   flac: { mime: 'audio/flac', media: 'audio' },
+  /* 文本结果落成 `.txt`（2026-10-04）。带上 charset，直接开链接看才是中文而不是乱码。 */
+  txt: { mime: 'text/plain; charset=utf-8', media: 'text' },
 };
 
 /** 只认白名单里的扩展名，`/api/assets/{id}/media.mp4` 这种也认（末尾那段带扩展名）。 */
@@ -54,9 +72,19 @@ export function mediaExtOf(value: unknown) {
   return MIME[ext] ? ext : '';
 }
 
-function classify(item: { url?: string; outputType?: string }) {
+function classify(item: { url?: string; outputType?: string; text?: string }) {
   const ext = mediaExtOf(item.url);
   if (ext) return { ext, ...MIME[ext] };
+  /*
+   * 纯文本结果（2026-10-04）：**没有文件地址，只有一段文字**。出文本的应用就是这个形状。
+   * 落盘成一份 `.txt` 之后，它就和别的媒体一样走 `/api/assets/{id}/media.txt` 取流，
+   * 下游（资产库 / 画布卡片 / 生成历史）不必为它分叉。
+   *
+   * ⚠️ 条件是「连 url 都没有」而不是「有 text 就算文本」：结果项里 `text` 这个键**常常跟着
+   * 文件一起回来**（本地库里 12 条任务的结果项全带这个键）—— 按 text 判定会把好端端的一张图
+   * 归档成 .txt。
+   */
+  if (!item.url && String(item.text || '').trim()) return { ext: 'txt', ...MIME.txt };
   // 没有扩展名时退回到 outputType；猜不出真实格式就按大类给个默认值，
   // 真正落盘时还会用响应的 content-type 校正一次。
   const hint = String(item.outputType || '').toLowerCase();
@@ -83,7 +111,7 @@ function fileNameOf(value: string) {
  * `mp4/mov/png`，于是「URL 没有扩展名的视频」两边都认领了一次，同一份文件落盘两次，
  * 还多出一条假 latent 混进接续候选。这里复用 `classify`，保证两边永远一致。
  */
-export function isMediaResult(item: { url?: string; outputType?: string }) {
+export function isMediaResult(item: { url?: string; outputType?: string; text?: string }) {
   return Boolean(classify(item));
 }
 
@@ -155,16 +183,23 @@ export async function archiveTaskMedia(input: {
   results: unknown;
 }): Promise<ArchivedMedia[]> {
   const list = Array.isArray(input.results) ? input.results : [];
+  type RawItem = { url?: string; outputType?: string; text?: string };
   const items = list
-    .map(item => ({ item: item as { url?: string; outputType?: string }, kind: classify((item || {}) as { url?: string; outputType?: string }) }))
-    .filter((entry): entry is { item: { url: string; outputType?: string }; kind: { ext: string; mime: string; media: MediaKind } } =>
-      Boolean(entry.kind) && typeof entry.item?.url === 'string' && Boolean(entry.item.url));
+    /*
+     * 每一项都带上它在结果数组里的**位置**：纯文本没有 URL，去重与回写都靠
+     * `textResultKey(taskId, index)` 这个按位置算出来的键（`rewriteResultUrls` 同样能重算）。
+     */
+    .map((item, index) => ({ item: (item || {}) as RawItem, kind: classify((item || {}) as RawItem), index }))
+    .filter((entry): entry is { item: RawItem; kind: { ext: string; mime: string; media: MediaKind }; index: number } =>
+      Boolean(entry.kind)
+      /* 有文件地址，或者有一段能落成 .txt 的文字 —— 两者都没有的才丢。 */
+      && (Boolean(String(entry.item?.url || '').trim()) || Boolean(String(entry.item?.text || '').trim())));
   if (!items.length) return [];
 
   const stored = await db.asset.findMany({
-    /* 音频也要在里面：漏了它的话「同一任务重复调用不重复下载」对音频不成立 ——
-       缓存查不到，于是每调一次就重下一遍、多插一条资产。 */
-    where: { projectId: input.projectId, sourceTaskId: input.taskId, type: { in: ['video', 'image', 'audio'] } },
+    /* 音频、文本也要在里面：漏了它们的话「同一任务重复调用不重复落盘」对那两档不成立 ——
+       缓存查不到，于是每调一次就重来一遍、多插一条资产。 */
+    where: { projectId: input.projectId, sourceTaskId: input.taskId, type: { in: ['video', 'image', 'audio', 'text'] } },
     select: { url: true, type: true, metadata: true },
   });
   const cache = new Map<string, ArchivedMedia>();
@@ -174,18 +209,52 @@ export async function archiveTaskMedia(input: {
       cache.set(meta.originalUrl, {
         originalUrl: meta.originalUrl,
         url: row.url,
-        kind: row.type === 'audio' ? 'audio' : row.type === 'video' ? 'video' : 'image',
+        kind: row.type === 'audio' ? 'audio' : row.type === 'video' ? 'video' : row.type === 'text' ? 'text' : 'image',
         size: Number(meta.size || 0),
       });
     }
   }
 
   const out: ArchivedMedia[] = [];
-  for (const { item, kind } of items) {
-    const hit = cache.get(item.url);
+  for (const { item, kind, index } of items) {
+    /* 纯文本的「原始地址」是按位置算的键；有文件的仍用它的 URL。 */
+    const sourceUrl = String(item.url || '').trim();
+    const source = sourceUrl || textResultKey(input.taskId, index);
+    const hit = cache.get(source);
     if (hit) { out.push(hit); continue; }
     try {
-      const response = await fetch(item.url, { signal: AbortSignal.timeout(fetchTimeout) });
+      if (kind.media === 'text') {
+        /*
+         * 纯文本：没有东西可下载，文字就在结果项里。落盘那三步与媒体完全一致
+         * （先定 id → 先写文件 → 再插记录），只是字节来自内存而不是一次 fetch。
+         */
+        const raw = Buffer.from(String(item.text || ''), 'utf8');
+        if (!raw.length || raw.length > maxBytes) continue;
+        const dir = path.join(await mediaRoot(), input.projectId);
+        await mkdir(/*turbopackIgnore: true*/ dir, { recursive: true });
+        const id = randomUUID();
+        const target = path.join(dir, `${id}.txt`);
+        await writeFile(/*turbopackIgnore: true*/ target, raw);
+        const url = `/api/assets/${id}/media.txt`;
+        await db.asset.create({
+          data: {
+            id,
+            userId: input.userId,
+            projectId: input.projectId,
+            /* 文本那一路 `sourceUrl` 是空串，`fileNameOf` 自然拿不到名字 —— 落回 `text.txt`。 */
+            name: fileNameOf(sourceUrl) || `${kind.media}.${kind.ext}`,
+            type: kind.media,
+            url,
+            sourceTaskId: input.taskId,
+            metadata: { size: raw.length, originalUrl: source, outputType: item.outputType || null, mime: kind.mime, path: target, ext: kind.ext },
+          },
+        });
+        const record: ArchivedMedia = { originalUrl: source, url, kind: kind.media, size: raw.length };
+        cache.set(source, record);
+        out.push(record);
+        continue;
+      }
+      const response = await fetch(sourceUrl, { signal: AbortSignal.timeout(fetchTimeout) });
       if (!response.ok) continue;
       const declared = Number(response.headers.get('content-length') || 0);
       if (declared && declared > maxBytes) continue;
@@ -214,16 +283,16 @@ export async function archiveTaskMedia(input: {
           id,
           userId: input.userId,
           projectId: input.projectId,
-          name: fileNameOf(item.url) || `${kind.media}.${kind.ext}`,
+          name: fileNameOf(sourceUrl) || `${kind.media}.${kind.ext}`,
           type: kind.media,
           url,
           sourceTaskId: input.taskId,
-          metadata: { size: raw.length, originalUrl: item.url, outputType: item.outputType || null, mime, path: target, ext: kind.ext },
+          metadata: { size: raw.length, originalUrl: source, outputType: item.outputType || null, mime, path: target, ext: kind.ext },
         },
       });
 
-      const record: ArchivedMedia = { originalUrl: item.url, url, kind: kind.media, size: raw.length };
-      cache.set(item.url, record);
+      const record: ArchivedMedia = { originalUrl: source, url, kind: kind.media, size: raw.length };
+      cache.set(source, record);
       out.push(record);
     } catch {
       continue;
@@ -466,8 +535,8 @@ export function base64ToBuffer(value: string): Buffer {
 }
 
 export async function openMediaAsset(assetId: string, userId: string) {
-  /* 音频也走这条取流路由（`/media.{ext}`），所以类型白名单里要有它。 */
-  const asset = await db.asset.findFirst({ where: { id: assetId, userId, type: { in: ['video', 'image', 'audio'] } } });
+  /* 音频、文本也走这条取流路由（`/media.{ext}`），所以类型白名单里要有它们（文本是 `.txt`）。 */
+  const asset = await db.asset.findFirst({ where: { id: assetId, userId, type: { in: ['video', 'image', 'audio', 'text'] } } });
   if (!asset) throw new Error('媒体不存在或无权访问。');
   const meta = (asset.metadata || {}) as { path?: string; mime?: string };
   if (!meta.path) throw new Error('该媒体未落盘。');

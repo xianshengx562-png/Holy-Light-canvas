@@ -190,7 +190,12 @@ export default function CanvasResultsPanel({
                       /* `.cv-audio` 是那层带底色的壳，里面才是 `<audio>`（见 canvas.css）。 */
                       : item.kind === 'audio'
                         ? <span className="cv-audio"><audio src={item.url} controls preload="metadata" /></span>
-                        : <video className="cv-video" src={item.url} controls preload="metadata" />}
+                        /* 文本结果（2026-10-04）：它的 url 是资产库里那份 `.txt`。这里不做内嵌预览，
+                           给一条能打开/下载的入口就行 —— 内嵌要么自己再抓一遍内容，要么把整段文字塞进列表，
+                           而这一栏是「历次生成的索引」，塞长文本会把别次的结果挤没。 */
+                        : item.kind === 'text'
+                          ? <a className="cv-results-text" href={item.url} target="_blank" rel="noreferrer">文本结果 · 打开 / 下载 .txt</a>
+                          : <video className="cv-video" src={item.url} controls preload="metadata" />}
                   </div>
                 ))}
           </div>

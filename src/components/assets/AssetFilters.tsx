@@ -7,8 +7,13 @@ import AssetCategoryDialog from './AssetCategoryDialog';
 /*
  * 不从 `@/lib/assets` 引类型：那个模块顶部有 `import 'server-only'`，
  * `import type` 虽然会被擦除，但保险起见客户端组件一律自带这份字面量联合。
+ *
+ * 🔴 这份联合是**资产页唯一的真相来源** —— 画廊（`AssetGallery`）从这里 import，
+ * 不许自己在那儿再抄一遍：`AssetKind`（`lib/asset-kinds.ts`）加一档而这里没跟上的话，
+ * 资产页会**静默少显示一整类资产**（文本那份就是这么漏掉的）。
+ * 所以每加一档都要问一句：`lib/asset-kinds.ts` 的三个导出改了没有。
  */
-export type Kind = 'video' | 'image' | 'audio' | 'latent';
+export type Kind = 'video' | 'image' | 'audio' | 'latent' | 'text';
 
 type Props = {
   type: Kind | 'all';

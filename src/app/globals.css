@@ -1705,6 +1705,16 @@ h1 { margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.02em; }
 .asset-lightbox-stage video { max-width: 100%; max-height: 62vh; display: block; }
 .asset-lightbox-note { display: grid; justify-items: center; gap: 10px; padding: 32px; text-align: center; color: var(--text-dim); }
 .asset-lightbox-note p { margin: 0; font-size: 13px; max-width: 380px; }
+/*
+ * 文本资产：灯箱里要能看到**内容本身**，所以这一档左右拉满、左对齐，
+ * 里面那段话按原样折行超出滚动 —— 不能 `text-align:center`，那会让多行文字看着像诗歌。
+ */
+.asset-lightbox-text { justify-items: stretch; align-content: start; width: 100%; text-align: left; }
+.asset-lightbox-text pre {
+  margin: 0; max-height: 52vh; overflow: auto; white-space: pre-wrap; word-break: break-word;
+  font-size: 13px; line-height: 1.7; color: var(--text); background: var(--bg-subtle, var(--well));
+  border: 1px solid var(--line); border-radius: var(--r-sm); padding: 14px;
+}
 .asset-lightbox-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .asset-lightbox-foot .button { display: inline-flex; align-items: center; gap: 6px; }
 .asset-lightbox-spacer { flex: 1; }

@@ -19,24 +19,6 @@ import { readLocalCredentials } from '@/lib/providers/local/connection';
 import { queryLocalHistory } from '@/lib/providers/local/client';
 import { clearLocalProgress, readLocalProgress } from '@/lib/providers/local/progress';
 import { archiveTaskLatents } from '@/lib/latents';
-import { archiveTaskMedia, type ArchivedMedia } from '@/lib/media';
-
-/**
- * 把结果里的远端 URL 换成本地落盘 URL。
- *
- * 必须整条替换后再写库——画布侧把 `result` 原样存进 `data.runs`，只在这里改写，
- * 前端一行都不用动。落盘失败的项留在原样（24 小时内还能用），不会被抹掉。
- */
-function rewriteResultUrls(results: unknown, archived: ArchivedMedia[]) {
-  if (!Array.isArray(results)) return results as Prisma.InputJsonValue;
-  const map = new Map(archived.map(item => [item.originalUrl, item.url]));
-  return results.map(item => {
-    if (!item || typeof item !== 'object') return item;
-    const url = (item as { url?: unknown }).url;
-    const next = typeof url === 'string' ? map.get(url) : undefined;
-    return next ? { ...(item as Record<string, unknown>), url: next } : item;
-  }) as Prisma.InputJsonValue;
-}
 
 /*
  * `failAndRefund` 已经抽到 `lib/taskSettle.ts`（2026-09-29）——

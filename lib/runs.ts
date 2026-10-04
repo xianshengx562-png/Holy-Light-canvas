@@ -18,7 +18,7 @@
  *    同一条结果在历史里是音频、回到节点上却画成图片）。
  */
 
-import { AUDIO_RESULT_RE, IMAGE_RESULT_RE, VIDEO_RESULT_RE, resultKindOf, type ResultKind } from './result-kind';
+import { AUDIO_RESULT_RE, IMAGE_RESULT_RE, TEXT_RESULT_RE, VIDEO_RESULT_RE, resultKindOf, type ResultKind } from './result-kind';
 
 export type RunResultItem = { url: string; kind: ResultKind };
 
@@ -60,20 +60,27 @@ export function resultsOfTask(result: unknown): RunResultItem[] {
     : (result && typeof result === 'object' && Array.isArray((result as { results?: unknown[] }).results))
       ? (result as { results?: unknown[] }).results!
       : [];
-  const items = list.filter((item): item is { url?: string; outputType?: string } =>
+  const items = list.filter((item): item is { url?: string; outputType?: string; text?: string } =>
     !!item && typeof item === 'object' && typeof (item as { url?: unknown }).url === 'string');
   const pick = (pattern: RegExp) =>
     items.find(item => pattern.test(`${item.outputType || ''} ${item.url}`));
   const videoItem = pick(VIDEO_RESULT_RE);
   const imageItem = pick(IMAGE_RESULT_RE);
   const audioItem = pick(AUDIO_RESULT_RE);
-  /** 既认不出 outputType 也没有扩展名时退回第一个结果 —— 保持旧行为。 */
-  const ambiguous = !videoItem && !imageItem && !audioItem ? items[0] : undefined;
+  /*
+   * 文本结果（2026-10-04）：归档之后它是一条 `.txt` 地址；万一没落盘（下载失败、离线），
+   * 它是一条**没有地址**、只有 `text` 的结果 —— 两种都要认。
+   */
+  const textItem = items.find(item => item.text && !item.url) ?? pick(TEXT_RESULT_RE);
+  /** 既认不出 outputType 也没有扩展名时退回第一个结果 —— 保持旧行为（但退回的那条得有地址）。 */
+  const ambiguous = !videoItem && !imageItem && !audioItem && !textItem && items[0]?.url ? items[0] : undefined;
   const out: RunResultItem[] = [];
   if (videoItem?.url) out.push({ url: String(videoItem.url), kind: 'video' });
   if (imageItem?.url && imageItem.url !== videoItem?.url) out.push({ url: String(imageItem.url), kind: 'image' });
   if (audioItem?.url && audioItem.url !== videoItem?.url && audioItem.url !== imageItem?.url)
     out.push({ url: String(audioItem.url), kind: 'audio' });
+  if (textItem?.url && !out.some(item => item.url === String(textItem.url)))
+    out.push({ url: String(textItem.url), kind: 'text' });
   if (!out.length && ambiguous?.url)
     out.push({ url: String(ambiguous.url), kind: resultKindOf(`${ambiguous.outputType || ''} ${ambiguous.url}`) ?? 'image' });
   return out;
