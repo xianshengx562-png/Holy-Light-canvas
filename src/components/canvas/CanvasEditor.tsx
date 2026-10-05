@@ -1263,8 +1263,12 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         const next = nodes.find(item => item.id === edge.target);
         if (!next) return;
         seen.add(edge.target);
-        /** 参数块可以串着接（越靠近生成节点优先级越高），所以路过时要继续往下走。 */
-        if (next.data.kind === 'params') { walk(edge.target); return; }
+        /**
+         * 参数块可以串着接（越靠近生成节点优先级越高），所以路过时要继续往下走。
+         * 「指定节点上传」同样能串（一级指定一个落点），处理方式一致 ——
+         * 不往下走的话，串在中间那一级会取不到工作流，「从下游挑节点」也就没得挑。
+         */
+        if (next.data.kind === 'params' || isPinnedUploadKind(next.data.kind)) { walk(edge.target); return; }
         if (!isGeneratorKind(next.data.kind)) return;
         const workflowNode = sources(next.id).find(item => item.data.kind === 'workflow');
         const workflowId = String(workflowNode?.data.workflowId
@@ -4115,8 +4119,15 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     /* 只有优化节点挑「左边那份媒体」—— 别的节点收图有 `imageUrls` 那条路（按数量收，不按一张）。 */
     const mediaChain = node.data.kind === 'prompt-optimize' ? describeInputOf(node.id) : null;
 
-    /** 参数块自己不存工作流：往下游找它喂到的那个生成节点，问后者选的是哪一份。 */
-    const paramWorkflow = node.data.kind === 'params' ? paramWorkflowOf(node.id) : null;
+    /**
+     * 参数块自己不存工作流：往下游找它喂到的那个生成节点，问后者选的是哪一份。
+     *
+     * 「指定节点上传」走**同一条路**（2026-10-05）：它要写的是下游那份工作流里的节点，
+     * 而它自己也不知道下游选了哪一份 —— 跟着同一个生成节点走才不会指错图。
+     */
+    const paramWorkflow = node.data.kind === 'params' || isPinnedUploadKind(node.data.kind)
+      ? paramWorkflowOf(node.id)
+      : null;
     return {
       ...node,
       data: {

@@ -56,6 +56,8 @@ export default function WorkflowFieldPicker({
   workflowId,
   workflowTitle,
   used,
+  title,
+  initialQuery = '',
   onPick,
   onClose,
 }: {
@@ -64,6 +66,22 @@ export default function WorkflowFieldPicker({
   workflowTitle?: string;
   /** 参数块里已经登记过的「节点号.字段名」，列表里标成「已添加」，避免同一个字段加两行。 */
   used: string[];
+  /**
+   * 弹层标题（2026-10-05）。参数块说「选一个字段加进参数块」，
+   * 「指定节点上传」要的是「挑一个节点接收这份图 / 视频」—— 同一个列表、两种问法，
+   * 文案不对会让他在挑的时候不确定自己挑的是什么。
+   */
+  title?: string;
+  /**
+   * 打开时**预填**的搜索词（2026-10-05）。**不是过滤** —— 一条都不删，
+   * 清空搜索框就能看到全部字段。
+   *
+   * 为什么不直接按 kind 过滤：工作流的字段类型是按 `class_type` 猜的，
+   * LoadImage 那个 `image` 字段完全可能被判成 `text`（它在图里就是个字符串控件）。
+   * 一刀切过滤会**一条都不剩**，而那看起来就像「这份工作流里没有能接图的节点」。
+   * 预填一个 `image` / `video` 只是帮他把最可能的那一批顶到前面。
+   */
+  initialQuery?: string;
   onPick: (field: WorkflowFieldCandidate) => void;
   onClose: () => void;
 }) {
@@ -73,7 +91,7 @@ export default function WorkflowFieldPicker({
   const [error, setError] = useState('');
   /** 候选来自哪儿：本地那份按图扫出来的 / 已保存的配置 / 默认工作流的出厂配置。 */
   const [source, setSource] = useState<'graph' | 'config' | 'builtin'>('config');
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(initialQuery);
   const [active, setActive] = useState(0);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -157,7 +175,7 @@ export default function WorkflowFieldPicker({
       >
         <div className="cv-fpk-head">
           <div className="cv-fpk-title">
-            <span>选一个字段加进参数块</span>
+            <span>{title || '选一个字段加进参数块'}</span>
             <em>{workflowTitle ? `${workflowTitle} · ${workflowId}` : `工作流 ${workflowId}`}</em>
           </div>
           <button className="cv-fpk-x" type="button" aria-label="关闭" onClick={onClose}>
@@ -220,7 +238,8 @@ export default function WorkflowFieldPicker({
 
         <div className="cv-fpk-foot">
           <span>
-            {loading ? ' ' : `${visible.length} / ${fields.length} 个字段${SOURCE_NOTE[source]}`}
+            {loading ? ' ' : `${visible.length} / ${fields.length} 个字段${SOURCE_NOTE[source]}${
+              initialQuery ? ` · 已按「${initialQuery}」预筛，清空搜索框看全部` : ''}`}
           </span>
           <span className="cv-fpk-keys">↑↓ 选择 · Enter 加入 · Esc 关闭</span>
         </div>

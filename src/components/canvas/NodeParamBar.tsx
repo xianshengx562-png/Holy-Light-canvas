@@ -1,6 +1,6 @@
 'use client';
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { Download, ImagePlus } from 'lucide-react';
+import { Download, ImagePlus, ListPlus } from 'lucide-react';
 import type { LatentPickOption, NodeData, ParamRow } from './types';
 import {
   LATENT_ACCEPT, LATENT_SLOTS, NODE_META,
@@ -19,6 +19,7 @@ import { isRunningHubAppWorkflowId } from '@/lib/workflows/runninghubApp';
 import type { NodeKind } from './nodeMeta';
 import { NodeGlyph } from './nodeIcons';
 import ParamRowEditor from './ParamRowEditor';
+import WorkflowFieldPicker, { type WorkflowFieldCandidate } from './WorkflowFieldPicker';
 import OptimizeOptions from './OptimizeOptions';
 import LatentSlotPicker from './LatentSlotPicker';
 import Link from 'next/link';
@@ -144,6 +145,11 @@ export default function NodeParamBar({ data, followedSide = '', followedFrom = '
    */
   const barRef = useRef<HTMLDivElement>(null);
   const [flip, setFlip] = useState(false);
+  /**
+   * 「指定节点上传」的「从工作流里挑」弹层开没开（2026-10-05）。
+   * 🔴 必须挂在组件顶层：**条件里用 hook 是禁的** —— 切一下节点就会炸。
+   */
+  const [pinnedPicking, setPinnedPicking] = useState(false);
   useLayoutEffect(() => {
     const el = barRef.current;
     const node = el?.parentElement;
@@ -516,6 +522,20 @@ export default function NodeParamBar({ data, followedSide = '', followedFrom = '
     const value = String(data.relayValue || '').trim();
     const fromLabel = String(data.relayFrom || '').trim();
     const broken = String(data.relayBroken || '');
+    /**
+     * 落点从**下游那份工作流**里挑，节点号不该手敲（2026-10-05 徐先：「可以从下游的工作流
+     * 里面挑节点」）。工作流是哪一份由画布沿连线往下游找那个生成节点算出（`paramWorkflowId`），
+     * 与参数块那条路同源 —— 两处各自找一遍的话，挑出来的节点号可能对不上真正提交的那份图。
+     */
+    const workflowId = String(data.paramWorkflowId || '').trim();
+    const canPick = Boolean(workflowId);
+    /** 一次挑中就把「节点号 + 字段名」两格都填好 —— 手敲两个编号正是这个节点要省掉的事。 */
+    const pickField = (field: WorkflowFieldCandidate) => {
+      setPinnedPicking(false);
+      data.onField?.('uploadNodeId', field.nodeId);
+      data.onField?.('uploadFieldName', field.fieldName);
+      data.onNotice?.(`已指定 ${field.nodeId}.${field.fieldName} · ${field.label || field.classType}`);
+    };
     return shell(
       <div className="cv-param-desc">
         <div className="cv-row2">
@@ -538,6 +558,20 @@ export default function NodeParamBar({ data, followedSide = '', followedFrom = '
             />
           </div>
         </div>
+        <div className="cv-prows-add">
+          <button
+            className="cv-btn sm"
+            type="button"
+            disabled={!canPick}
+            title={workflowId ? '打开下游那份工作流的字段列表挑一个' : '先把它连到一个已经选好工作流的生成节点上'}
+            onClick={() => setPinnedPicking(true)}
+          >
+            <ListPlus size={13} strokeWidth={1.8} aria-hidden /> 从工作流里挑
+          </button>
+          <span className="cv-note">{workflowId
+            ? String(data.paramWorkflowNote || '')
+            : '还没连到选好工作流的生成节点 · 只能手填'}</span>
+        </div>
       </div>,
       <span className="cv-param-hint">{!value
         ? (broken === 'cycle'
@@ -546,8 +580,21 @@ export default function NodeParamBar({ data, followedSide = '', followedFrom = '
             ? '左边还没接图 / 视频 —— 拉一根线过来'
             : '上游还没有可用的图 / 视频 —— 先在它上游那个节点上跑出一份来')
         : !nodeId
-          ? `正在透传${media === 'video' ? '一段视频' : '一张图'}${fromLabel ? `（来自「${fromLabel}」）` : ''} —— 填上「工作流节点 id」才会额外写进工作流`
+          ? `正在透传${media === 'video' ? '一段视频' : '一张图'}${fromLabel ? `（来自「${fromLabel}」）` : ''} —— 指定一个工作流节点才会额外写进工作流`
           : `来自「${fromLabel || '上游'}」的${media === 'video' ? '视频' : '图片'}会写进节点 ${nodeId} 的 ${fallback} 字段`}</span>,
+      undefined,
+      pinnedPicking && workflowId ? (
+        <WorkflowFieldPicker
+          workflowId={workflowId}
+          workflowTitle={data.paramWorkflowNote}
+          used={[]}
+          title={`挑一个节点接收这份${media === 'video' ? '视频' : '图'}`}
+          /* 只是**预填**搜索词帮他把最可能的那一批顶到前面，一条都没删（见组件里那条注释）。 */
+          initialQuery={media === 'video' ? 'video' : 'image'}
+          onPick={pickField}
+          onClose={() => setPinnedPicking(false)}
+        />
+      ) : null,
     );
   }
 
