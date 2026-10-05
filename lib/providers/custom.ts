@@ -25,7 +25,7 @@
 import 'server-only';
 import { db } from '@/lib/db';
 import { decryptSecret, encryptSecret, maskSecret } from '@/lib/providers/secret';
-import { looksLikeHtml } from '@/lib/providers/custom/http';
+import { htmlEndpointMessage, htmlPageTitle, looksLikeHtml } from '@/lib/providers/custom/http';
 
 /** 一个模型能干的事。决定它出现在哪个下拉里：**节点引擎**只看 image / video。 */
 export type CustomModelKind = 'image' | 'video' | 'text';
@@ -421,11 +421,12 @@ async function tryFetchModels(url: string, apiKey: string): Promise<ProbeAttempt
       try { body = JSON.parse(text); } catch { body = null; }
     }
     if (!response.ok) {
-      if (isHtml) return { url, status: response.status, outcome: 'html', models: [], detail: '' };
+      /* 回网页时 `detail` 放的是那页的标题，好让下面那句话能说清「回的是什么」。 */
+      if (isHtml) return { url, status: response.status, outcome: 'html', models: [], detail: htmlPageTitle(text) };
       const detail = String((body as { error?: { message?: string } } | null)?.error?.message ?? '').trim();
       return { url, status: response.status, outcome: 'http-error', models: [], detail };
     }
-    if (isHtml) return { url, status: response.status, outcome: 'html', models: [], detail: '' };
+    if (isHtml) return { url, status: response.status, outcome: 'html', models: [], detail: htmlPageTitle(text) };
     if (body === null) {
       return { url, status: response.status, outcome: 'not-json', models: [], detail: text.slice(0, 80).trim() };
     }
@@ -448,7 +449,8 @@ function probeFailureMessage(attempts: ProbeAttempt[]): string {
   const httpError = attempts.find(item => item.outcome === 'http-error');
   if (httpError) return `接口返回 ${httpError.status}${httpError.detail ? `：${httpError.detail}` : ''}`;
   const html = attempts.find(item => item.outcome === 'html');
-  if (html) return `${html.url} 回的是网页不是接口（一般是中转站的后台首页）。把地址改成带 /v1 的那种再试。`;
+  /* 同一句「回的是网页」的两副面孔，见 `htmlEndpointMessage`：地址里已经有 /v1 就别再叫人加。 */
+  if (html) return htmlEndpointMessage(html.url, html.status, html.detail);
   const notJson = attempts.find(item => item.outcome === 'not-json');
   if (notJson) return `接口返回的不是 JSON（HTTP ${notJson.status}）：${notJson.detail}`;
   const empty = attempts.find(item => item.outcome === 'empty');
