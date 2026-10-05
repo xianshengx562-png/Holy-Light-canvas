@@ -76,7 +76,8 @@ export type DockAnchor = {
 
 /** 槽位在行里的排序：提示词在最前，然后是图，最后是 latent / 工作流 / 参数块。 */
 const SLOT_ORDER: Record<string, number> = {
-  text: 0, 'prompt-optimize': 0, image: 1, 'video-input': 1, 'frame-extract': 1,
+  /* 「指定节点上传」交的是一份图 / 视频，跟图那一排站一起（2026-10-05）。 */
+  text: 0, 'prompt-optimize': 0, image: 1, 'video-input': 1, 'frame-extract': 1, 'pinned-upload': 1,
   latent: 2, 'latent-relay': 2, workflow: 3, params: 4, 'audio-input': 5,
 };
 

@@ -4,7 +4,8 @@ import { Download, ImagePlus } from 'lucide-react';
 import type { LatentPickOption, NodeData, ParamRow } from './types';
 import {
   LATENT_ACCEPT, LATENT_SLOTS, NODE_META,
-  groupWorkflowsByProvider, isAudioUrl, isLatentKind, isVideoUrl, latentAssetPrefix,
+  groupWorkflowsByProvider, isAudioUrl, isLatentKind, isPinnedUploadKind, isVideoUrl, latentAssetPrefix,
+  uploadFieldOf,
   LATENT_PICK_OFF, latentBrokenHint, latentLabel, latentSlotHint, workflowLabel, displayLabelOf,
   latentPicksOf, workflowDisplayName, workflowsOnly,
   generatorKindLabel, nodeEngineProvider, readUpscaleSource, UPSCALE_SOURCES, UPSCALE_SOURCE_LABELS,
@@ -23,7 +24,7 @@ import LatentSlotPicker from './LatentSlotPicker';
 import Link from 'next/link';
 
 /** Slot display order inside the parameter bar: prompt first, then reference images, then the rest. */
-const SLOT_ORDER: Record<string, number> = { text: 0, 'prompt-optimize': 0, image: 1, 'video-input': 1, 'frame-extract': 1, 'audio-input': 5, latent: 2, 'latent-relay': 2, workflow: 3, params: 4 };
+const SLOT_ORDER: Record<string, number> = { text: 0, 'prompt-optimize': 0, image: 1, 'video-input': 1, 'frame-extract': 1, 'audio-input': 5, latent: 2, 'latent-relay': 2, workflow: 3, params: 4, 'pinned-upload': 1 };
 
 /*
  * 参数区是一层**浮在卡片下方的浮层**（选中节点时出现），和改动之前一致。
@@ -494,6 +495,59 @@ export default function NodeParamBar({ data, followedSide = '', followedFrom = '
           />
         </label>
       </>,
+    );
+  }
+
+  /*
+   * 「指定节点上传」（2026-10-05 徐先）：与 latent 中转同形 —— 自己不产媒体，交下去的是
+   * 上游那份；不同的是它可以**额外**把这份媒体写进工作流的某一个节点。
+   *
+   * 🔴 两格都**可留空**：留空 = 这个节点只是一根管子（把上游那份原样交给下游），
+   * 不会往工作流里多写任何一条 —— 这与加这个节点之前画布的行为完全一致。
+   * 所以「没填」必须显示成「没填」，绝不能回落成一个默认编号：那等于把「我不指定」
+   * 说成「强制写进某个节点」，会在别人已经配好的工作流上凭空多写一条参数。
+   */
+  if (isPinnedUploadKind(kind)) {
+    const nodeId = String(data.uploadNodeId || '');
+    const fieldName = String(data.uploadFieldName || '');
+    /** 字段名留空时按媒体类型回落（图 → image、视频 → video），这里把它显示在 placeholder 上。 */
+    const media = data.mediaKind === 'video' ? 'video' : 'image';
+    const fallback = uploadFieldOf(media, fieldName);
+    const value = String(data.relayValue || '').trim();
+    const fromLabel = String(data.relayFrom || '').trim();
+    const broken = String(data.relayBroken || '');
+    return shell(
+      <div className="cv-param-desc">
+        <div className="cv-row2">
+          <div className="cv-field">
+            <span>工作流节点 id</span>
+            <input
+              className="cv-input sm"
+              value={nodeId}
+              placeholder="如 265"
+              onChange={event => data.onField?.('uploadNodeId', event.target.value)}
+            />
+          </div>
+          <div className="cv-field">
+            <span>字段名</span>
+            <input
+              className="cv-input sm"
+              value={fieldName}
+              placeholder={fallback}
+              onChange={event => data.onField?.('uploadFieldName', event.target.value)}
+            />
+          </div>
+        </div>
+      </div>,
+      <span className="cv-param-hint">{!value
+        ? (broken === 'cycle'
+          ? '连线连成环了 —— 拆掉环上多余的那根线'
+          : broken === 'upstream'
+            ? '左边还没接图 / 视频 —— 拉一根线过来'
+            : '上游还没有可用的图 / 视频 —— 先在它上游那个节点上跑出一份来')
+        : !nodeId
+          ? `正在透传${media === 'video' ? '一段视频' : '一张图'}${fromLabel ? `（来自「${fromLabel}」）` : ''} —— 填上「工作流节点 id」才会额外写进工作流`
+          : `来自「${fromLabel || '上游'}」的${media === 'video' ? '视频' : '图片'}会写进节点 ${nodeId} 的 ${fallback} 字段`}</span>,
     );
   }
 

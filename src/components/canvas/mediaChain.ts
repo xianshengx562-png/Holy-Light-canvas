@@ -34,8 +34,28 @@ export type MediaChainNode = {
     framePick?: string;
     label?: string;
     bypassed?: boolean;
+    /**
+     * 「指定节点上传」节点身上那份值：它是**上游透传下来的**，不是自己产的。
+     * 与 `latent-relay` 的 `relayValue` 同一个名字、同一种来历（`hydrated` 现算，不写库）。
+     */
+    relayValue?: string;
+    /** 透传下来的那份是图还是视频（同上，不写库）。决定它进参考图还是进视频输入那一支。 */
+    mediaKind?: 'image' | 'video';
   };
 };
+
+/**
+ * 「指定节点上传」节点的 kind（2026-10-05 徐先）。
+ *
+ * 🔴 字面量住在**这里**（纯函数层），由 `./nodeMeta` 转出给 UI —— 反过来说就是
+ * `mediaChain` 不许 import `nodeMeta`。两处各写一遍的话，迟早出现
+ * 「线拉得上、提交时却没把它算进参考图」这种不报错的错。
+ */
+export const PINNED_UPLOAD_KIND = 'pinned-upload';
+
+export function isPinnedUploadKind(kind: unknown) {
+  return kind === PINNED_UPLOAD_KIND;
+}
 
 /** 连线：`source` 在上游、`target` 在下游。 */
 export type MediaChainEdge = { source: string; target: string };
@@ -60,7 +80,12 @@ export function isImageSourceKind(kind: unknown) {
   return kind === 'image' || kind === 'image-generate' || kind === 'image-out'
     || kind === 'frame-extract' || kind === 'director'
     /* 应用节点跑出来的东西（图或片）同样能当下游的参考图 —— 具体是图还是片看地址后缀。 */
-    || kind === 'app-generate';
+    || kind === 'app-generate'
+    /*
+     * 「指定节点上传」：它自己不产媒体，交出去的是**上游那份**（`relayValue`）。
+     * 是图还是视频由 `mediaKind` 定，下面 `imageUrlsOf` / `videoUrlsOf` 各按自己的那一支判。
+     */
+    || isPinnedUploadKind(kind);
 }
 
 /**
@@ -72,7 +97,9 @@ export function isImageSourceKind(kind: unknown) {
  * （它在提交生成时仍然是参考图来源，那是另一条路，不冲突。）
  */
 export function isVideoSourceKind(kind: unknown) {
-  return kind === 'video-input' || kind === 'video-generate' || kind === 'app-generate';
+  return kind === 'video-input' || kind === 'video-generate' || kind === 'app-generate'
+    /* 「指定节点上传」透传的是一段视频时走这一支（见 `isImageSourceKind` 那条注释）。 */
+    || isPinnedUploadKind(kind);
 }
 
 /**
@@ -107,6 +134,16 @@ export function isImageUrl(value: unknown) {
  */
 export function imageUrlsOf(data: MediaChainNode['data'], mode: 'submit' | 'bytes' = 'submit'): string[] {
   const bytes = mode === 'bytes';
+  /*
+   * 「指定节点上传」：身上没有自己的媒体，交出去的是**上游透传下来的那份**。
+   * 是图的时候才走这一支 —— 是视频的话它该进 `videoUrlsOf`，这里一件都不给，
+   * 否则一段视频会被塞进「图」的槽里（静默的坏结果，跟 `ACCEPTS` 那条注释是同一件事）。
+   */
+  if (isPinnedUploadKind(data.kind)) {
+    const relayed = String(data.relayValue || '').trim();
+    if (!relayed || data.mediaKind === 'video') return [];
+    return bytes && !isResolvableUrl(relayed) ? [] : [relayed];
+  }
   if (data.kind === 'frame-extract') {
     const pick = data.framePick === 'first' || data.framePick === 'last' ? data.framePick : 'both';
     const first = String(bytes ? (data.firstFrameUrl || data.firstFrameFile) : (data.firstFrameFile || data.firstFrameUrl) || '').trim();
@@ -150,6 +187,12 @@ export function imageUrlsOf(data: MediaChainNode['data'], mode: 'submit' | 'byte
  *      服务端取不到字节，反推这条路不能认它）。
  */
 export function videoUrlsOf(data: MediaChainNode['data'], mode: 'submit' | 'bytes' = 'submit'): string[] {
+  /* 同上：「指定节点上传」只在它透传的那份**是视频**时才给，其余一律不给。 */
+  if (isPinnedUploadKind(data.kind)) {
+    const relayed = String(data.relayValue || '').trim();
+    if (!relayed || data.mediaKind !== 'video') return [];
+    return mode === 'bytes' && !isResolvableUrl(relayed) ? [] : [relayed];
+  }
   const generated = String(data.resultUrl || '').trim();
   if (generated && isVideoUrl(generated)) return [generated];
   const remote = String(data.videoRemoteUrl || '').trim();

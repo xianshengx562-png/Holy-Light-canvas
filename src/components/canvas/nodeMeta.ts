@@ -33,7 +33,15 @@ import { isTextValueKind } from './textChain';
 import {
   imageUrlsOf as referenceUrlsIn, isImageSourceKind, isVideoSourceKind,
   isResolvableUrl as isResolvableUrlIn, isVideoUrl as isVideoUrlIn, isImageUrl as isImageUrlIn,
+  isPinnedUploadKind, PINNED_UPLOAD_KIND,
 } from './mediaChain';
+
+/*
+ * 「指定节点上传」的 kind 字面量住在 `./mediaChain`（纯函数层），这里**只转出**。
+ * 反过来的话（在 nodeMeta 里定义、mediaChain 来 import）就把整条工作流依赖链拖进了
+ * 那个要单独编译跑单测的文件 —— 那正是它存在的理由所不许的。
+ */
+export { isPinnedUploadKind, PINNED_UPLOAD_KIND } from './mediaChain';
 
 /**
  * 生成下拉里能选的工作流：**同用途，且工序是普通生成**。
@@ -237,7 +245,7 @@ export {
 
 export type { NodeData, InputSlot, LatentRecord, ParamRow, WorkflowOption } from './types';
 
-export type NodeKind = 'text' | 'image' | 'latent' | 'latent-relay' | 'workflow' | 'params'
+export type NodeKind = 'text' | 'image' | 'latent' | 'latent-relay' | 'pinned-upload' | 'workflow' | 'params'
   | 'video-generate' | 'image-generate' | 'video' | 'video-input' | 'audio-input' | 'image-out' | 'frame-extract'
   | 'director' | 'app-generate' | 'prompt-optimize';
 
@@ -268,6 +276,17 @@ export const NODE_META: Record<NodeKind, {
   latent: { label: '接续上一段', tag: 'LATENT', color: '#a78bfa', output: 'latent' },
   /** latent 中转：接住上游的 latent 再转给下一个生成节点，编号决定它写进哪个参数位。 */
   'latent-relay': { label: 'Latent 中转', tag: 'RELAY', color: '#c084fc', input: 'latent', output: 'latent' },
+  /**
+   * 指定节点上传（2026-10-05 徐先）：与 Latent 中转同构 —— 接住上游那份媒体、原样交给下游；
+   * 差别在于**它还能点名这份媒体写进工作流的哪个节点**。
+   *
+   * 为什么非得有它：多图参考的工作流里常常有七八个 `LoadImage`，而配置页那套绑定是
+   * 「参考图 1 / 2 / 3 → 固定节点号」的**静态**对应 —— 用户要的是
+   * 「**这一张**图进**那一个**节点」，那是一件事对应一件事，静态绑定位表达不出来。
+   *
+   * 不填节点号时它就是一根管子（与没有这个节点时画布的行为一致），所以老画布不受影响。
+   */
+  'pinned-upload': { label: '指定节点上传', tag: 'PINNED', color: '#f59e0b', input: '图 / 视频', output: '图 / 视频' },
   // 工作流选择已并入视频生成节点的参数条；这个类型只为老画布保留（`LEGACY_KINDS`）。
   workflow: { label: '工作流配置', tag: 'WORKFLOW', color: '#f472b6', output: 'workflow' },
   /** 自定义参数块：直接写工作流节点 id + 字段名，像搭积木一样往生成里叠参数。 */
@@ -320,7 +339,7 @@ export const NODE_META: Record<NodeKind, {
  * 其余按「先素材、后生成」排下去。改这里之前先想清楚菜单长什么样：
  * 这一列是让用户从上往下扫的，前三屏之外的东西等于不存在。
  */
-export const CREATE_KINDS: NodeKind[] = ['text', 'image-generate', 'video-generate', 'prompt-optimize', 'frame-extract', 'latent', 'latent-relay', 'params', 'app-generate', 'image-out', 'director'];
+export const CREATE_KINDS: NodeKind[] = ['text', 'image-generate', 'video-generate', 'prompt-optimize', 'frame-extract', 'latent', 'latent-relay', 'pinned-upload', 'params', 'app-generate', 'image-out', 'director'];
 
 /** Kept only so that older canvases keep rendering: the video output and the workflow picker
  *  both live on the generator node now. */
@@ -348,6 +367,11 @@ export function newNodeData(kind: NodeKind): NodeData {
   /** 导演台：带一份初始场景（两个人对站着 + 平视中景），打开面板就能直接调，不用先摆。 */
   if (kind === 'director') return { kind, label, directorScene: initialDirectorScene() };
   if (kind === 'latent-relay') return { kind, label, latentIndexes: [] as number[] };
+  /**
+   * 指定节点上传：**不预填节点号** —— 填了就等于把上游那份媒体写死进某个节点，
+   * 而它该写进哪儿只有配这份工作流的人知道。没填时它只是一根管子。
+   */
+  if (kind === 'pinned-upload') return { kind, label, uploadNodeId: '', uploadFieldName: '' };
   /*
    * 应用节点：默认**不预填**任何工作流（哪一份应用只有用户知道），
    * 引擎固定走云端（应用只存在于 RunningHub 上，本机 ComfyUI 没有对应的东西）。
@@ -420,6 +444,14 @@ export const ACCEPTS: Record<NodeKind, NodeKind[]> = {
    * 省掉「先去 latent 节点上手动选归档」这一步（选哪一份由中转节点上的下拉决定）。
    */
   'latent-relay': ['latent', 'latent-relay', 'video-generate', 'video-input'],
+  /*
+   * 指定节点上传：吃**一切能给媒体的上游**（图、视频、生成出来的、抽出来的帧、构图参考图），
+   * 串着接也允许（管子接管子，值一路透传）。
+   *
+   * 🔴 刻意**不接音频**：它走的是「图 / 视频」这两条已有的落点，音频那份（`audioInputs`）
+   * 有自己一套收集与上传的路，混进来只会让「这一份到底是什么」多一个答案。
+   */
+  'pinned-upload': ['image', 'video-input', 'video-generate', 'image-generate', 'image-out', 'frame-extract', 'director', 'app-generate', 'pinned-upload'],
   workflow: [],
   // 参数块可以再接参数块：串在后面的覆盖前面的，越靠近生成节点优先级越高。
   params: ['params'],
@@ -430,7 +462,7 @@ export const ACCEPTS: Record<NodeKind, NodeKind[]> = {
    * ⚠️ 走的是**视频输入**这条路，不是参考图：生成节点身上只存了整段视频的地址，
    * 没有封面帧，塞进参考图位等于把一段视频交到「图」的槽里 —— 那是静默的坏结果。
    */
-  'video-generate': ['text', 'prompt-optimize', 'image', 'video-input', 'audio-input', 'frame-extract', 'latent', 'latent-relay', 'workflow', 'params', 'image-generate', 'image-out', 'director', 'video-generate'],
+  'video-generate': ['text', 'prompt-optimize', 'image', 'video-input', 'audio-input', 'frame-extract', 'latent', 'latent-relay', 'pinned-upload', 'workflow', 'params', 'image-generate', 'image-out', 'director', 'video-generate'],
   // 出图不吃 latent：接续是视频链路的概念，图片工作流里没有对应的参数位。
   // 视频输入节点的首帧图也能当图生图的参考图一并发走（需已上传完成）。
   /*
@@ -438,7 +470,7 @@ export const ACCEPTS: Record<NodeKind, NodeKind[]> = {
    * 下游拿它当**参考图**：这两个 kind 本来就在 `isReferenceSource` 里，
    * 提交时 `imageUrls` 自动收，连线一拉上就生效，不用额外配置。
    */
-  'image-generate': ['text', 'prompt-optimize', 'image', 'video-input', 'frame-extract', 'workflow', 'params', 'director', 'image-generate', 'image-out'],
+  'image-generate': ['text', 'prompt-optimize', 'image', 'video-input', 'frame-extract', 'pinned-upload', 'workflow', 'params', 'director', 'image-generate', 'image-out'],
   /*
    * 应用节点：吃提示词、参考图、整段视频，**以及音频**（它的参数位由应用自己公开），
    * 但不吃 latent —— 接续是视频链路的概念。
@@ -449,7 +481,7 @@ export const ACCEPTS: Record<NodeKind, NodeKind[]> = {
    * （见 `CanvasEditor` 里那段收集），RunningHub 应用里也确实有音频参数位
    * （`RunningHubWebAppField` 的 audio 字段），偏偏连线这一步不放行。
    */
-  'app-generate': ['text', 'prompt-optimize', 'image', 'video-input', 'audio-input', 'frame-extract', 'workflow', 'params', 'director'],
+  'app-generate': ['text', 'prompt-optimize', 'image', 'video-input', 'audio-input', 'frame-extract', 'pinned-upload', 'workflow', 'params', 'director'],
   /*
    * 优化节点原来只接**文本**：上游文本节点，或者串在前面的另一个优化节点。
    *
@@ -461,11 +493,11 @@ export const ACCEPTS: Record<NodeKind, NodeKind[]> = {
    *   左边有视频 → 视频反推（抽若干帧）；有图 → 看图反推；都没有 → 原来那条「把一句话扩写」。
    */
   'prompt-optimize': ['text', 'prompt-optimize', 'image', 'image-generate', 'image-out',
-    'video-input', 'video-generate', 'frame-extract', 'director', 'app-generate'],
+    'video-input', 'video-generate', 'frame-extract', 'director', 'app-generate', 'pinned-upload'],
   video: ['video-generate'],
   'video-input': [],
   'audio-input': [],
-  'image-out': ['video-generate', 'image-generate', 'image', 'frame-extract', 'director'],
+  'image-out': ['video-generate', 'image-generate', 'image', 'frame-extract', 'director', 'pinned-upload'],
   /*
    * 首尾帧只吃**视频**：本地拖进来的（视频输入）与生成出来的（视频生成）都行。
    * 不收图片 —— 「一张图的首尾帧」就是它自己，接上去只是多一次上传。
@@ -614,6 +646,13 @@ export function isResolvableUrl(value: unknown) {
  * 而它其实什么都不缺（服务端提交时会读盘重传，见 `resolveVideoInput`）。
  */
 export function mediaReadyForRun(data: NodeData) {
+  /*
+   * 「指定节点上传」透传的是一段**视频**时，它按参考图那把尺子量永远是空的
+   * （`referenceUrlsOf` 只给图）—— 少了这一条，接了它的生成节点会被
+   * 「参考图或 latent 尚未上传完成」拦住，而它其实什么都不缺：
+   * 那份视频走的是 `videoUrlsOf` / 「视频输入」那一支。
+   */
+  if (isPinnedUploadKind(data.kind)) return Boolean(String(data.relayValue || '').trim());
   if (data.kind !== 'video-input') return false;
   return Boolean(String(data.videoRemoteFile || '').trim())
     || isResolvableUrl(data.videoRemoteUrl)
@@ -819,6 +858,32 @@ export function isLatentKind(kind: unknown) {
  */
 export function isLatentSourceKind(kind: unknown) {
   return isLatentKind(kind) || kind === 'video-generate';
+}
+
+/**
+ * 「指定节点上传」往工作流里写时用的字段名（节点上没填 → 按这份媒体回落）。
+ *
+ * 图 → `image`、视频 → `video`：ComfyUI 自带的 `LoadImage` / `VHS_LoadVideo` 就叫这两个，
+ * 所以绝大多数工作流不用再手填。第三方插件的字段名五花八门（`手动上传` 之类），
+ * 那种由用户在节点上改 —— 所以它是**可覆盖的默认值**，不是写死的常量。
+ */
+export const DEFAULT_UPLOAD_FIELD: Record<'image' | 'video', string> = { image: 'image', video: 'video' };
+
+export function uploadFieldOf(media: unknown, fieldName?: unknown) {
+  const typed = String(fieldName ?? '').trim();
+  if (typed) return typed;
+  return media === 'video' ? DEFAULT_UPLOAD_FIELD.video : DEFAULT_UPLOAD_FIELD.image;
+}
+
+/**
+ * 节点上填的那个**工作流节点号**。
+ *
+ * 🔴 空串 =「不指定」，意思是这个节点只当一根管子 —— **绝不能**在这里给它一个默认值：
+ * 回落成某个编号等于把「没填」说成「强制写进那个节点」，会在别人已经配好的工作流上
+ * 凭空多写一条参数。
+ */
+export function uploadNodeIdOf(data: { uploadNodeId?: string }) {
+  return String(data?.uploadNodeId || '').trim();
 }
 
 /**

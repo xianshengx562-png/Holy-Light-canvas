@@ -47,7 +47,9 @@ import { useCanvasHistory, type CanvasSnapshot } from './history';
 import { isRunningHubAppWorkflowId } from '@/lib/workflows/runninghubApp';
 import { optimizeInputOf as optimizeInputIn, promptTextOf as promptTextIn, resolveTextChain } from './textChain';
 import type { TextChainEdge, TextChainNode } from './textChain';
-import { pickMediaInput as pickMediaInputIn } from './mediaChain';
+import {
+  isImageSourceKind, isPinnedUploadKind, pickMediaInput as pickMediaInputIn, isVideoSourceKind, videoUrlsOf,
+} from './mediaChain';
 import type { MediaChain, MediaChainEdge, MediaChainNode } from './mediaChain';
 import { compositionPrompt, describeShot, readDirectorScene, type DirectorScene } from '@/lib/director';
 import { buildArchiveForm } from '@/lib/image-tools';
@@ -77,6 +79,7 @@ import {
   isRelayLatentSource, latentPicksOf, resolvePickedLatents,
   workflowDisplayName, generatorKindLabel, newNodeData, isReferenceSource, referenceUrlsOf, latentNodeIdOf,
   mediaReadyForRun, audioReadyForRun, hasFinishedOutput, isResolvableUrl, workflowsForProvider, engineSwitchPatch, readInstanceType,
+  uploadFieldOf, uploadNodeIdOf,
 } from './nodeMeta';
 import type { NodeKind } from './nodeMeta';
 import { validateImageParams } from '@/lib/workflows/imageParams';
@@ -84,7 +87,7 @@ import { validateImageParams } from '@/lib/workflows/imageParams';
  * 参考图 / 视频 / 音频的槽位上限**与配置页能绑的绑定数同源**：
  * 两边不一致会出现「配置页绑得到第 12 张、提交时却只认前 9 张」这种谁也不报错的错。
  */
-import { MAX_AUDIO_INPUTS, MAX_REFERENCE_IMAGES, MAX_VIDEO_INPUTS } from '@/lib/workflows/configuration';
+import { MAX_AUDIO_INPUTS, MAX_PINNED_UPLOADS, MAX_REFERENCE_IMAGES, MAX_VIDEO_INPUTS } from '@/lib/workflows/configuration';
 /*
  * 同步出图（自定义接口）那套参数**直接从 lib 引**，不走 nodeMeta 的转出 —— 与上面 `validateImageParams`
  * 同一个路子：这个文件只用它们做「提交前的自查」，不需要 nodeMeta 里那套 UI 展示用的东西。
@@ -100,7 +103,7 @@ import { abandonMessage, pollDelayMs } from '@/lib/taskPoll';
 import { DEFAULT_VIDEO_ENGINE, readVideoEngine, videoEngineProvider } from '@/lib/workflows/videoEngine';
 import { defaultWorkflowId, defaultWorkflowIdFor } from '@/lib/workflows/defaults';
 import type { CanvasSeed } from '@/lib/start/compose';
-import type { CanvasPayload, GenerationRun, InputSlot, LatentChain, LatentPickOption, LatentRecord, NodeData, ParamRow, RunResult, TextChain, WorkflowOption } from './types';
+import type { CanvasPayload, GenerationRun, InputSlot, LatentChain, LatentPickOption, LatentRecord, MediaRelay, NodeData, ParamRow, RunResult, TextChain, WorkflowOption } from './types';
 
 /**
  * 内置浏览器抽屉的宽度 —— **跟着窗口走**，不是一个固定值。
@@ -403,6 +406,25 @@ function inputSlots(
           : node.data.status === 'running'
             ? '提取中…'
             : '还没提取出帧',
+      };
+    }
+    /*
+     * 「指定节点上传」（2026-10-05）：它是**直连**上游之一，槽位里必须画出来 ——
+     * 不画的话生成节点底栏会平白少一格，用户无从核对「这份媒体到底交没交进去」，
+     * 而那正是这一类节点存在的全部意义。
+     */
+    if (isPinnedUploadKind(kind)) {
+      const value = String(node.data.relayValue || '').trim();
+      const media = node.data.mediaKind === 'video' ? '视频' : '图片';
+      /** 填了号才「额外写进工作流」；没填时它只是一根管子，要说清，否则他会以为白连了。 */
+      const target = String(node.data.uploadNodeId || '').trim();
+      return {
+        id: node.id, kind, title, previewable: false,
+        ready: !!value,
+        thumb: value ? (target ? `${media} → 节点 ${target}` : media) : '',
+        note: value
+          ? (target ? `已指定节点 ${target}` : '透传 · 未指定节点')
+          : node.data.relayBroken === 'cycle' ? '连线成环' : '上游还没有媒体',
       };
     }
     /** 优化节点也能直接当提示词来源：它在槽位里显的是**改写后**那句。 */
@@ -1713,6 +1735,65 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
   ), [edges, nameOfNode, nodes]);
 
   /**
+   * 「指定节点上传」身上透传的那份媒体（2026-10-05 徐先）。
+   *
+   * 与 `latentChainOf` 同形：一路沿上游找，遇到有值的就停；同样判环、同样带上来源名。
+   * 不同的只是尺子 —— latent 那边量的是归档文件名，这边量的是**图 / 视频地址**。
+   *
+   * 🔴 **视频优先于图**（跟 `pickMediaInput` 同一条规矩）：同一个上游身上既有视频又有封面帧时
+   * （视频输入节点就是这样），交下去的是整段视频。两处各判一次的话，
+   * 「卡片上说是图、发出去的是视频」这种差异没有任何界面会说。
+   *
+   * 🔴 链断了要把**原因**带回去（`broken`）：`upstream` 是「还没接上游」，`cycle` 是「连成环了」。
+   * 只给一个空值的话，「透传不出东西」和「上游还没生成」在界面上长得一模一样，
+   * 而前者怎么重跑上游都没用。
+   */
+  const mediaRelayOf = useCallback((id: string): MediaRelay => {
+    const cache = new Map<string, MediaRelay>();
+    /** 单个节点自己那份（不递归）：图 / 视频两把尺子，视频先量。 */
+    const ownMediaOf = (item: Node<NodeData>): MediaRelay => {
+      if (isVideoSourceKind(item.data.kind)) {
+        const url = String(videoUrlsOf(item.data).find(Boolean) || '').trim();
+        if (url) return { value: url, media: 'video', from: '', broken: null };
+      }
+      if (isImageSourceKind(item.data.kind)) {
+        const url = String(referenceUrlsOf(item.data).find(Boolean) || '').trim();
+        if (url) return { value: url, media: 'image', from: '', broken: null };
+      }
+      return { value: '', media: 'image', from: '', broken: null };
+    };
+    const walk = (current: string, path: Set<string>): MediaRelay => {
+      /* 判环用的是**当前这条路径**（见 `latentChainOf` 那条注释）：菱形汇合不是环。 */
+      if (path.has(current)) return { value: '', media: 'image', from: '', broken: 'cycle' };
+      const hit = cache.get(current);
+      if (hit) return hit;
+      const done = (result: MediaRelay) => { cache.set(current, result); return result; };
+      const node = nodes.find(item => item.id === current);
+      if (!node) return done({ value: '', media: 'image', from: '', broken: null });
+      const links: Node<NodeData>[] = [];
+      for (const edge of edges) {
+        if (edge.target !== current) continue;
+        const from = nodes.find(item => item.id === edge.source);
+        /** 前一个「指定节点上传」也算一个环节：串起来时每一级都能各自指定落点。 */
+        if (from && (isPinnedUploadKind(from.data.kind) || isVideoSourceKind(from.data.kind)
+          || isImageSourceKind(from.data.kind))) links.push(from);
+      }
+      if (!links.length) return done({ value: '', media: 'image', from: '', broken: 'upstream' });
+      const next = new Set(path).add(current);
+      /** 成环比「没接上游」更值得说，所以优先级压在它上面。 */
+      let broken: MediaRelay['broken'] = null;
+      const rank: Record<string, number> = { cycle: 2, upstream: 1 };
+      for (const from of links) {
+        const upper = isPinnedUploadKind(from.data.kind) ? walk(from.id, next) : ownMediaOf(from);
+        if (upper.value) return done({ value: upper.value, media: upper.media, from: nameOfNode(from), broken: null });
+        if (upper.broken && (rank[upper.broken] || 0) > (broken ? rank[broken] || 0 : 0)) broken = upper.broken;
+      }
+      return done({ value: '', media: 'image', from: '', broken });
+    };
+    return walk(id, new Set());
+  }, [edges, nameOfNode, nodes]);
+
+  /**
    * 这一轮真正要提交的那句提示词（2026-09-29）。
    *
    * 上游可能是「文本 → 优化提示词 → 生成」：优化节点交的是**改写后**那份，
@@ -1899,6 +1980,29 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     /** 应用节点的下拉里列的是**应用**（`app-` 前缀），不是工作流。 */
     const workflowsForRun = isApp ? workflowsForApp(workflows) : workflows.filter(item => item.kind === purpose);
     const upstream = sources(id);
+    /*
+     * 「指定节点上传」身上那份媒体是**现算**的（`hydrated` 才写上去的 `relayValue`），
+     * 而这里的 `upstream` 出自 `sources()` —— 是 state 里那份节点，没有 `relayValue`。
+     * 直接拿它去量，那种节点永远是一份空媒体：线连好了、点运行却什么都没交出去，
+     * 而且界面上一句警告都没有。所以这里补一层「带透传值的上游」，收集与判就绪都用它。
+     *
+     * 备忘一份：同一个节点在这一轮里被量好几次（图 / 视频 / 就绪 / 落点），
+     * 每次重走一遍链在长画布上就是白跑。
+     */
+    const relays = new Map<string, MediaRelay>();
+    const relayOf = (item: Node<NodeData>) => {
+      const hit = relays.get(item.id);
+      if (hit) return hit;
+      const value = mediaRelayOf(item.id);
+      relays.set(item.id, value);
+      return value;
+    };
+    const mediaUpstream = upstream.map(item => (isPinnedUploadKind(item.data.kind)
+      ? {
+        ...item,
+        data: { ...item.data, relayValue: relayOf(item).value, mediaKind: relayOf(item).media, relayBroken: relayOf(item).broken },
+      }
+      : item));
     const isLatentOn = (item: Node<NodeData>) => isLatentKind(item.data.kind) && item.data.latentEnabled !== 'off';
     const continuationOn = !isImage && node.data.continuationEnabled === 'on';
     /*
@@ -1906,7 +2010,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
      * （给它自己「取用」开关决定），按节点收集会把尾帧悄悄丢掉 ——
      * 「想要尾帧续拍却拿到首帧」是最难发现的错：任务成功、画面接不上、界面什么都不说。
      */
-    const imageUrls = upstream
+    const imageUrls = mediaUpstream
       .filter(item => isReferenceSource(item.data.kind))
       .flatMap(item => referenceUrlsOf(item.data))
       /* 「生成 → image-out → 视频」会让同一份图同时出现在两个上游节点上、URL 相同，去重避免占掉多个参考位。 */
@@ -1931,12 +2035,16 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
      * **整段视频**交下来。它身上只有 `resultUrl`（远端地址或本站资产地址都可能是），
      * 两种都交给服务端 `resolveVideoInputs` 处理，这里只把取不到字节的那种（`blob:`）滤掉。
      */
-    const videoInputs = upstream
-      .filter(item => item.data.kind === 'video-input' || item.data.kind === 'video-generate')
-      .map(item => item.data.kind === 'video-generate'
-        ? String(isResolvableUrl(item.data.resultUrl) ? item.data.resultUrl : '').trim()
-        : String(item.data.videoRemoteFile || item.data.videoRemoteUrl
-          || (isResolvableUrl(item.data.videoUrl) ? item.data.videoUrl : '') || '').trim())
+    const videoInputs = mediaUpstream
+      /* 「指定节点上传」透传的是一段视频时也算一个来源 —— 它交下去的正是这一路的整段视频。 */
+      .filter(item => item.data.kind === 'video-input' || item.data.kind === 'video-generate'
+        || isPinnedUploadKind(item.data.kind))
+      .map(item => isPinnedUploadKind(item.data.kind)
+        ? String(videoUrlsOf(item.data).find(Boolean) || '').trim()
+        : item.data.kind === 'video-generate'
+          ? String(isResolvableUrl(item.data.resultUrl) ? item.data.resultUrl : '').trim()
+          : String(item.data.videoRemoteFile || item.data.videoRemoteUrl
+            || (isResolvableUrl(item.data.videoUrl) ? item.data.videoUrl : '') || '').trim())
       .filter(Boolean)
       .slice(0, MAX_VIDEO_INPUTS);
     const audioInputs = upstream
@@ -1945,6 +2053,29 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         || (isResolvableUrl(item.data.audioUrl) ? item.data.audioUrl : '') || '').trim())
       .filter(Boolean)
       .slice(0, MAX_AUDIO_INPUTS);
+    /*
+     * 「指定节点上传」：上游那份图 / 视频除了照常往下传，还要**额外**写进工作流的某一个节点
+     * （2026-10-05 徐先）。它解决的正是「参考图绑到的那个节点在工作流里被绕过了」——
+     * 那种情况下值写进一个不参与的节点，任务照样成功、产出和这份素材毫无关系，
+     * 而界面上一个字都不说。用这个节点把落点改指到另一个真在跑的 LoadImage / LoadVideo 上。
+     *
+     * 🔴 **只有填了节点号的才收**：没填的那个节点就是一根管子（把上游那份原样交给下游），
+     * 不会往工作流里多写任何一条 —— 于是加了它却不填号，行为与没加之前完全一致。
+     *
+     * 🔴 值**现算**（`mediaRelayOf`）而不是读 `data.relayValue`：这里的 `upstream` 出自
+     * `sources()`，是 state 里那份节点，hydrated 现算出来的 `relayValue` 它身上没有。
+     * 读它就会永远拿到空值 —— 一个「连好了线、点运行却什么都没写进去」的哑火。
+     */
+    const pinnedUploads = mediaUpstream
+      .filter(item => isPinnedUploadKind(item.data.kind))
+      .map(item => ({
+        nodeId: uploadNodeIdOf(item.data),
+        fieldName: uploadFieldOf(item.data.mediaKind, item.data.uploadFieldName),
+        value: String(item.data.relayValue || '').trim(),
+        media: item.data.mediaKind === 'video' ? 'video' as const : 'image' as const,
+      }))
+      .filter(item => item.nodeId && item.value)
+      .slice(0, MAX_PINNED_UPLOADS);
     /** 上游所有「开着且参与」的 latent 类节点，不管它是不是链的末端。 */
     const latentUpstream = continuationOn ? upstream.filter(isLatentOn) : [];
     const latentChains = latentUpstream.map(item => ({ item, chain: latentChainOf(item.id) }));
@@ -1958,9 +2089,16 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
      * 不是参考图。从资产库导入的视频身上只有本地地址，按参考图那把尺子量永远是空的，
      * 于是出现「连好了线、点运行却说尚未上传完成」，而它其实什么都不缺。
      */
-    const pending = upstream.some(item => isReferenceSource(item.data.kind)
-      ? referenceUrlsOf(item.data).length === 0 && !mediaReadyForRun(item.data)
-      : continuationOn && isLatentOn(item) && isTerminalLatent(item.id, upstream, edges) && !latentChainOf(item.id).value);
+    const pending = mediaUpstream.some(item => isPinnedUploadKind(item.data.kind)
+      /*
+       * 「指定节点上传」：它自己不持有媒体，量它有没有准备好只能看**透传值**。
+       * 漏掉这一档的症状是「上游图已经传好了、线也连好了，点运行却说尚未上传完成」——
+       * 而它其实什么都不缺，那句话指的还是旁边那个还没传的节点。
+       */
+      ? !String(item.data.relayValue || '').trim()
+      : isReferenceSource(item.data.kind)
+        ? referenceUrlsOf(item.data).length === 0 && !mediaReadyForRun(item.data)
+        : continuationOn && isLatentOn(item) && isTerminalLatent(item.id, upstream, edges) && !latentChainOf(item.id).value);
     /**
      * 上游接着 latent、却一条值都没解析出来 —— 这是最危险的一档**静默失败**：
      * 提交会带着两个空槽位跑成功，出来的片段和上一段毫无关系，而界面上什么都不说。
@@ -2186,10 +2324,25 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
      * 而这里缺的是音频；不报的话提交体里那份音频被静默跳过，产出与素材无关。
      */
     const audioMissing = upstream.find(item => item.data.kind === 'audio-input' && !audioReadyForRun(item.data));
+    /*
+     * 连了「指定节点上传」、但它透传不出东西（2026-10-05）。**断在哪儿要说清**：
+     * 「还没接上游」要人去连线，「连成环了」要人去拆环，报一句笼统的「尚未上传完成」
+     * 会让人反复上传一个根本不存在的文件，怎么传都不会好。
+     */
+    const pinnedMissing = mediaUpstream.find(item => isPinnedUploadKind(item.data.kind)
+      && !String(item.data.relayValue || '').trim());
+    const pinnedHint = pinnedMissing
+      ? String(pinnedMissing.data.relayBroken || '') === 'cycle'
+        ? `上游「${String(pinnedMissing.data.label || '指定节点上传')}」的连线连成环了 —— 拆掉环上多余的那根线`
+        : String(pinnedMissing.data.relayBroken || '') === 'upstream'
+          ? `上游「${String(pinnedMissing.data.label || '指定节点上传')}」左边还没接图 / 视频 —— 拉一根线到它左边`
+          : `上游「${String(pinnedMissing.data.label || '指定节点上传')}」还没有可用的图 / 视频 —— 先在它上游那个节点上跑出一份来`
+      : '';
     if (pending || latentDeadEnd) {
       return patch(id, {
         status: 'failed',
         result: latentBrokenHint(latentIssue)
+          || pinnedHint
           || (frameMissing
             ? `上游「${String(frameMissing.data.label || '首尾帧')}」还没有提取出帧 —— 选中它点「提取首尾帧」`
             : audioMissing
@@ -2389,6 +2542,12 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
           instanceType: readInstanceType(node.data.instanceType),
           paramRows,
           ...(latentNodeIds.coarse || latentNodeIds.fine ? { latentNodeIds } : {}),
+          /*
+           * 「指定节点上传」点名的落点（2026-10-05）。**只带填了节点号的**（没填的那一档
+           * 在 `pinnedUploads` 收集时就滤掉了），所以老画布的提交体一个字节都不会变。
+           * 与 `latentNodeIds` 同一层：都是「改写工作流里某个节点的某个字段」，不是绑定槽位。
+           */
+          ...(pinnedUploads.length ? { pinnedUploads } : {}),
           bindingValues: {
             prompt,
             aspectRatio: String(node.data.aspectRatio || (isImage ? IMAGE_DEFAULTS.ratio : DEFAULT_RATIO)),
@@ -2407,7 +2566,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     } catch (error) {
       patch(id, { status: 'failed', result: error instanceof Error ? error.message : '提交失败' });
     }
-  }, [applyRun, collectParamRows, edges, latentChainOf, nodes, patch, poll, projectId, promptTextOf,
+  }, [applyRun, collectParamRows, edges, latentChainOf, mediaRelayOf, nodes, patch, poll, projectId, promptTextOf,
     sources, workflows]);
 
   /**
@@ -3928,6 +4087,19 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         .map(edge => nodes.find(item => item.id === edge.source))
         .filter(Boolean) as Node<NodeData>[]
       : [];
+    /*
+     * 槽位那一格要读「指定节点上传」的透传值，而 `direct` 出自 state —— 那上面没有
+     * `relayValue`（它是 hydrated 现算的）。不补这一层的话底栏那一格永远写着
+     * 「上游还没有媒体」，而它上游其实早就生成好了。
+     */
+    const directForSlots = direct.map(item => {
+      if (!isPinnedUploadKind(item.data.kind)) return item;
+      const relayed = mediaRelayOf(item.id);
+      return {
+        ...item,
+        data: { ...item.data, relayValue: relayed.value, mediaKind: relayed.media, relayBroken: relayed.broken },
+      };
+    });
     const feeder = isOutput ? direct.find(item => isGeneratorKind(item.data.kind)) : undefined;
     const workflowNode = upstream.find(item => item.data.kind === 'workflow');
     const imageUpstream = upstream.find(item => item.data.kind === 'image' && (item.data.imageUrl || item.data.previewUrl));
@@ -3936,6 +4108,8 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     const frameFeedPick = String(frameFeed?.data.framePick || 'both');
     /** 中转节点自己没值时透传上游 latent，这里算出它这一轮真正会提交的值。 */
     const chain = isLatentKind(node.data.kind) ? latentChainOf(node.id) : null;
+    /** 「指定节点上传」透传上游那份图 / 视频，同样现算（2026-10-05）。 */
+    const relay = isPinnedUploadKind(node.data.kind) ? mediaRelayOf(node.id) : null;
     /** 文本 / 优化节点这一刻要交给下游的那段文字（不写库）。 */
     const textChain = isTextValue ? textChainOf(node.id) : null;
     /* 只有优化节点挑「左边那份媒体」—— 别的节点收图有 `imageUrls` 那条路（按数量收，不按一张）。 */
@@ -3949,7 +4123,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         ...node.data,
         workflows,
         inputs: isGenerator
-          ? inputSlots(direct, latents, node.data.continuationEnabled === 'on', edges, latentChainOf)
+          ? inputSlots(directForSlots, latents, node.data.continuationEnabled === 'on', edges, latentChainOf)
           : undefined,
         passthroughImage: isImageOutput ? String(imageUpstream?.data.imageUrl || imageUpstream?.data.previewUrl || '') : undefined,
         upstreamStatus: feeder ? String(feeder.data.status || 'idle') : undefined,
@@ -3964,12 +4138,13 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
             .filter((url, index, all) => all.indexOf(url) === index)
             .slice(0, MAX_REFERENCE_IMAGES).length
           : undefined,
-        relayValue: chain?.value || undefined,
+        /** latent 与「指定节点上传」两条链共用这一个字段：都是「透传上游的那份值」。 */
+        relayValue: chain?.value || relay?.value || undefined,
         /** 这一轮真正会交出去的那几份（含自动配对的结果）—— 面板的下拉和卡片都用它。 */
         relayValues: chain?.values?.length ? chain.values : undefined,
-        relayFrom: chain?.from || undefined,
+        relayFrom: chain?.from || relay?.from || undefined,
         /** 取不到值时把原因也带上：卡片和面板要能把「链断了」和「没上传」分开说。 */
-        relayBroken: chain?.broken || undefined,
+        relayBroken: chain?.broken || relay?.broken || undefined,
         /* 文本链解析出来的三样：值、来自哪个上游、链成环了没有。同样只在 hydrated 里。 */
         textValue: textChain?.value || undefined,
         textFrom: textChain?.from || undefined,
@@ -3980,7 +4155,8 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
          */
         mediaValue: mediaChain?.url || undefined,
         mediaFrom: mediaChain?.from || undefined,
-        mediaKind: mediaChain?.kind || undefined,
+        /** 「指定节点上传」也用它（是图还是视频决定它进参考图还是视频输入那一支）。 */
+        mediaKind: mediaChain?.kind || relay?.media || undefined,
         /** 只有中转节点有：上游视频节点产出过的 latent，供「取自哪次生成」下拉用。 */
         latentPickOptions: node.data.kind === 'latent-relay' ? latentPickOptionsOf(node.id) : undefined,
         latentCount: isVideoGenerator
@@ -4115,7 +4291,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       },
     };
   }), [beginGesture, collectParamRows, describeInputOf, edges, endGesture, extractFrames, frameSourceOf, generate,
-    latentChainOf, latentPickOptionsOf, openWorkflowConfig, openWorkflowPicker, runPromptNode, runOne, textChainOf,
+    latentChainOf, latentPickOptionsOf, mediaRelayOf, openWorkflowConfig, openWorkflowPicker, runPromptNode, runOne, textChainOf,
     archiveMedia, latents, nodes, paramWorkflowOf, patch, sources, uploadFrameVideo, uploadLatentFile, workflows]);
 
   /*

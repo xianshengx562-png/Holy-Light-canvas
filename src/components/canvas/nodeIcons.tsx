@@ -3,6 +3,7 @@ import {
   AppWindow,
   Blocks,
   Clapperboard,
+  Crosshair,
   Film,
   Frame,
   Image as ImageIcon,
@@ -37,6 +38,8 @@ export const NODE_ICON: Record<NodeKind, LucideIcon> = {
   image: ImageIcon,
   latent: Layers,
   'latent-relay': Waypoints,
+  /* 指定节点上传 = 靶心：这份媒体**点名**送到工作流里那一个节点上。 */
+  'pinned-upload': Crosshair,
   workflow: Workflow,
   params: Blocks,
   'video-generate': Clapperboard,

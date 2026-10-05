@@ -6,7 +6,8 @@ import type { NodeData, ParamRow } from './types';
 import { nodeTintVars } from '@/lib/appearance';
 import {
   LATENT_SLOTS, NODE_META, NODE_SIZE,
-  isAudioUrl, isGeneratorKind, isLatentKind, isVideoUrl, latentAssetPrefix, latentBrokenHint, latentLabel, paramRowLabel,
+  isAudioUrl, isGeneratorKind, isLatentKind, isPinnedUploadKind, isVideoUrl, latentAssetPrefix, latentBrokenHint, latentLabel,
+  paramRowLabel, uploadFieldOf, uploadNodeIdOf,
   usesGenerateDock, workflowDisplayName, workflowIdNote, displayLabelOf,
   readUpscaleMode, readUpscaleSource,
   upscalePurposeOfNode, upscaleSourceOfNode,
@@ -79,6 +80,11 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
   const relayFrom = String(data.relayFrom || '');
   /** 这一轮真正会交出去的**份数**（含自动配对）—— 只写「透传」的话一份两份看不出来。 */
   const relayCount = (data.relayValues || []).filter(Boolean).length || (relayValue ? 1 : 0);
+  /* 「指定节点上传」的三样：落点节点号、字段名、以及这份媒体是图还是视频。 */
+  const pinnedNodeId = isPinnedUploadKind(kind) ? uploadNodeIdOf(data) : '';
+  const pinnedFieldName = isPinnedUploadKind(kind) ? uploadFieldOf(data.mediaKind, data.uploadFieldName) : '';
+  const pinnedMediaLabel = data.mediaKind === 'video' ? '透传视频' : '透传图片';
+  const pinnedBroken = String(data.relayBroken || '') as 'cycle' | 'upstream' | '';
   const latentIndexes = (data.latentIndexes || []).filter(index => index >= 1 && index <= LATENT_SLOTS);
   const chosenWorkflow = (data.workflows || []).find(item => item.workflowId === String(data.workflowId || ''));
   /** Generated video urls must not be rendered as an image. */
@@ -342,6 +348,24 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
                */
               ? (latentBroken ? placeholder(latentBroken) : emptyFrame)
               : placeholder('该 latent 节点已停用'))
+        /*
+         * 「指定节点上传」（2026-10-05 徐先）：与 latent 中转同形 —— 自己不产媒体，
+         * 交下去的是上游那份；不同的是它还能**额外**指定「写进工作流的哪个节点」。
+         *
+         * 🔴 卡片上必须能一眼看出**落点填没填**：没填就是一根管子（跟没加这个节点一样），
+         * 填了才真的往工作流里多写一条。这两档在别的界面上长得完全一样，
+         * 分不清就会出现「以为指定了、其实什么都没写」的静默失败。
+         */
+        : isPinnedUploadKind(kind)
+          ? (relayValue
+            ? <div className="cv-node-info">
+              <b>{pinnedMediaLabel}{pinnedNodeId ? ` → 节点 ${pinnedNodeId}` : ' · 纯透传'}</b>
+              {/* 完整名字走 `title`：那是个没有空格的长名，截断了没法自己拼回来。 */}
+              <span title={relayFrom || undefined}>{relayFrom || '上游'}</span>
+              {/* 没填号时这句话是唯一能说明「它现在只是一根管子」的地方。 */}
+              <em>{pinnedNodeId ? `.${pinnedFieldName}` : '未指定节点'}</em>
+            </div>
+            : placeholder(pinnedBroken === 'cycle' ? '连线成环' : pinnedBroken === 'upstream' ? '左边还没接媒体' : '上游还没有媒体'))
         : kind === 'workflow'
           ? (chosenWorkflow
             ? <div className="cv-node-info">

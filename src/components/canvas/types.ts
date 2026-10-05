@@ -160,7 +160,7 @@ export type FramePick = 'first' | 'last' | 'both';
 
 export type NodeData = {
   label?: string;
-  kind?: 'text' | 'image' | 'latent' | 'latent-relay' | 'workflow' | 'params'
+  kind?: 'text' | 'image' | 'latent' | 'latent-relay' | 'pinned-upload' | 'workflow' | 'params'
     | 'video-generate' | 'image-generate' | 'video' | 'video-input' | 'audio-input' | 'image-out' | 'frame-extract'
     | 'director' | 'app-generate' | 'prompt-optimize';
   text?: string;
@@ -305,6 +305,26 @@ export type NodeData = {
    */
   latentCoarseNodeId?: string;
   latentFineNodeId?: string;
+  /**
+   * 「指定节点上传」节点：把上游那份图 / 视频写进工作流的**哪个节点**（2026-10-05 徐先）。
+   *
+   * 与 `latentCoarseNodeId` 是同一件事的另一半：那个改 latent 的落点，这个改**媒体**的落点。
+   * 为什么需要它：多图参考的工作流里往往有七八个 `LoadImage`（265 / 266 / 312 …），
+   * 配置页只能把「参考图 1 / 2 / 3」绑到固定几个节点上 —— 想让**这一张**图进**那一个**
+   * 节点，除了在这里点名没有别的路。
+   *
+   * 留空 = 这个节点只是一根管子（把上游那份原样交给下游），**不额外写进任何节点** ——
+   * 与加这个节点之前画布的行为完全一致，所以老画布不受影响。
+   */
+  uploadNodeId?: string;
+  /**
+   * 写进那个节点的**哪个字段**。留空时按这份媒体是图还是视频回落（`image` / `video`）。
+   *
+   * 字段名为什么是可选项而不是必填：绝大多数加载节点的字段名就是这两个，
+   * 让人为一个能从媒体类型推出来的东西再敲一遍键盘，只会换来填错。
+   * 但第三方插件的字段名五花八门（`手动上传` 之类），所以必须能改。
+   */
+  uploadFieldName?: string;
   /** 图片生成的参数（负向提示词 / 采样 / 出图张数）。视频生成节点不用这些。 */
   negativePrompt?: string;
   steps?: string;
@@ -721,6 +741,27 @@ export type LatentChain = {
  * 这里原样转出 —— 已经在从 `./types` 引它的地方不用改。
  */
 export type { TextChain } from './textChain';
+
+/**
+ * 「指定节点上传」节点透传的那份媒体（2026-10-05 徐先）。
+ *
+ * 与 `LatentChain` 同形，只是量的是**图 / 视频地址**而不是 latent 归档文件名。
+ *
+ * 🔴 `media` 必须由**解析这一层**定，不能由调用方再判一次：一份媒体进「参考图」还是进
+ * 「视频输入」是两把尺子，两处各判一次的话，「卡片上说是图、发出去的是视频」
+ * 这种差异没有任何界面会说。
+ *
+ * `broken` 与 `LatentChain` 那边的用意完全一致：把「链断了」和「上游还没生成」分开，
+ * 否则两者在界面上长得一模一样，而前者怎么重跑上游都不会好。
+ */
+export type MediaRelay = {
+  /** 这一轮要交下去的那份媒体的地址（远端文件名或本站资产地址都可能是）。 */
+  value: string;
+  /** 是图还是视频 —— 决定它进参考图那一支还是视频输入那一支。 */
+  media: 'image' | 'video';
+  from: string;
+  broken: 'cycle' | 'upstream' | null;
+};
 
 /**
  * 中转节点「取自上游哪一份 latent」下拉里的一行。

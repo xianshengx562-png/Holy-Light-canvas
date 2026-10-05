@@ -9,6 +9,14 @@ import { z } from 'zod';
 export const MAX_REFERENCE_IMAGES = 20;
 export const MAX_VIDEO_INPUTS = 10;
 export const MAX_AUDIO_INPUTS = 10;
+/**
+ * 「指定节点上传」一次能指定几个落点（2026-10-05 徐先）。
+ *
+ * 与前三个不是同一类东西：它们受**配置页能绑几个槽位**限制，这个受**画布上连了几个这种节点**
+ * 限制 —— 一个工作流里 LoadImage / LoadVideo 不会比这更多，超出就是连错了（同一份媒体
+ * 会被反复写进同一个节点，而那种重复是静默的）。
+ */
+export const MAX_PINNED_UPLOADS = 10;
 
 /**
  * 「手加 / 认不出来」的字段类名（常量放在文件头：下面的 schema 在模块加载时就要用它）。
@@ -438,6 +446,31 @@ export function mergeParamRows(
     if (!value) continue;
     const entry = { nodeId: row.nodeId, fieldName: row.fieldName, fieldValue: value };
     const index = merged.findIndex(item => item.nodeId === row.nodeId && item.fieldName === row.fieldName);
+    if (index >= 0) merged[index] = entry;
+    else merged.push(entry);
+  }
+  return merged;
+}
+
+/**
+ * 把一组「节点号 + 字段名 + 值」并进 nodeInfoList（与 `mergeParamRows` 同一条规矩：
+ * 同节点同字段替换、没有就追加、空值跳过）。
+ *
+ * 抽出来是为了「指定节点上传」（2026-10-05）：它和参数块做的是同一件事 ——
+ * 往工作流里某个节点的某个字段上写值 —— 只是值来自上游那份媒体，不是手敲的。
+ * 各写一份合并逻辑的话，迟早出现「参数块覆盖了指定上传、而指定上传反过来又没生效」
+ * 这种谁也不报错的差异。
+ */
+export function mergeNodeInfoEntries(
+  list: { nodeId: string; fieldName: string; fieldValue: string }[],
+  entries: { nodeId: string; fieldName: string; fieldValue: string }[],
+) {
+  if (!entries?.length) return list;
+  const merged = list.slice();
+  for (const entry of entries) {
+    const value = String(entry.fieldValue ?? '');
+    if (!value || !String(entry.nodeId || '').trim() || !String(entry.fieldName || '').trim()) continue;
+    const index = merged.findIndex(item => item.nodeId === entry.nodeId && item.fieldName === entry.fieldName);
     if (index >= 0) merged[index] = entry;
     else merged.push(entry);
   }

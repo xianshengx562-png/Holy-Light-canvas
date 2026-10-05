@@ -17,8 +17,8 @@ import { watchLocalProgress } from '@/lib/providers/local/progress';
 import { latentAssetPrefix, readLatentFile } from '@/lib/latents';
 import {
   applyDefaultBindings, appendLatentEntries, applyLatentNodeIds, configurationSchema, consumedCanvasBindings,
-  MAX_AUDIO_INPUTS, MAX_REFERENCE_IMAGES, MAX_VIDEO_INPUTS,
-  mergeParamRows, orphanedCanvasBindings, paramRowSchema, toNodeInfoList, upscaleValueSlots,
+  MAX_AUDIO_INPUTS, MAX_PINNED_UPLOADS, MAX_REFERENCE_IMAGES, MAX_VIDEO_INPUTS,
+  mergeNodeInfoEntries, mergeParamRows, orphanedCanvasBindings, paramRowSchema, toNodeInfoList, upscaleValueSlots,
   type CanvasBindingValues, type Configuration, type LatentNodeIds,
 } from '@/lib/workflows/configuration';
 import { validateImageParams, validateOutputSize } from '@/lib/workflows/imageParams';
@@ -28,7 +28,9 @@ import { readWorkflowName } from '@/lib/workflows/label';
 import { GENERATOR_KINDS, generatorKindNoun, readGeneratorKind } from '@/lib/workflows/purpose';
 import { readWorkflowOperation, WORKFLOW_OPERATIONS, workflowOperationLabel } from '@/lib/workflows/operation';
 import { resolveUpscaleInput } from '@/lib/upscale';
-import { resolveAudioInput, resolveAudioInputs, resolveReferenceImages, resolveVideoInput, resolveVideoInputs } from '@/lib/referenceImages';
+import {
+  resolveAudioInput, resolveAudioInputs, resolveReferenceImage, resolveReferenceImages, resolveVideoInput, resolveVideoInputs,
+} from '@/lib/referenceImages';
 import { DUPLICATE_WINDOW_MS, isDuplicateSubmit } from '@/lib/submitGuard';
 
 const schema = z.object({
@@ -61,6 +63,25 @@ const schema = z.object({
     coarse: z.string().trim().max(40).regex(/^[\w:-]*$/).optional(),
     fine: z.string().trim().max(40).regex(/^[\w:-]*$/).optional(),
   }).optional(),
+  /*
+   * 「指定节点上传」点名的落点（2026-10-05 徐先）：上游那份图 / 视频要**额外**写进工作流的
+   * 这一个个节点。它解决的正是一类**静默失败** —— 「配置页绑到的那个节点在原始工作流里
+   * 被绕过 / 静音了」：那种情况下值写进一个根本不参与执行的节点，任务照样成功、
+   * 产出和这份素材毫无关系，而界面上一个字都不说。用这个节点把落点改指到另一个真在跑的
+   * LoadImage / LoadVideo 上。
+   *
+   * 🔴 与 `latentNodeIds` 同一层、都不进 `bindingValues`：那里面每一项都要有配置页的绑定才作数，
+   * 而这两样恰恰是**要绕过绑定**的 —— 绑到哪儿由画布说了算，不由配置页说了算。
+   */
+  pinnedUploads: z.array(z.object({
+    /** 工作流里的节点号。只允许编号与常见分隔符：它是要直接写进 API 图的键，不能带空格或引号。 */
+    nodeId: z.string().trim().min(1).max(40).regex(/^[\w.:-]+$/),
+    fieldName: z.string().trim().min(1).max(100),
+    /** 媒体地址：RemoteHub 文件名、本站资产路径、或可下载的链接，三种都由下面统一换成文件名。 */
+    value: z.string().trim().min(1).max(40000),
+    /** 是图还是视频 —— 只影响**上传时的兜底后缀**：RunningHub 靠扩展名认类型。 */
+    media: z.enum(['image', 'video']),
+  })).max(MAX_PINNED_UPLOADS).optional(),
   /**
    * The "engine" picked on this node. **Optional**: old canvases, MCP-created nodes and
    * every upscale run leave it out — those fall back to **the workflow's own side**
@@ -435,6 +456,26 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         input.latentNodeIds,
       );
     }
+    /*
+     * 「指定节点上传」：把那份媒体换成对端认得的文件名，再按「节点号 + 字段名」直接补进去
+     * （2026-10-05）。
+     *
+     * 🔴 **不走 `toNodeInfoList`** —— 这一步的意义恰恰是绕开配置页的绑定：绑定说的是
+     * 「写进配置里那个节点」，用户要的是「写进我指定的这个节点」。走了绑定就等于
+     * 这条值又回到那个被绕过的节点上，加这个节点就白加了。
+     *
+     * 位置在参数块**之前**：参数块是最后一层叠加，同名字段要盖得住这里写的值。
+     */
+    if (input.pinnedUploads?.length) {
+      const pinned = await Promise.all(input.pinnedUploads.map(async item => ({
+        nodeId: item.nodeId,
+        fieldName: item.fieldName,
+        fieldValue: item.media === 'video'
+          ? await resolveVideoInput(item.value, user.id, apiKey, uploader)
+          : await resolveReferenceImage(item.value, user.id, apiKey, { upload: uploader }),
+      })));
+      nodeInfoList = mergeNodeInfoEntries(nodeInfoList || [], pinned);
+    }
     // 自定义参数块是叠加层：放在最后，所以同名的节点字段以画布上的为准。
     if (input.paramRows?.length) nodeInfoList = mergeParamRows(nodeInfoList || [], input.paramRows);
     /*
@@ -508,7 +549,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
          * `kind` 与 `operation` 都是本路由自己的概念（用来核对草稿），**都不发给上游** ——
          * 显式拆出来而不是整份 spread，免得哪天上游多了个同名字段、被我们顺手喂进去一个它不认识的值。
          */
-        const { kind: _kind, operation: _operation, latentNodeIds: _latentNodeIds, ...runInput } = input;
+        const {
+          kind: _kind, operation: _operation, latentNodeIds: _latentNodeIds, pinnedUploads: _pinnedUploads, ...runInput
+        } = input;
         /*
          * 应用走的是另一条端点（`/task/openapi/ai-app/run`，按 `webappId` 认），
          * 工作流那条 `/run/workflow/<id>` 对应用 ID 是不认的 —— 拿应用 ID 去打它，
