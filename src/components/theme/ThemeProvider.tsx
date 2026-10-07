@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import {
   createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState,
@@ -6,6 +6,7 @@ import {
 import {
   APPEARANCE_KEY, applyAppearance, DEFAULT_APPEARANCE, isPaletteId, parseAppearance,
   type Appearance, type PaletteId, type ThemeMode, type Wallpaper,
+  type CanvasTheme,
 } from '@/lib/appearance';
 import { pickWallpaperFile, removeWallpaperFile } from '@/lib/wallpaper';
 
@@ -21,6 +22,7 @@ type AppearanceContextValue = {
   setThemeMode: (theme: ThemeMode) => void;
   /** 换配色（只换强调色那一支）。 */
   setPalette: (palette: PaletteId) => void;
+  setCanvasTheme: (theme: CanvasTheme) => void;
   setCanvasBg: (color: string | null) => void;
   /** 画布节点的底色 / 描边 / 强调色。null = 跟随画布那一支。 */
   setNodeBg: (color: string | null) => void;
@@ -231,6 +233,7 @@ export default function ThemeProvider({ children }: { children: React.ReactNode 
       setTheme: (theme: ThemeMode) => commit({ ...base(), theme }),
       setThemeMode: (theme: ThemeMode) => commit({ ...base(), theme }),
       setPalette: (palette: PaletteId) => commit({ ...base(), palette }),
+      setCanvasTheme: (canvasTheme: CanvasTheme) => commit({ ...base(), canvasTheme }),
       setCanvasBg: (canvasBg: string | null) => commit({ ...base(), canvasBg }),
       setNodeBg: (nodeBg: string | null) => commit({ ...base(), nodeBg }),
       setNodeLine: (nodeLine: string | null) => commit({ ...base(), nodeLine }),
@@ -285,3 +288,4 @@ export function useAppearance(): AppearanceContextValue {
   if (!ctx) throw new Error('useAppearance 必须在 ThemeProvider 内使用');
   return ctx;
 }
+

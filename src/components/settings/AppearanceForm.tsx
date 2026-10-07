@@ -7,7 +7,8 @@ import {
   isHexColor, isLightColor, NODE_ACCENT_PRESETS, NODE_BG_PRESETS,
   NODE_LINE_PRESETS, normalizeHex, PALETTE_OPTIONS,
   SITE_ACCENT_PRESETS, SITE_BG_PRESETS, THEME_OPTIONS, UI_SCALE,
-  type ThemeMode,
+  CANVAS_THEME_OPTIONS,
+  type ThemeMode, type CanvasTheme,
 } from '@/lib/appearance';
 import { canSetWallpaper } from '@/lib/wallpaper';
 
@@ -53,12 +54,16 @@ type Slot = {
 export default function AppearanceForm() {
   const {
     appearance, themeMode, setTheme, setPalette, setCanvasBg,
+    setCanvasTheme,
     setNodeBg, setNodeLine, setNodeAccent,
     setSiteBg, setSiteAccent, setSiteWallpaper, uploadSiteWallpaper, clearSiteWallpaper,
     setUiScale, reset,
   } = useAppearance();
   const [wallBusy, setWallBusy] = useState(false);
   const [wallNotice, setWallNotice] = useState('');
+  const [canvasTheme, setCanvasThemeLocal] = useState<CanvasTheme | null>(
+    appearance?.canvasTheme ?? 'minimal'
+  );
   /**
    * 「自定义」那张卡是展开还是收起。
    *
@@ -78,6 +83,12 @@ export default function AppearanceForm() {
     if (customTouchedByUser.current) return;
     if (customOpen === null && appearance) setCustomOpen(customTouched(appearance));
   }, [appearance, customOpen]);
+
+  useEffect(() => {
+    if (appearance?.canvasTheme) {
+      setCanvasThemeLocal(appearance.canvasTheme);
+    }
+  }, [appearance?.canvasTheme]);
   const toggleCustom = () => {
     customTouchedByUser.current = true;
     setCustomOpen(prev => !(prev === true));
@@ -406,6 +417,31 @@ export default function AppearanceForm() {
           <p className="muted">
             跟随主题换档，挑过自定义就不再跟着动。要钉住底色用画布右下角的「画布外观」。
           </p>
+        </div>
+      </div>
+
+      {/* 画布主题预设 */}
+      <div className="appearance-sub">
+        <div className="appearance-sub-head">
+          <span className="appearance-sub-label">画布主题</span>
+        </div>
+        <div className="appearance-options" role="radiogroup">
+          {CANVAS_THEME_OPTIONS.map(opt => (
+            <button
+              key={opt.value}
+              type="button"
+              role="radio"
+              aria-checked={canvasTheme === opt.value}
+              className={canvasTheme === opt.value ? 'active' : ''}
+              onClick={() => {
+                setCanvasThemeLocal(opt.value);
+                setCanvasTheme(opt.value);
+              }}
+            >
+              <Check size={14} aria-hidden />
+              <span>{opt.label}</span>
+            </button>
+          ))}
         </div>
       </div>
 

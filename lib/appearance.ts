@@ -1,4 +1,4 @@
-/* 外观设置：主题模式 + 画布底色。
+﻿/* 外观设置：主题模式 + 画布底色。
    这套偏好只存在浏览器 localStorage 里（不发数据库）——它是设备级 UI 偏好，
    登录页也要能生效，走服务端存储反而要读库、要迁移，收益不划算。 */
 import { syncTitlebarTheme } from '@/lib/desktop-titlebar';
@@ -19,6 +19,15 @@ export type ThemeMode = 'dark' | 'light' | 'system';
  *    想留住旧色的机器：设置页「自定义强调色」填 #1f7a5c / #1f7a99（预设里都有）。
  *    黑白这一档的语义：**强调色就是黑白本身**（白底用黑、黑底用白），灰只做层次。
  */
+export type CanvasTheme = 'minimal' | 'tech-cold' | 'warm-soft' | 'custom';
+
+export const CANVAS_THEME_OPTIONS: { value: CanvasTheme; label: string }[] = [
+  { value: 'minimal', label: '简约' },
+  { value: 'tech-cold', label: '科技冷感' },
+  { value: 'warm-soft', label: '温暖柔和' },
+  { value: 'custom', label: '自定义' },
+];
+
 export type PaletteId =
   | 'mono' | 'amber' | 'indigo' | 'graphite'
   | 'aurora' | 'sunset' | 'ocean';
@@ -126,6 +135,8 @@ export type Wallpaper = {
  */
 export type Appearance = {
   theme: ThemeMode;
+  /** 画布主题预设（简约/科技冷感/温暖柔和/自定义）。老数据里没有这个字段 → parseAppearance 兜回默认。 */
+  canvasTheme?: CanvasTheme;
   /** 配色。老数据里没有这个字段 → parseAppearance 兜回默认，不判成坏数据。 */
   palette: PaletteId;
   /** 画布底色；null = 跟随主题 */
@@ -209,6 +220,7 @@ export const DEFAULT_APPEARANCE: Appearance = {
      接到 globals 的 `--app-*` 别名上，所以除了 `theme` / `palette` 这两个档位开关，
      下面这几支自定义色**不受主题影响**，默认全是 null = 跟随当前那一档预设。 */
   theme: 'light',
+  canvasTheme: 'minimal',
   palette: 'mono',
   canvasBg: null,
   /* 节点默认全都跟随画布那一支 —— 只有用户挑了才覆盖。 */
@@ -576,10 +588,12 @@ export function applyAppearance(appearance: Appearance, prefersDark: boolean): v
       '--cv-node-accent-ink-custom',
       isLightColor(appearance.nodeAccent) ? '#14181c' : '#ffffff',
     );
+
+  /* 鐢诲竷涓婚棰勮 */
+  if (appearance.canvasTheme) {
+    root.dataset.canvasTheme = appearance.canvasTheme;
   } else {
-    delete root.dataset.nodeAccent;
-    root.style.removeProperty('--cv-node-accent-custom');
-    root.style.removeProperty('--cv-node-accent-ink-custom');
+    root.dataset.canvasTheme = 'minimal';
   }
 
   /* 全站背景图。URL 与画布那份只差一个 `slot` —— 主进程按它决定读哪个文件。 */
@@ -689,3 +703,8 @@ export const APPEARANCE_INIT_SCRIPT = [
   '  } catch (e) { /* 偏好坏了就当默认，绝不能因此白屏 */ }',
   '})();',
 ].join('\n');
+
+
+
+
+
