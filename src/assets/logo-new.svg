@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="prism1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#8fa3c4;stop-opacity:0.9"/>
+      <stop offset="100%" style="stop-color:#c78ea6;stop-opacity:0.7"/>
+    </linearGradient>
+    <linearGradient id="prism2" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#c78ea6;stop-opacity:0.8"/>
+      <stop offset="100%" style="stop-color:#8fbca4;stop-opacity:0.7"/>
+    </linearGradient>
+    <linearGradient id="prism3" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" style="stop-color:#8fbca4;stop-opacity:0.8"/>
+      <stop offset="100%" style="stop-color:#8fa3c4;stop-opacity:0.6"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:#ffffff;stop-opacity:0.12"/>
+      <stop offset="100%" style="stop-color:#ffffff;stop-opacity:0"/>
+    </radialGradient>
+    <filter id="blur" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="3"/>
+    </filter>
+  </defs>
+  
+  <!-- 背景弥散光晕 -->
+  <circle cx="256" cy="256" r="240" fill="url(#glow)" filter="url(#blur)"/>
+  
+  <!-- 主棱镜结构 - 三个交叠的三角形 -->
+  <path d="M 256 120 L 380 320 L 132 320 Z" fill="url(#prism1)" opacity="0.85" stroke="#f2f3f6" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M 180 200 L 256 360 L 104 360 Z" fill="url(#prism2)" opacity="0.75" stroke="#f2f3f6" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M 332 200 L 408 360 L 256 360 Z" fill="url(#prism3)" opacity="0.75" stroke="#f2f3f6" stroke-width="1.5" stroke-linejoin="round"/>
+  
+  <!-- 节点与连线网络 -->
+  <g opacity="0.9">
+    <!-- 连线 -->
+    <line x1="256" y1="140" x2="180" y2="220" stroke="#bcbfc8" stroke-width="2" opacity="0.4"/>
+    <line x1="256" y1="140" x2="332" y2="220" stroke="#bcbfc8" stroke-width="2" opacity="0.4"/>
+    <line x1="180" y1="220" x2="132" y2="300" stroke="#bcbfc8" stroke-width="2" opacity="0.4"/>
+    <line x1="332" y1="220" x2="380" y2="300" stroke="#bcbfc8" stroke-width="2" opacity="0.4"/>
+    <line x1="132" y1="300" x2="256" y2="340" stroke="#bcbfc8" stroke-width="2" opacity="0.4"/>
+    <line x1="380" y1="300" x2="256" y2="340" stroke="#bcbfc8" stroke-width="2" opacity="0.4"/>
+    
+    <!-- 节点 -->
+    <circle cx="256" cy="140" r="8" fill="#8fa3c4" stroke="#f2f3f6" stroke-width="2"/>
+    <circle cx="180" cy="220" r="7" fill="#c78ea6" stroke="#f2f3f6" stroke-width="2"/>
+    <circle cx="332" cy="220" r="7" fill="#8fbca4" stroke="#f2f3f6" stroke-width="2"/>
+    <circle cx="132" cy="300" r="6" fill="#8fa3c4" stroke="#f2f3f6" stroke-width="1.5"/>
+    <circle cx="380" cy="300" r="6" fill="#c78ea6" stroke="#f2f3f6" stroke-width="1.5"/>
+    <circle cx="256" cy="340" r="9" fill="#8fbca4" stroke="#f2f3f6" stroke-width="2.5"/>
+  </g>
+  
+  <!-- 顶部高光线 -->
+  <path d="M 180 180 Q 256 160 332 180" stroke="#ffffff" stroke-width="1.5" opacity="0.25" fill="none"/>
+</svg>
