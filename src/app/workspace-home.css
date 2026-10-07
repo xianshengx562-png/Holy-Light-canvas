@@ -1,0 +1,27 @@
+.brand-mark { background: url('../assets/logo.png') center / contain no-repeat !important; color: transparent !important; border: 0 !important; }
+.brand-mark::before, .brand-mark::after { display: none !important; }
+.content.home { max-width: 1180px; margin-right: auto; padding-bottom: 40px; }
+.home .home-section-head { margin: 20px 0 16px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.home .home-section-head h2 { font-size: var(--fs-5); font-weight: 600; }
+.home .entry-grid { gap: 0; border-block: 1px solid var(--line); margin-bottom: 34px; }
+.home .entry-card { padding: 18px; border: 0; border-right: 1px solid var(--line); border-radius: 0; grid-template-columns: 32px minmax(0, 1fr); align-items: center; gap: 8px 12px; background: transparent; }
+.home .entry-card:last-child { border-right: 0; }
+.home .entry-card p { display: none; }
+.home .entry-icon { grid-row: 1 / 3; border-radius: 6px; background: var(--surface); color: var(--text-dim); border-color: var(--line); }
+.home .entry-card strong { font-size: var(--fs-4); }
+.home .entry-card .entry-cta { grid-column: 2; font-size: var(--fs-2); color: var(--text-mute); }
+.home .entry-card:hover { transform: none; background: var(--surface); }
+.home .home-projects { grid-template-columns: 1fr; gap: 0; }
+.home .home-project { grid-template-columns: 64px minmax(0, 1fr); align-items: center; gap: 16px; padding: 12px 16px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
+.home .home-project:hover { transform: none; background: var(--surface); }
+.home .home-project-thumb { width: 64px; height: 44px; aspect-ratio: auto; border: 1px solid var(--line); border-radius: 6px; }
+.home .home-project-open { display: none; }
+.home .home-project-body { padding: 0; gap: 6px; min-width: 0; }
+.home .home-project-body strong { font-size: var(--fs-4); }
+.home .home-project-body small { font-size: var(--fs-2); }
+.home .home-watermark { display: none; }
+@media (max-width: 720px) {
+  .home .entry-grid { grid-template-columns: 1fr; }
+  .home .entry-card { border-right: 0; border-bottom: 1px solid var(--line); }
+  .home .entry-card:last-child { border-bottom: 0; }
+}

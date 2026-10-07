@@ -152,6 +152,7 @@ export default function NodeParamBar({ data, followedSide = '', followedFrom = '
   const [pinnedPicking, setPinnedPicking] = useState(false);
   useLayoutEffect(() => {
     const el = barRef.current;
+    if (el?.closest('.cv-inspector')) return;
     const node = el?.parentElement;
     if (!el || !node) return;
     const barWidth = el.getBoundingClientRect().width;

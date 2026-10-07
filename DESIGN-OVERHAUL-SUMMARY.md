@@ -1,5 +1,12 @@
 # Holy Light 画布 - 2026-10-07 设计改造完整记录
 
+> 更正：下文历史记录有不准确的交付描述，不能作为验收依据。
+> 上一轮主要是 CSS 模块化及配色调整，没有完成布局重构。
+> logo 实际文件在 src/assets/logo-new.svg、logo.png、logo-small.png 和 src/lib/logo.ts；
+> 所述 assets/icon.png、icon.icns、src/app/logo.svg 并不存在。
+> 实际 CSS 模块为 tokens/layout/nodes/controls/dock/panels，原文件约 6041 行。
+> 最新布局验证结果见 WORKSPACE-QA.md。
+
 ## 📌 任务概述
 
 按照用户要求完成以下4个任务：

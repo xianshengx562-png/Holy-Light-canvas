@@ -147,11 +147,12 @@ function presetThumbSrc(preset: CreativePreset): string {
   return preview;
 }
 
-export default function GenerateDock({ data, nodeId, anchor }: {
+export default function GenerateDock({ data, nodeId, anchor, inspector = false }: {
   data: NodeData;
   /** 挂在哪个节点上 —— 只给探针 / 排查看，业务逻辑一概不用它。 */
   nodeId?: string;
   anchor?: DockAnchor;
+  inspector?: boolean;
 }) {
   const kind = (data.kind || 'image-generate') as DockKind;
   const isApp = kind === 'app-generate';
@@ -1506,13 +1507,13 @@ export default function GenerateDock({ data, nodeId, anchor }: {
 
   return (
     <div
-      className="cv-dock nodrag"
+      className={`cv-dock nodrag${inspector ? ' cv-dock-inspector' : ''}`}
       data-dock=""
       data-kind={kind}
       /* 探针要能一眼看出它是「挂在节点下方」还是「没有节点、退回 CSS 兜底位置」：
          单看坐标分不出「照着节点算的」和「碰巧算对了」。
          ⚠️ 2026-10-02 起不会再有 `above` —— 翻到节点上方那一支已删。 */
-      data-dock-anchor={anchor ? 'below' : 'fixed'}
+      data-dock-anchor={inspector ? 'inspector' : anchor ? 'below' : 'fixed'}
       data-dock-node={nodeId || ''}
       style={anchor
         ? {
@@ -1530,7 +1531,10 @@ export default function GenerateDock({ data, nodeId, anchor }: {
         滚动全交给里面的 `.cv-dock-scroll`。
       */}
       <div className="cv-dock-scroll">
+        {inspector && <section className="cv-inspector-section"><h3>生成服务</h3><div className="cv-inspector-engine">{!isApp && engineSelect}{instanceSelect}</div></section>}
+        {inspector && <h3 className="cv-inspector-label">参考素材</h3>}
         {slotRow}
+        {inspector && <h3 className="cv-inspector-label">提示词</h3>}
         {/*
           提示词**框**（2026-10-07 徐先：「选择之后可以添加到提示词，以标签的形式出现」）。
 
@@ -1686,15 +1690,19 @@ export default function GenerateDock({ data, nodeId, anchor }: {
             })}
           </div>
         )}
+        {inspector && <section className="cv-inspector-section"><h3>输出规格</h3>
+          {isApp ? appPanel : <>{!audioOnly && ratioGroup}{!audioOnly && resolutionGroup}{sizeGroup}{durationGroup}</>}
+          {sizeIssue && <span className="cv-dock-hint warn">{sizeIssue}</span>}
+        </section>}
         {moreBox}
       </div>
 
       <div className="cv-dock-bar nodrag nowheel">
         {/* 应用节点没有「引擎」这一说 —— 它只有云端一条路，摆一个下拉只会让人选到跑不通的那档。 */}
-        {!isApp && engineSelect}
+        {!inspector && !isApp && engineSelect}
         {/* 应用节点没有「引擎」这一说，但**有规格** —— 它也是跑在 RunningHub 上的。 */}
-        {instanceSelect}
-        <button
+        {!inspector && instanceSelect}
+        {!inspector && <button
           className={`cv-dock-chip cv-dock-summary${pop ? ' on' : ''}`}
           type="button"
           data-dock-summary=""
@@ -1706,7 +1714,7 @@ export default function GenerateDock({ data, nodeId, anchor }: {
         >
           <span className="cv-dock-summary-text">{summaryText || '—'}</span>
           <ChevronDown size={12} strokeWidth={2} className={pop ? 'flip' : ''} aria-hidden />
-        </button>
+        </button>}
         {/*
           「超清」胶囊（2026-10-02 徐先）：点开是「触发 + 来源」两行，长相跟左边那颗
           参数摘要一致（文字 + 下拉符号）—— 一排胶囊里混进一个形状不同的，扫一眼就读不出来。
@@ -1808,6 +1816,7 @@ export default function GenerateDock({ data, nodeId, anchor }: {
           aria-label="生成"
         >
           {running ? <Loader size={14} strokeWidth={2.2} className="cv-spin" aria-hidden /> : <ArrowUp size={15} strokeWidth={2.4} aria-hidden />}
+          {inspector && <span>{running ? '生成中' : '生成'}</span>}
         </button>
       </div>
 

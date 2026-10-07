@@ -8,7 +8,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import {
-  ChevronDown, ChevronUp,
+  ChevronDown, ChevronUp, PanelRight, Play, Square,
   Ban, ClipboardPaste, Copy, CopyPlus, Eye, EyeOff, GitBranch, Globe, History, LayoutGrid, Link2, Maximize2, Palette, Plus,
   Save, Scissors, SlidersHorizontal, Sparkles, Trash2, Unplug, Upload,
 } from 'lucide-react';
@@ -39,6 +39,8 @@ import DirectorPanel from './DirectorPanel';
 /* 右上角的运行计时（2026-09-28）。走字关在它自己里面 —— 画布不跟着每秒重渲染。 */
 import RunClock, { type RunClockState } from './RunClock';
 import GenerateDock, { type DockAnchor } from './GenerateDock';
+import NodeInspector from './NodeInspector';
+import { LOGO_DATA_URI } from '@/lib/logo';
 import { ConfirmDialog } from '@/components/ui/ContextMenu';
 import { collectRuns } from './collectRuns';
 /* 撤回 / 下一步（Ctrl+Z / Ctrl+Shift+Z）。只记结构改动、只给快捷键 —— 见文件头的注释。 */
@@ -4635,6 +4637,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
 
   /** 选中节点的数据要用 React Flow 真正在渲染的那一份（hydrated），
    *  否则底部提示条拿到的 label / kind 会和画布上看到的不一致。 */
+  const [inspectorOpen, setInspectorOpen] = useState(true);
   const current = hydrated.find(node => node.id === selected) || null;
   /**
    * 生成节点（图片 / 视频）选中时，参数改在**挂在它下方那个对话框**里（`GenerateDock`），
@@ -4654,7 +4657,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
    */
   const dockId = dockNode?.id || '';
   useEffect(() => {
-    if (!dockId) { setDockSize(null); return; }
+    if (inspectorOpen || !dockId) { setDockSize(null); return; }
     const el = document.querySelector(`.react-flow__node[data-id="${dockId}"]`);
     if (!el) { setDockSize(null); return; }
     const read = () => {
@@ -4667,7 +4670,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     const observer = new ResizeObserver(read);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [dockId]);
+  }, [dockId, inspectorOpen]);
   /**
    * 对话框要**跟着节点走**，所以位置得在每次视口变化时重算。
    *
@@ -4683,7 +4686,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
   const paneW = useStore(state => state.width);
   /* ⚠️ 尺寸要**跟着节点走**：量到的是上一个节点的，就宁可退回 `measured`（那至少是它自己的），
      不然换节点那一帧面板会先跳到上一个节点的高度上去。 */
-  const dockAnchor = dockNode
+  const dockAnchor = !inspectorOpen && dockNode
     ? dockAnchorFor(dockNode, { x: viewX, y: viewY, zoom: viewZoom, width: paneW },
       dockSize && dockSize.id === dockNode.id ? dockSize : null)
     : undefined;
@@ -4915,18 +4918,21 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
 
   return <div className={`flow-shell${zen ? ' cv-zen' : ''}`}>
     <div className="cv-topbar">
+      <Link className="cv-workspace-brand" href="/" title="项目"><img src={LOGO_DATA_URI} alt="Holy Light" /><span>Holy Light</span></Link>
+      <div className="cv-divider" />
       <a className="cv-brand" href="/">{projectName || '未命名项目'}</a>
+      <span className="cv-workspace-count">{nodes.length} 节点 · {edges.length} 连线</span>
       <div className="cv-spacer" />
       {/* 站点余额挂在这儿（全站只有一份 `SiteBalance`，它认 `[data-balance-slot]`）。
           位置选在「已保存」之前，**不是**最右 —— 最右紧挨着窗口的系统按钮，
           余额挤过去会钻到它们底下（标题栏是 `titleBarStyle:hidden`）。 */}
       <span className="cv-balance-slot" data-balance-slot />
       <span className={`cv-save ${saveState}`}><i />{saveText}</span>
-      <button className="cv-btn primary sm" onClick={() => void save()}>保存</button>
+      <button className="cv-btn icon ghost" title="保存" aria-label="保存" onClick={() => void save()}><Save size={16} /></button>
       <div className="cv-divider" />
       {/* 回项目列表。用 `.secondary` 不用 `.ghost`：ghost 那道 7% 的描边在顶栏上几乎看不见，
           它会被读成一句飘着的文字（2026-10-02 徐先：「边界和颜色明显一些」）。 */}
-      <Link className="cv-btn secondary sm" href="/">项目</Link>
+      <button className={`cv-btn icon ghost${inspectorOpen ? ' on' : ''}`} type="button" title="节点参数" aria-label="节点参数" aria-pressed={inspectorOpen} onClick={() => setInspectorOpen(value => !value)}><PanelRight size={17} /></button>
       {/*
         一键运行（2026-09-27）。这一格原来是「工作流」链接 —— 那个入口在节点参数条
         （「打开工作流配置」）和左侧设置面板里都有，而这里是**手最常放的地方**，
@@ -4940,6 +4946,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
           if (runAllBusy) { runAllStop.current = true; return; }
           void runAllNodes();
         }}>
+        {runAllBusy ? <Square size={13} aria-hidden /> : <Play size={13} aria-hidden />}
         {runAllBusy && runProgress
           ? `停止 ${runProgress.round}/${runProgress.times} · ${Math.min(runProgress.done + 1, runProgress.total)}/${runProgress.total}`
           : runAllBusy ? '停止' : '启动'}
@@ -5313,7 +5320,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
           —— 改参数时视线就在节点上，抬眼是画面、低头是参数。
         */}
         {/* key=节点id：换一颗节点就是一块新面板 —— 弹层 / 展开状态不跨节点残留。 */}
-        {dockNode && <GenerateDock key={dockNode.id} data={dockNode.data} nodeId={dockNode.id} anchor={dockAnchor} />}
+        {!inspectorOpen && dockNode && <GenerateDock key={dockNode.id} data={dockNode.data} nodeId={dockNode.id} anchor={dockAnchor} />}
         {/* 对话框会盖住节点下方那一片，原来那条提示这时让位 —— 两层文字叠在一起谁也看不清。
             未选中时**整块不渲染**（2026-09-24 徐先：「这个提示可以删了」）——
             「右键空白处 / 左侧加号 / 圆点拖线」那三句是上手期的引导，用过一次就是噪音。
@@ -5327,7 +5334,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         {/* 画布本体就这一块，右边不再有固定宽度的属性栏 —— 节点自己的参数在选中时浮在卡片下方
             （文本节点则是直接在正面写），这里只留一个浮动小面板放「不跟着节点走」的 Latent 包与生成记录。 */}
       </div>
-
+      {inspectorOpen && !zen && <NodeInspector node={current} onClose={() => setInspectorOpen(false)} />}
     </div>
 
     {/*

@@ -1,7 +1,7 @@
 'use client';
 
 import type { MouseEvent } from 'react';
-import { Clock, Image as ImageIcon, Plus, Settings, Wand2, Workflow } from 'lucide-react';
+import { Clock, Image as ImageIcon, Maximize2, Plus, Settings, Wand2, Workflow } from 'lucide-react';
 
 /**
  * 画布左侧悬浮条。
@@ -93,7 +93,7 @@ export default function CanvasRail({
         aria-label="适应画布"
         data-tip="适应画布 · F"
       >
-        <span aria-hidden>✦</span>
+        <Maximize2 size={18} strokeWidth={1.8} aria-hidden />
       </button>
     </div>
   );

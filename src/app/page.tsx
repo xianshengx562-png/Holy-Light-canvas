@@ -42,6 +42,7 @@ import Starfield from '@/components/start/Starfield';
 import { isDesktop } from '@/lib/edition';
 import { useApi, useSession } from '@/lib/client';
 import '@/app/home.css';
+import '@/app/workspace-home.css';
 
 /*
  * 卡片的字段、封面怎么挑、右键菜单（打开 / 重命名 / 删除项目）—— 全在 `ProjectGrid` 里。
@@ -113,9 +114,7 @@ export default function Home() {
           {/* 侧栏的开关。它得待在页头里 —— 侧栏收起后整个没了，按钮不能跟着一起消失。 */}
           <SideNavToggle controlsId="home-sidebar" />
           <div>
-            <strong>创作空间</strong>
-            <br />
-            <small>{user ? '一句话开始，或者接着上次的项目' : '一句话开始 —— 登录后项目会存在你的账号下'}</small>
+            <strong>项目工作台</strong>
           </div>
         </div>
         {/*
@@ -143,13 +142,12 @@ export default function Home() {
           别在这里再写死一张卡片（「图片生成」那个占位就是靠它渲染出来的）。
         */}
         <div className="section-head home-section-head">
-          <h2><span className="home-section-index" aria-hidden>01</span><span className="home-section-label">Studio entries</span>从这里开始</h2>
-          <span className="muted">也可以直接选一种创作方式</span>
+          <h2>创作</h2>
         </div>
         <StartEntries />
 
         <div className="section-head home-section-head">
-          <h2><span className="home-section-index" aria-hidden>02</span><span className="home-section-label">Recent projects</span>最近项目</h2>
+          <h2>最近项目</h2>
           {user && <span className="muted">{list.length} 个项目</span>}
           {user && <Link className="button secondary small" href="/projects/new"><Plus size={14} />新建项目</Link>}
         </div>
