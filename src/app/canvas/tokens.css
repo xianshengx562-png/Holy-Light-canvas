@@ -1,78 +1,78 @@
 /* ============================================================
-   Holy Light Canvas — Design Tokens
-   深空蓝调 · 青色高光 · 清晰表面阶梯
+   Holy Light Canvas — 简约风
+   克制用色 · 大量留白 · 清晰层次
    ============================================================ */
 
 .canvas-studio,
 .flow-shell {
-  /* ---- 表面阶梯（5级，从深到浅）---- */
-  --cv-bg: #0A0E14;           /* 画布地板：深蓝墨 */
-  --cv-panel: #141921;         /* 侧边栏/面板 */
-  --cv-panel-2: #1C232E;       /* 次级面板 */
-  --cv-card: #222938;          /* 节点卡片 */
-  --cv-elev: #2A3342;          /* 浮起层 */
+  /* ---- 表面系统（3级，够用就好）---- */
+  --cv-bg: #FAFBFC;           /* 画布地板：极浅灰 */
+  --cv-panel: #FFFFFF;         /* 面板：纯白 */
+  --cv-card: #FFFFFF;          /* 节点卡片：纯白 */
+  --cv-elev: #FFFFFF;          /* 浮层：纯白 */
+  --cv-panel-2: #F5F6F7;       /* 次级面（极少用）*/
   
-  /* ---- 描边与分割线 ---- */
-  --cv-line-soft: rgba(56, 189, 248, 0.06);
-  --cv-line: rgba(56, 189, 248, 0.12);
-  --cv-line-strong: rgba(56, 189, 248, 0.22);
+  /* ---- 描边（细线主义）---- */
+  --cv-line-soft: rgba(0, 0, 0, 0.04);
+  --cv-line: rgba(0, 0, 0, 0.08);
+  --cv-line-strong: rgba(0, 0, 0, 0.12);
   
-  /* ---- 文字层级 ---- */
-  --cv-text: #E8EDF4;
-  --cv-dim: #B4BDCC;
-  --cv-mute: #8B95A8;
-  --cv-placeholder: #6B7689;
+  /* ---- 文字（4级灰阶）---- */
+  --cv-text: #1A1A1A;
+  --cv-dim: #4A4A4A;
+  --cv-mute: #888888;
+  --cv-placeholder: #AAAAAA;
   
-  /* ---- 强调色：电光青 ---- */
-  --cv-accent: #38BDF8;
-  --cv-accent-hover: #4FC9FF;
-  --cv-accent-ink: #0A0E14;
-  --cv-accent-soft: rgba(56, 189, 248, 0.1);
-  --cv-accent-line: rgba(56, 189, 248, 0.35);
-  --cv-accent-ring: rgba(56, 189, 248, 0.18);
-  --cv-accent-veil: rgba(56, 189, 248, 0.05);
-  --cv-accent-fill: linear-gradient(135deg, #38BDF8 0%, #0EA5E9 100%);
-  --cv-accent-fill-hover: linear-gradient(135deg, #4FC9FF 0%, #38BDF8 100%);
+  /* ---- 强调色：克制的蓝 ---- */
+  --cv-accent: #2563EB;
+  --cv-accent-hover: #1D4ED8;
+  --cv-accent-ink: #FFFFFF;
+  --cv-accent-soft: rgba(37, 99, 235, 0.06);
+  --cv-accent-line: rgba(37, 99, 235, 0.2);
+  --cv-accent-ring: rgba(37, 99, 235, 0.12);
+  --cv-accent-veil: rgba(37, 99, 235, 0.03);
+  --cv-accent-fill: #2563EB;
+  --cv-accent-fill-hover: #1D4ED8;
   
   /* ---- 语义色 ---- */
-  --cv-danger: #F87171;
-  --cv-danger-soft: rgba(248, 113, 113, 0.1);
-  --cv-danger-line: rgba(248, 113, 113, 0.35);
-  --cv-warn: #FBBF24;
-  --cv-warn-line: rgba(251, 191, 36, 0.4);
-  --cv-success: #34D399;
+  --cv-danger: #DC2626;
+  --cv-danger-soft: rgba(220, 38, 38, 0.06);
+  --cv-danger-line: rgba(220, 38, 38, 0.2);
+  --cv-warn: #F59E0B;
+  --cv-warn-line: rgba(245, 158, 11, 0.25);
+  --cv-success: #10B981;
   
   /* ---- 画布专属 ---- */
-  --cv-floor: var(--cv-floor-custom, #0A0E14);
-  --cv-dot: rgba(56, 189, 248, 0.08);
-  --cv-edge: var(--cv-edge-custom, #38BDF8);
-  --cv-edge-active: var(--cv-edge-active-custom, #4FC9FF);
+  --cv-floor: var(--cv-floor-custom, #FAFBFC);
+  --cv-dot: rgba(0, 0, 0, 0.06);
+  --cv-edge: var(--cv-edge-custom, #2563EB);
+  --cv-edge-active: var(--cv-edge-active-custom, #1D4ED8);
   
   /* ---- 表单控件 ---- */
-  --cv-field: #151B24;
-  --cv-select-bg: rgba(56, 189, 248, 0.08);
-  --cv-handle-bg: #2A3342;
-  --cv-handle-line: #8B95A8;
-  --cv-switch-off: #2A3342;
-  --cv-switch-knob: #E8EDF4;
+  --cv-field: #FFFFFF;
+  --cv-select-bg: rgba(37, 99, 235, 0.05);
+  --cv-handle-bg: #FFFFFF;
+  --cv-handle-line: #D1D5DB;
+  --cv-switch-off: #E5E7EB;
+  --cv-switch-knob: #FFFFFF;
   
   /* ---- 浮层 ---- */
-  --cv-float: rgba(28, 35, 46, 0.95);
-  --cv-float-strong: rgba(20, 25, 33, 0.98);
-  --cv-media-bg: #0A0E14;
-  --cv-media-solid: #000000;
-  --cv-media-scrim: rgba(0, 0, 0, 0.75);
-  --cv-lightbox: rgba(10, 14, 20, 0.92);
+  --cv-float: rgba(255, 255, 255, 0.98);
+  --cv-float-strong: rgba(255, 255, 255, 0.98);
+  --cv-media-bg: #FAFBFC;
+  --cv-media-solid: #FFFFFF;
+  --cv-media-scrim: rgba(0, 0, 0, 0.5);
+  --cv-lightbox: rgba(0, 0, 0, 0.85);
   
-  /* ---- 阴影系统 ---- */
-  --cv-shadow-1: 0 2px 4px rgba(0, 0, 0, 0.3), 0 8px 16px rgba(10, 14, 20, 0.4);
-  --cv-shadow-2: 0 4px 8px rgba(0, 0, 0, 0.35), 0 16px 32px rgba(10, 14, 20, 0.5);
-  --cv-shadow-3: 0 8px 16px rgba(0, 0, 0, 0.4), 0 32px 64px rgba(10, 14, 20, 0.6);
+  /* ---- 阴影（极轻，只用来分层）---- */
+  --cv-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.04), 0 2px 8px rgba(0, 0, 0, 0.06);
+  --cv-shadow-2: 0 2px 4px rgba(0, 0, 0, 0.05), 0 8px 16px rgba(0, 0, 0, 0.08);
+  --cv-shadow-3: 0 4px 8px rgba(0, 0, 0, 0.06), 0 16px 32px rgba(0, 0, 0, 0.1);
   --cv-node-shadow: var(--cv-shadow-1);
   
   /* ---- 节点专属 ---- */
   --cv-node-line: var(--cv-node-line-custom, var(--cv-line-strong));
-  --cv-node-opposite: #E8EDF4;
+  --cv-node-opposite: #FAFBFC;
   
   /* ---- 运行按钮 ---- */
   --cv-run-bg: var(--cv-accent-fill);
@@ -80,87 +80,79 @@
   --cv-run-ink: var(--cv-accent-ink);
   
   /* ---- 图标 ---- */
-  --cv-icon-dim: #6B7689;
+  --cv-icon-dim: #9CA3AF;
   
   /* ---- React Flow 小地图 ---- */
-  --xy-minimap-mask-background-color: rgba(10, 14, 20, 0.8);
-  --xy-minimap-node-background-color: #2A3342;
-  --xy-minimap-node-stroke-color: #38BDF8;
+  --xy-minimap-mask-background-color: rgba(250, 251, 252, 0.85);
+  --xy-minimap-node-background-color: #FFFFFF;
+  --xy-minimap-node-stroke-color: #2563EB;
   --xy-background-color: transparent;
   
-  /* ---- 几何尺寸 ---- */
-  --cv-r-sm: 6px;
-  --cv-r-md: 10px;
-  --cv-r-lg: 14px;
+  /* ---- 几何（更大的圆角）---- */
+  --cv-r-sm: 8px;
+  --cv-r-md: 12px;
+  --cv-r-lg: 16px;
   --cv-r-full: 999px;
 }
 
-/* ---- 浅色主题适配 ---- */
-[data-theme="light"] .canvas-studio,
-[data-theme="light"] .flow-shell {
-  --cv-bg: #F5F7FA;
-  --cv-panel: #FFFFFF;
-  --cv-panel-2: #F8F9FB;
-  --cv-card: #FFFFFF;
-  --cv-elev: #FFFFFF;
+/* ---- 深色模式 ---- */
+[data-theme="dark"] .canvas-studio,
+[data-theme="dark"] .flow-shell {
+  --cv-bg: #0F1419;
+  --cv-panel: #1A1F26;
+  --cv-card: #1A1F26;
+  --cv-elev: #222832;
+  --cv-panel-2: #151B22;
   
-  --cv-line-soft: rgba(14, 165, 233, 0.08);
-  --cv-line: rgba(14, 165, 233, 0.15);
-  --cv-line-strong: rgba(14, 165, 233, 0.25);
+  --cv-line-soft: rgba(255, 255, 255, 0.04);
+  --cv-line: rgba(255, 255, 255, 0.08);
+  --cv-line-strong: rgba(255, 255, 255, 0.12);
   
-  --cv-text: #1E293B;
-  --cv-dim: #475569;
-  --cv-mute: #64748B;
-  --cv-placeholder: #94A3B8;
+  --cv-text: #E8EAED;
+  --cv-dim: #B4B8BC;
+  --cv-mute: #888C90;
+  --cv-placeholder: #646668;
   
-  --cv-accent: #0EA5E9;
-  --cv-accent-hover: #0284C7;
-  --cv-accent-ink: #FFFFFF;
-  --cv-accent-soft: rgba(14, 165, 233, 0.08);
-  --cv-accent-line: rgba(14, 165, 233, 0.3);
-  --cv-accent-fill: linear-gradient(135deg, #0EA5E9 0%, #0284C7 100%);
-  --cv-accent-fill-hover: linear-gradient(135deg, #38BDF8 0%, #0EA5E9 100%);
+  --cv-accent: #60A5FA;
+  --cv-accent-hover: #93C5FD;
+  --cv-accent-ink: #0F1419;
+  --cv-accent-soft: rgba(96, 165, 250, 0.1);
+  --cv-accent-line: rgba(96, 165, 250, 0.25);
+  --cv-accent-fill: #60A5FA;
+  --cv-accent-fill-hover: #93C5FD;
   
-  --cv-floor: var(--cv-floor-custom, #F5F7FA);
-  --cv-dot: rgba(14, 165, 233, 0.12);
-  --cv-edge: var(--cv-edge-custom, #0EA5E9);
-  --cv-edge-active: var(--cv-edge-active-custom, #0284C7);
+  --cv-floor: var(--cv-floor-custom, #0F1419);
+  --cv-dot: rgba(255, 255, 255, 0.05);
+  --cv-edge: var(--cv-edge-custom, #60A5FA);
+  --cv-edge-active: var(--cv-edge-active-custom, #93C5FD);
   
-  --cv-field: #FFFFFF;
-  --cv-handle-bg: #FFFFFF;
-  --cv-handle-line: #94A3B8;
+  --cv-field: #151B22;
+  --cv-handle-bg: #222832;
+  --cv-handle-line: #4A4F55;
   
-  --cv-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(0, 0, 0, 0.08);
-  --cv-shadow-2: 0 2px 6px rgba(0, 0, 0, 0.08), 0 12px 28px rgba(0, 0, 0, 0.12);
-  --cv-shadow-3: 0 4px 10px rgba(0, 0, 0, 0.1), 0 24px 56px rgba(0, 0, 0, 0.18);
-  --cv-node-shadow: var(--cv-shadow-1);
+  --cv-shadow-1: 0 2px 4px rgba(0, 0, 0, 0.3), 0 4px 12px rgba(0, 0, 0, 0.25);
+  --cv-shadow-2: 0 4px 8px rgba(0, 0, 0, 0.35), 0 12px 24px rgba(0, 0, 0, 0.3);
+  --cv-shadow-3: 0 8px 16px rgba(0, 0, 0, 0.4), 0 24px 48px rgba(0, 0, 0, 0.35);
   
-  --xy-minimap-mask-background-color: rgba(245, 247, 250, 0.8);
-  --xy-minimap-node-background-color: #FFFFFF;
-  --xy-minimap-node-stroke-color: #0EA5E9;
+  --cv-float: rgba(26, 31, 38, 0.98);
+  --cv-media-bg: #0F1419;
+  
+  --xy-minimap-mask-background-color: rgba(15, 20, 25, 0.85);
+  --xy-minimap-node-background-color: #1A1F26;
+  --xy-minimap-node-stroke-color: #60A5FA;
 }
 
-/* ---- 画布背景渐变氛围 ---- */
+/* ---- 画布背景（纯净，不要渐变）---- */
 .cv-stage {
   background: var(--cv-floor);
-  position: relative;
 }
 
-.cv-stage::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(circle at 20% 30%, rgba(56, 189, 248, 0.05) 0%, transparent 40%), radial-gradient(circle at 80% 60%, rgba(14, 165, 233, 0.04) 0%, transparent 45%), radial-gradient(circle at 40% 80%, rgba(56, 189, 248, 0.03) 0%, transparent 50%);
-  pointer-events: none;
-  opacity: 0.6;
-}
-
-/* ---- 画布点阵 ---- */
+/* ---- 画布点阵（更稀疏）---- */
 .react-flow__background {
   background-image: radial-gradient(circle, var(--cv-dot) 1px, transparent 1px);
-  background-size: 24px 24px;
+  background-size: 32px 32px;
 }
 
-[data-theme="light"] .react-flow__background {
-  background-size: 20px 20px;
+[data-theme="dark"] .react-flow__background {
+  background-size: 28px 28px;
 }
