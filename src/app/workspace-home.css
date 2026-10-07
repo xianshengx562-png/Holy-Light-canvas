@@ -11,15 +11,42 @@
 .home .entry-card strong { font-size: var(--fs-4); }
 .home .entry-card .entry-cta { grid-column: 2; font-size: var(--fs-2); color: var(--text-mute); }
 .home .entry-card:hover { transform: none; background: var(--surface); }
-.home .home-projects { grid-template-columns: 1fr; gap: 0; }
-.home .home-project { grid-template-columns: 64px minmax(0, 1fr); align-items: center; gap: 16px; padding: 12px 16px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
-.home .home-project:hover { transform: none; background: var(--surface); }
-.home .home-project-thumb { width: 64px; height: 44px; aspect-ratio: auto; border: 1px solid var(--line); border-radius: 6px; }
-.home .home-project-open { display: none; }
-.home .home-project-body { padding: 0; gap: 6px; min-width: 0; }
-.home .home-project-body strong { font-size: var(--fs-4); }
-.home .home-project-body small { font-size: var(--fs-2); }
+
+/* 项目列表 - 使用瀑布流布局，不覆盖 project-grid.css */
+.home .home-project { 
+  /* 不设置 grid，让 column-count 生效 */
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+.home .home-project:hover { 
+  transform: translateY(-2px); 
+  background: var(--surface);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  border-color: var(--accent);
+}
+.home .home-project-thumb { 
+  width: 100%; 
+  aspect-ratio: 16/9;
+  border: 0;
+  border-radius: 0;
+}
+.home .home-project-body { 
+  padding: 16px; 
+  gap: 8px;
+}
+.home .home-project-body strong { 
+  font-size: var(--fs-4); 
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.home .home-project-body small { 
+  font-size: var(--fs-2); 
+}
 .home .home-watermark { display: none; }
+
 @media (max-width: 720px) {
   .home .entry-grid { grid-template-columns: 1fr; }
   .home .entry-card { border-right: 0; border-bottom: 1px solid var(--line); }

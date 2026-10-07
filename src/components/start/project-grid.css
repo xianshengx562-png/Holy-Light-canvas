@@ -40,33 +40,72 @@
   border-color: var(--accent);
 }
 
-.home-project-cover {
+/* 封面容器 */
+.home-project-thumb {
+  position: relative;
   width: 100%;
   aspect-ratio: 16 / 9;
   background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--mute);
+  overflow: hidden;
+}
+
+.home-project-thumb img {
+  width: 100%;
+  height: 100%;
   object-fit: cover;
   display: block;
 }
 
-.home-project-body {
-  padding: 16px;
+/* "打开 →" 提示 */
+.home-project-open {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 4px 10px;
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
+  font-size: 12px;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
 }
 
-.home-project-name {
+.home-project:hover .home-project-open {
+  opacity: 1;
+}
+
+/* 内容区域 */
+.home-project-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.home-project-body strong {
   font-size: 15px;
   font-weight: 600;
   color: var(--text);
-  margin: 0 0 8px;
+  margin: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.home-project-body small {
+  font-size: 13px;
+  color: var(--mute);
 }
 
 .home-when {
   font-size: 13px;
   color: var(--mute);
   font-style: normal;
-  display: block;
 }
 
 .home-when.fresh {
@@ -83,52 +122,70 @@
   cursor: pointer;
 }
 
-.home-project.picking::before {
-  content: '';
+.pg-pick {
   position: absolute;
-  top: 12px;
-  right: 12px;
-  width: 20px;
-  height: 20px;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
   border: 2px solid var(--line-strong);
-  border-radius: 4px;
+  border-radius: 6px;
   background: var(--surface);
+  display: grid;
+  place-items: center;
   z-index: 2;
   transition: all 0.2s ease;
 }
 
-.home-project.picking.picked::before {
+.home-project.picked .pg-pick {
   background: var(--accent);
   border-color: var(--accent);
+  color: white;
 }
 
-.home-project.picking.picked::after {
-  content: '✓';
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  width: 20px;
-  height: 20px;
-  display: grid;
-  place-items: center;
-  color: white;
-  font-size: 12px;
+/* 重命名输入框 */
+.pg-rename {
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 15px;
   font-weight: 600;
-  z-index: 3;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  outline: none;
+}
+
+.pg-rename:focus {
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
 }
 
 /* ============================================================
-   空状态占位图
+   空状态
    ============================================================ */
 
-.home-project-placeholder {
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  display: grid;
-  place-items: center;
-  background: var(--bg);
-  color: var(--mute);
+.empty {
+  text-align: center;
+  padding: 60px 20px;
+}
+
+.empty-icon {
   font-size: 48px;
+  margin-bottom: 16px;
+  opacity: 0.5;
+}
+
+.empty h3 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 8px;
+}
+
+.empty p {
+  font-size: 14px;
+  color: var(--mute);
+  margin: 0;
 }
 
 /* ============================================================
@@ -142,5 +199,10 @@
   
   .home-project:hover {
     transform: none;
+  }
+  
+  .home-project-open,
+  .pg-pick {
+    transition: none;
   }
 }

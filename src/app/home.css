@@ -41,78 +41,6 @@
 }
 
 /* ============================================================
-   瀑布流布局（项目卡片）
-   ============================================================ */
-.home-projects {
-  column-count: 3;
-  column-gap: 20px;
-  margin-top: 32px;
-}
-
-@media (max-width: 1200px) {
-  .home-projects {
-    column-count: 2;
-  }
-}
-
-@media (max-width: 768px) {
-  .home-projects {
-    column-count: 1;
-  }
-}
-
-.home-project {
-  break-inside: avoid;
-  page-break-inside: avoid;
-  margin-bottom: 20px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  overflow: hidden;
-  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
-  cursor: pointer;
-}
-
-.home-project:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-  border-color: var(--accent);
-}
-
-.home-project-cover {
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  background: var(--bg);
-  object-fit: cover;
-  display: block;
-}
-
-.home-project-body {
-  padding: 16px;
-}
-
-.home-project-name {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text);
-  margin: 0 0 8px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.home-project-time {
-  font-size: 13px;
-  color: var(--mute);
-  margin: 0;
-}
-
-.home-project-time.fresh {
-  color: var(--accent);
-  font-weight: 500;
-}
-
-/* ============================================================
    入口卡片网格（保留原有逻辑）
    ============================================================ */
 .entry-grid {
@@ -167,14 +95,19 @@
 /* ============================================================
    标题区
    ============================================================ */
-.home-section-title {
+.home-section-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.home-section-head h2 {
   font-size: 20px;
   font-weight: 600;
   color: var(--text);
-  margin: 0 0 24px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
+  margin: 0;
+  flex: 1;
 }
 
 .home-section-count {
@@ -214,15 +147,105 @@
 }
 
 /* ============================================================
+   骨架屏
+   ============================================================ */
+.home-skeleton {
+  padding: 24px 0;
+}
+
+.home-skeleton-tip {
+  text-align: center;
+  margin-bottom: 24px;
+  font-size: 14px;
+}
+
+.sk-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 20px;
+}
+
+.home-skeleton-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.home-skeleton-thumb {
+  width: 100%;
+  height: 160px;
+  background: var(--bg);
+  border-radius: 8px;
+  display: block;
+}
+
+.home-skeleton-line {
+  height: 16px;
+  background: var(--bg);
+  border-radius: 4px;
+  width: 60%;
+}
+
+.home-skeleton-line.wide {
+  width: 100%;
+}
+
+/* ============================================================
+   访客状态
+   ============================================================ */
+.home-guest {
+  max-width: 480px;
+  margin: 60px auto;
+}
+
+/* ============================================================
+   账号区域
+   ============================================================ */
+.home-account {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* ============================================================
+   水印
+   ============================================================ */
+.home-watermark {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  font-size: 11px;
+  color: var(--placeholder);
+  opacity: 0.3;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ============================================================
+   时间标签
+   ============================================================ */
+.home-when {
+  font-style: normal;
+  color: var(--mute);
+}
+
+.home-when.fresh {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+/* ============================================================
    动画（减少运动）
    ============================================================ */
 @media (prefers-reduced-motion: reduce) {
-  .home-project,
   .entry-card {
     transition: none;
   }
   
-  .home-project:hover,
   .entry-card:hover {
     transform: none;
   }
