@@ -78,6 +78,15 @@
   --cv-media-solid: #000000;
   --cv-media-scrim: rgba(0, 0, 0, 0.72);
   --cv-lightbox: rgba(0, 0, 0, 0.9);
+  /* 扩散渐变（2026-10-07 方向 D · 玻璃工坊，DESIGN.md §3.4）：
+     四道低饱和径向渐变落在画布地板上，营造天光氛围。
+     🔴 单点不透明度 ≤ 10%，只用在画布地板 —— 不进面板/卡片/按钮/文字。
+     配色取自节点类型色（雾蓝/灰粉/雾绿/沙黄），确保与整体色调协调。 */
+  --canvas-mesh:
+    radial-gradient(760px 520px at 18% 22%, rgba(143,163,196,.10), transparent 68%),
+    radial-gradient(680px 480px at 82% 30%, rgba(199,142,166,.08), transparent 68%),
+    radial-gradient(820px 560px at 62% 84%, rgba(143,188,164,.07), transparent 70%),
+    radial-gradient(560px 420px at 30% 78%, rgba(203,176,131,.06), transparent 70%);
 
   /* React Flow 的配色一律走它自己的 CSS 变量，JSX 里不再传 color / bgColor / nodeColor ——
      传了 props 就写进 *-props 变量，优先级压在变量前面，之后就再也覆盖不动了。 */
