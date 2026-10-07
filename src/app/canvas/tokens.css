@@ -1,439 +1,166 @@
-/* 画布工作台主题 —— 对齐 RunningHub 无限画布：
-   纯黑底 + 细点阵 · 节点标题在卡片外 · 参数选中时浮在卡片下方（文本节点直接写在正面）· 左侧节点轨道。
-   只作用于画布页（.canvas-studio / .flow-shell），不污染其它页面。
-
-   ⚠️ 2026-09-19 跟着全站换了皮：强调色从绿 #4ade80 换电光青 #2ee6c8
-   （2026-09-21 再换柠檬黄 #f5d34a；2026-09-22 再换墨绿 #4fb38a；
-   2026-09-29 再换雪蓝 #3ec6e0；同天二次改成**黑白** —— 强调色夜间是白 #f2f2f2、
-     日间是黑（接 --app-accent），面板链走中性灰阶，一支色相都不留）。
-   这一套 `--cv-*` 是**独立的一份**（不复用 globals 的 --accent 等），所以全站
-   换皮时这里必须手动同步一次 —— 漏掉的表现是「画布页还是黄的，其它页已经是绿的」。
-   ⚠️ 换配色（`data-palette`）也要在这里同步一份。
-   ⚠️ 2026-09-22：下面这整套是**夜间那一档**；日间那一档写在「画布跟着主题走」那一段，
-      全走 --app-* 别名（因此自动跟着配色走），两份要保持同一套语义 —— 加新令牌记得两边都补。 */
+/* ============================================================
+   Holy Light Canvas — Design Tokens
+   深空蓝调 · 青色高光 · 清晰表面阶梯
+   ============================================================ */
 
 .canvas-studio,
 .flow-shell {
-  /* ------------------------------------------------------------------
-     2026-10-07 方向 D · 玻璃工坊（见 DESIGN.md §3.1）。
-     四级明度从下往上排：**画布地板 < 节点卡 < 面板 < 顶栏/浮层**。
-     ⚠️ 画布地板（--cv-bg）刻意**不是纯黑但很深**：纯黑上落不出弥散渐变，
-        而提到中调灰又会让人误判生成结果的黑位 —— 取 #131417 这个折中。
-     ------------------------------------------------------------------ */
-  --cv-bg: #131417;
-  --cv-panel: #2a2c34;
-  --cv-panel-2: #31333c;
-  --cv-elev: #3a3c45;
-  --cv-line: rgba(255, 255, 255, 0.09);
-  --cv-line-soft: rgba(255, 255, 255, 0.055);
-  --cv-line-strong: rgba(255, 255, 255, 0.17);
-  /* 中文界面按 7:1 设防。这三个对 --cv-panel 实测：15.4 / 7.4 / 5.5。
-     ⚠️ --cv-mute 提过两档（#8f939e → #a6abb6）：压在最深的底上原来只有 3.57:1，
-        压在账户卡那种最亮的次级面上原来只有 4.3:1 —— 都不是"够不够好看"的问题，
-        是中文低对比下真的读不出来。 */
-  --cv-text: #f2f3f6;
-  --cv-dim: #bcbfc8;
-  --cv-mute: #a6abb6;
-  --cv-accent: #f2f2f2;
-  --cv-accent-ink: #0a0a0a;
-  --cv-danger: #f87171;
-  --cv-warn: #fb923c;
-  /* 画布地面与派生色：--cv-floor-custom / --cv-edge-custom / --cv-edge-active-custom
-     由 lib/appearance.ts 写到 <html> 上，只有用户自定义画布底色时才存在。 */
-  --cv-floor: var(--cv-floor-custom, var(--cv-bg));
-  --cv-edge: var(--cv-edge-custom, #3f3f46);
-  --cv-edge-active: var(--cv-edge-active-custom, #6f6f7a);
-  --cv-dot: rgba(255, 255, 255, 0.075);
-  --cv-field: #1e2026;
-  --cv-placeholder: #7b7f8a;
-  --cv-accent-hover: #ffffff;
-  /* 同 globals 那条：渐变只走背景那一路（画布里就是「运行」按钮那颗实心块）。 */
-  --cv-accent-fill: var(--cv-accent);
-  --cv-accent-fill-hover: var(--cv-accent-hover);
-  --cv-accent-soft: rgba(255, 255, 255, 0.1);
-  --cv-accent-line: rgba(255, 255, 255, 0.38);
-  --cv-accent-ring: rgba(255, 255, 255, 0.16);
-  --cv-accent-veil: rgba(255, 255, 255, 0.06);
-  --cv-select-bg: rgba(255, 255, 255, 0.08);
+  /* ---- 表面阶梯（5级，从深到浅）---- */
+  --cv-bg: #0A0E14;           /* 画布地板：深蓝墨 */
+  --cv-panel: #141921;         /* 侧边栏/面板 */
+  --cv-panel-2: #1C232E;       /* 次级面板 */
+  --cv-card: #222938;          /* 节点卡片 */
+  --cv-elev: #2A3342;          /* 浮起层 */
+  
+  /* ---- 描边与分割线 ---- */
+  --cv-line-soft: rgba(56, 189, 248, 0.06);
+  --cv-line: rgba(56, 189, 248, 0.12);
+  --cv-line-strong: rgba(56, 189, 248, 0.22);
+  
+  /* ---- 文字层级 ---- */
+  --cv-text: #E8EDF4;
+  --cv-dim: #B4BDCC;
+  --cv-mute: #8B95A8;
+  --cv-placeholder: #6B7689;
+  
+  /* ---- 强调色：电光青 ---- */
+  --cv-accent: #38BDF8;
+  --cv-accent-hover: #4FC9FF;
+  --cv-accent-ink: #0A0E14;
+  --cv-accent-soft: rgba(56, 189, 248, 0.1);
+  --cv-accent-line: rgba(56, 189, 248, 0.35);
+  --cv-accent-ring: rgba(56, 189, 248, 0.18);
+  --cv-accent-veil: rgba(56, 189, 248, 0.05);
+  --cv-accent-fill: linear-gradient(135deg, #38BDF8 0%, #0EA5E9 100%);
+  --cv-accent-fill-hover: linear-gradient(135deg, #4FC9FF 0%, #38BDF8 100%);
+  
+  /* ---- 语义色 ---- */
+  --cv-danger: #F87171;
   --cv-danger-soft: rgba(248, 113, 113, 0.1);
   --cv-danger-line: rgba(248, 113, 113, 0.35);
-  --cv-warn-line: rgba(251, 146, 60, 0.4);
-  --cv-icon-dim: #6a6e78;
-  --cv-handle-bg: #3a3c45;
-  --cv-handle-line: #8f939e;
-  --cv-switch-off: #3a3c45;
-  --cv-switch-knob: #d8dae0;
-  /* 浮层底（2026-10-07）：方向 D 要软分层，所以这两档比画布与卡片都亮，
-     浮层读成"架在台面上方的一块"。
-     🔴 **不透明度必须 ≥ 0.88**：Electron 合成层上「半透明/裁剪的祖先 + 底下有被缩放的图」
-     会被画成横纹（2026-10-06 在 CreativePresetPicker 上踩过一次，见 DESIGN.md §6）。
-     允许挂 backdrop-filter，但底色不许再往下压。 */
-  --cv-float: #31333c;
-  --cv-float-strong: #2a2c34;
-  --cv-run-bg: var(--cv-accent-fill);
-  --cv-run-bg-hover: var(--cv-accent-fill-hover);
-  --cv-run-ink: #0a0a0a;
-  /* 下面四个刻意不跟主题：它们垫在图片 / 视频底下或盖在上面，深底才保证画面与文字都读得清 */
-  --cv-media-bg: #0a0a0c;
+  --cv-warn: #FBBF24;
+  --cv-warn-line: rgba(251, 191, 36, 0.4);
+  --cv-success: #34D399;
+  
+  /* ---- 画布专属 ---- */
+  --cv-floor: var(--cv-floor-custom, #0A0E14);
+  --cv-dot: rgba(56, 189, 248, 0.08);
+  --cv-edge: var(--cv-edge-custom, #38BDF8);
+  --cv-edge-active: var(--cv-edge-active-custom, #4FC9FF);
+  
+  /* ---- 表单控件 ---- */
+  --cv-field: #151B24;
+  --cv-select-bg: rgba(56, 189, 248, 0.08);
+  --cv-handle-bg: #2A3342;
+  --cv-handle-line: #8B95A8;
+  --cv-switch-off: #2A3342;
+  --cv-switch-knob: #E8EDF4;
+  
+  /* ---- 浮层 ---- */
+  --cv-float: rgba(28, 35, 46, 0.95);
+  --cv-float-strong: rgba(20, 25, 33, 0.98);
+  --cv-media-bg: #0A0E14;
   --cv-media-solid: #000000;
-  --cv-media-scrim: rgba(0, 0, 0, 0.72);
-  --cv-lightbox: rgba(0, 0, 0, 0.9);
-  /* 扩散渐变（2026-10-07 方向 D · 玻璃工坊，DESIGN.md §3.4）：
-     四道低饱和径向渐变落在画布地板上，营造天光氛围。
-     🔴 单点不透明度 ≤ 10%，只用在画布地板 —— 不进面板/卡片/按钮/文字。
-     配色取自节点类型色（雾蓝/灰粉/雾绿/沙黄），确保与整体色调协调。 */
-  --canvas-mesh:
-    radial-gradient(760px 520px at 18% 22%, rgba(143,163,196,.10), transparent 68%),
-    radial-gradient(680px 480px at 82% 30%, rgba(199,142,166,.08), transparent 68%),
-    radial-gradient(820px 560px at 62% 84%, rgba(143,188,164,.07), transparent 70%),
-    radial-gradient(560px 420px at 30% 78%, rgba(203,176,131,.06), transparent 70%);
-
-  /* React Flow 的配色一律走它自己的 CSS 变量，JSX 里不再传 color / bgColor / nodeColor ——
-     传了 props 就写进 *-props 变量，优先级压在变量前面，之后就再也覆盖不动了。 */
-  /* 画布地板改画在 .cv-stage 上（见「主体」那段），React Flow 自己这层必须恒为透明 ——
-     它在 DOM 里排在背景图之后、同样是定位元素，谁在后谁盖在上面；只要它还是不透明底色，
-     用户上传的背景图就永远看不见（2026-09-21 修的「上传图片改变不了背景」）。 */
+  --cv-media-scrim: rgba(0, 0, 0, 0.75);
+  --cv-lightbox: rgba(10, 14, 20, 0.92);
+  
+  /* ---- 阴影系统 ---- */
+  --cv-shadow-1: 0 2px 4px rgba(0, 0, 0, 0.3), 0 8px 16px rgba(10, 14, 20, 0.4);
+  --cv-shadow-2: 0 4px 8px rgba(0, 0, 0, 0.35), 0 16px 32px rgba(10, 14, 20, 0.5);
+  --cv-shadow-3: 0 8px 16px rgba(0, 0, 0, 0.4), 0 32px 64px rgba(10, 14, 20, 0.6);
+  --cv-node-shadow: var(--cv-shadow-1);
+  
+  /* ---- 节点专属 ---- */
+  --cv-node-line: var(--cv-node-line-custom, var(--cv-line-strong));
+  --cv-node-opposite: #E8EDF4;
+  
+  /* ---- 运行按钮 ---- */
+  --cv-run-bg: var(--cv-accent-fill);
+  --cv-run-bg-hover: var(--cv-accent-fill-hover);
+  --cv-run-ink: var(--cv-accent-ink);
+  
+  /* ---- 图标 ---- */
+  --cv-icon-dim: #6B7689;
+  
+  /* ---- React Flow 小地图 ---- */
+  --xy-minimap-mask-background-color: rgba(10, 14, 20, 0.8);
+  --xy-minimap-node-background-color: #2A3342;
+  --xy-minimap-node-stroke-color: #38BDF8;
   --xy-background-color: transparent;
-  --xy-background-pattern-color: var(--cv-dot-custom, var(--cv-dot));
-  --xy-minimap-background-color: var(--cv-panel);
-  --xy-minimap-mask-background-color: rgba(0, 0, 0, 0.72);
-  --xy-minimap-node-background-color: #26262c;
-  --xy-minimap-node-stroke-color: #3f3f46;
-  /* 圆角（2026-10-07 方向 D）：比上一代大一档（9/5/11 → 14/10/20），
-     配合下面那三级真阴影 —— 圆角越大越需要阴影把它跟背景分开。 */
-  --cv-radius: 14px;
-  --cv-radius-sm: 10px;
-  --cv-radius-lg: 20px;
-  /* 字号台阶（2026-10-07，DESIGN.md §4）。画布这一套跟 globals 那份数值一致，
-     只是独立声明一份（画布的 --cv-* 从来不复用 globals 的变量）。
-     🔴 新增规则只许用这五个，不许再写裸 `calc(11.7px * var(--ui))`。 */
-  --cv-fs-1: calc(10.5px * var(--ui));
-  --cv-fs-2: calc(11.5px * var(--ui));
-  --cv-fs-3: calc(12.5px * var(--ui));
-  --cv-fs-4: calc(13.5px * var(--ui));
-  --cv-fs-5: calc(15px * var(--ui));
-  /* 平面风：阴影只留"贴边 + 一段很短的扩散"。原来那三档（尤其 3 的 0 24px 56px）
-     是一团朝四周散开的黑雾，一眼就看出"浮在空中"。变量名刻意不换 —— 全项目几十处在用。 */
-  /* 平面风（2026-09-23）：画布里的浮层 / 菜单 / 视口条一律不投影（1 与 3 直接置 none，
-     2 也不再给浮层用 —— 它们有实底 + 一根描边，够了）。
-     唯一留着的是节点卡片那道 --cv-node-shadow：节点是"压在地板上的一块面"，
-     深色地板上没有它容易跟地板糊在一起。它只给节点用，浮层不碰。
-
-  ⚠️ 2026-09-30 徐先要求「节点底部加点阴影，要一点立体感」→ 那道影从"只贴边"扩成
-     "贴边 + 一层往下坐的柔影"。**这是刻意往回走的一小步，不是退步**：
-     浮层仍然一律不投影，被加强的只有节点卡片这一道。别照着上面那段把它改回 1px。
-     设计要点：正偏移把影推向下边、**负 spread 把它收进卡片里** —— 少了负 spread
-     就是四周一团黑雾，那正是 09-23 要去掉的东西。
-     offset 必须等于 |spread|：影的下沿 = 卡片下沿 − |spread| + offset，只有两者
-     相等时下沿才与卡片下沿齐平（参考图就是齐平的），所以这两个数要一起动。
-     spread 取 −8 是照参考图的**横向**剖面反推的：参考在底部那一排，卡片左右边缘
-     处的 alpha 是中段的 0.31 倍，影比卡片外溢 6px。实测 −8 给出比值 0.19、
-     外溢 +8px —— 边上比参考略收一点，换来的是下面那条（晕淡掉一半）。
-
-     ⚠️ 上方会留一圈很淡的晕：影的上沿在卡片上沿下方 2|spread| 处，被 σ=15 一糊
-        就会溢出到卡片上方约 10px。实测（地板 255）上沿往上 2px 处：
-        |s|=4 时 alpha 0.071（差 18 级，看得见）；|s|=8 时 0.031（差 8 级，基本
-        看不出）。这是这个几何的固有副产品 —— 参考图也必然有，只是它那张图顶边
-        被裁掉了、量不到。**别为了消掉它去加大 spread**，那会先把两个下角弄没。
-
-     ⚠️ 深色地板是纯黑 #000000 —— 黑影落在纯黑上**一个像素都不会变**（实测节点
-        正下方 200x30 全是 (0,0,0)）。所以深色这边额外给了一道 inset 顶边高光：
-        光从上方来，卡片看上去是"被抬起来"的。那道黑影仍然留着 —— 用户在设置里
-        改过 canvasBg（不是纯黑）时它就生效了。 */
-  /* 🔴🔴 2026-10-07 方向 D：**三级真阴影全部启用**。
-     上面那段 09-23 / 09-30 的注释是上一代「平面风」的决定（三档置 none），
-     它在纯黑底 + 7% 白描边下已经不够用 —— 真机实测浮层跟画布连成一片、
-     「压在画布上」这个关系根本没建立。方向 D 要的就是软分层，所以三档给真值。
-     ⚠️ 别照着上面那段把它们改回 none；若确实要回到平面风，走用户设置里的配色档。 */
-  --cv-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.28), 0 4px 12px -4px rgba(0, 0, 0, 0.32);
-  --cv-shadow-2: 0 2px 6px rgba(0, 0, 0, 0.3), 0 12px 28px -8px rgba(0, 0, 0, 0.4);
-  --cv-shadow-3: 0 4px 10px rgba(0, 0, 0, 0.34), 0 24px 56px -12px rgba(0, 0, 0, 0.52);
-  /* 两层分工：上面那层贴边、管边界清楚；下面那层偏移大 + 扩散大 + 负 spread，
-     让它只从下沿往外散，是"坐在地板上"的那点立体感。
-     2026-10-07：地板不再是纯黑（#131417），那道黑影现在真的落得出来了，
-     所以 inset 顶边高光可以收淡一点（0.07 → 0.05），让卡片靠影而不是靠高光立体。 */
-  --cv-node-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 10px 30px -8px rgba(0, 0, 0, 0.55),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  /* 节点卡片自己的底色（2026-10-07）：比画布地板亮一档、比面板暗一档 ——
-     四级明度「地板 < 卡片 < 面板 < 浮层」的中间那一级。 */
-  --cv-card: #1e2026;
+  
+  /* ---- 几何尺寸 ---- */
+  --cv-r-sm: 6px;
+  --cv-r-md: 10px;
+  --cv-r-lg: 14px;
+  --cv-r-full: 999px;
 }
 
-/*
- * ---------- 画布节点的颜色（可以在设置里改） ----------
- *
- * 用户挑的是三件事：卡片底色 / 描边 / 强调色（选中态与卡片里的强调元素）。
- * JS 只往 <html> 上写三个原始色（`--cv-node-*-custom`）和一个明暗方向
- * （`data-node-tone`），其余全部在这里用 `color-mix` 派生 —— 理由和全站底色那套
- * 一样：防闪脚本里就不必再抄一遍明度算法，两边不会漂。
- *
- * ⚠️ 只能读 `-custom` 后缀的名字：它们写在 <html> 的行内样式上，而 .canvas-studio
- *    自己也声明着同名变量时**子树里的声明会盖掉祖先上的值**（画布底色那次已经踩过：
- *    自定义在画布上完全看不到）。
- */
-.canvas-studio,
-.flow-shell {
-  /* 2026-10-07：默认从 --cv-card(#1e2026) 取，不再是 --cv-panel ——
-     卡片属于画布那一层，比面板暗一档（四级明度的第二级）。 */
-  --cv-node-bg: var(--cv-node-bg-custom, var(--cv-card));
-  --cv-node-line: var(--cv-node-line-custom, var(--cv-line));
-  --cv-node-line-hover: var(--cv-node-line-hover-custom, var(--cv-line-strong));
-  --cv-node-accent: var(--cv-node-accent-custom, var(--cv-accent));
-  --cv-node-accent-ink: var(--cv-node-accent-ink-custom, var(--cv-accent-ink));
-  --cv-node-accent-ring: color-mix(in srgb, var(--cv-node-accent) 15%, transparent);
-  --cv-node-ink: var(--cv-node-ink-custom, var(--cv-text));
-  --cv-node-dim: var(--cv-node-dim-custom, var(--cv-dim));
-  --cv-node-mute: var(--cv-node-mute-custom, var(--cv-mute));
-  --cv-node-elev: var(--cv-node-elev-custom, var(--cv-elev));
-  --cv-node-field: var(--cv-node-field-custom, var(--cv-field));
-  /* 派生时往哪一头走。默认往白里提（夜间档）；日间档由「画布跟着主题走」那份改成往黑里推；
-     自定义了底色就由 data-node-tone 定。 */
-  --cv-node-opposite: #ffffff;
+/* ---- 浅色主题适配 ---- */
+[data-theme="light"] .canvas-studio,
+[data-theme="light"] .flow-shell {
+  --cv-bg: #F5F7FA;
+  --cv-panel: #FFFFFF;
+  --cv-panel-2: #F8F9FB;
+  --cv-card: #FFFFFF;
+  --cv-elev: #FFFFFF;
+  
+  --cv-line-soft: rgba(14, 165, 233, 0.08);
+  --cv-line: rgba(14, 165, 233, 0.15);
+  --cv-line-strong: rgba(14, 165, 233, 0.25);
+  
+  --cv-text: #1E293B;
+  --cv-dim: #475569;
+  --cv-mute: #64748B;
+  --cv-placeholder: #94A3B8;
+  
+  --cv-accent: #0EA5E9;
+  --cv-accent-hover: #0284C7;
+  --cv-accent-ink: #FFFFFF;
+  --cv-accent-soft: rgba(14, 165, 233, 0.08);
+  --cv-accent-line: rgba(14, 165, 233, 0.3);
+  --cv-accent-fill: linear-gradient(135deg, #0EA5E9 0%, #0284C7 100%);
+  --cv-accent-fill-hover: linear-gradient(135deg, #38BDF8 0%, #0EA5E9 100%);
+  
+  --cv-floor: var(--cv-floor-custom, #F5F7FA);
+  --cv-dot: rgba(14, 165, 233, 0.12);
+  --cv-edge: var(--cv-edge-custom, #0EA5E9);
+  --cv-edge-active: var(--cv-edge-active-custom, #0284C7);
+  
+  --cv-field: #FFFFFF;
+  --cv-handle-bg: #FFFFFF;
+  --cv-handle-line: #94A3B8;
+  
+  --cv-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(0, 0, 0, 0.08);
+  --cv-shadow-2: 0 2px 6px rgba(0, 0, 0, 0.08), 0 12px 28px rgba(0, 0, 0, 0.12);
+  --cv-shadow-3: 0 4px 10px rgba(0, 0, 0, 0.1), 0 24px 56px rgba(0, 0, 0, 0.18);
+  --cv-node-shadow: var(--cv-shadow-1);
+  
+  --xy-minimap-mask-background-color: rgba(245, 247, 250, 0.8);
+  --xy-minimap-node-background-color: #FFFFFF;
+  --xy-minimap-node-stroke-color: #0EA5E9;
 }
 
-:root[data-node-tone='light'] .canvas-studio,
-:root[data-node-tone='light'] .flow-shell {
-  --cv-node-opposite: #101215;
+/* ---- 画布背景渐变氛围 ---- */
+.cv-stage {
+  background: var(--cv-floor);
+  position: relative;
 }
 
-/* 卡片底色定下来 → 卡内的文字与次级面板顺着它的反方向推，字才压得住底色。 */
-:root[data-node-bg='custom'] .canvas-studio,
-:root[data-node-bg='custom'] .flow-shell {
-  --cv-node-ink: color-mix(in oklab, var(--cv-node-bg-custom) 6%, var(--cv-node-opposite));
-  --cv-node-dim: color-mix(in oklab, var(--cv-node-bg-custom) 48%, var(--cv-node-opposite));
-  --cv-node-mute: color-mix(in oklab, var(--cv-node-bg-custom) 66%, var(--cv-node-opposite));
-  --cv-node-elev: color-mix(in oklab, var(--cv-node-bg-custom) 90%, var(--cv-node-opposite));
-  --cv-node-field: color-mix(in oklab, var(--cv-node-bg-custom) 84%, var(--cv-node-opposite));
+.cv-stage::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 20% 30%, rgba(56, 189, 248, 0.05) 0%, transparent 40%), radial-gradient(circle at 80% 60%, rgba(14, 165, 233, 0.04) 0%, transparent 45%), radial-gradient(circle at 40% 80%, rgba(56, 189, 248, 0.03) 0%, transparent 50%);
+  pointer-events: none;
+  opacity: 0.6;
 }
 
-/* 描边 hover 时再往同一头推一格：深卡浅卡都一样，一律「往 opposite 那边走一点」。 */
-:root[data-node-line='custom'] .canvas-studio,
-:root[data-node-line='custom'] .flow-shell {
-  --cv-node-line-hover: color-mix(in oklab, var(--cv-node-line-custom) 55%, var(--cv-node-opposite));
+/* ---- 画布点阵 ---- */
+.react-flow__background {
+  background-image: radial-gradient(circle, var(--cv-dot) 1px, transparent 1px);
+  background-size: 24px 24px;
 }
 
-/* 画布的配色跟着 <html data-palette> 走（2026-09-22）。
-   这七份是**夜间那一档**（`--cv-accent` 是深底上的提亮色）。日间档不在这儿 ——
-   「画布跟着主题走」那段把 --cv-accent 接到 --app-accent 上，globals 自己已经按
-   data-palette 分好深色 / 浅色两档了，所以这里即使不写日间那一套也不会跑错色相。
-   （日间那份的选择器比这里高一级，夜间档不会被它碰到。） */
-[data-palette='amber'] .canvas-studio,
-[data-palette='amber'] .flow-shell {
-  --cv-accent: #e8b44a;
-  --cv-accent-hover: #f2c665;
-  --cv-accent-ink: #2a1e00;
-  --cv-accent-soft: rgba(232, 180, 74, 0.12);
-  --cv-accent-line: rgba(232, 180, 74, 0.38);
-  --cv-accent-ring: rgba(232, 180, 74, 0.15);
-  --cv-accent-veil: rgba(232, 180, 74, 0.07);
-  --cv-select-bg: rgba(232, 180, 74, 0.1);
-  --cv-run-bg: #e8b44a;
-  --cv-run-bg-hover: #f2c665;
-  --cv-run-ink: #2a1e00;
+[data-theme="light"] .react-flow__background {
+  background-size: 20px 20px;
 }
-
-[data-palette='indigo'] .canvas-studio,
-[data-palette='indigo'] .flow-shell {
-  --cv-accent: #8b9cf7;
-  --cv-accent-hover: #a5b2fa;
-  --cv-accent-ink: #0e1130;
-  --cv-accent-soft: rgba(139, 156, 247, 0.12);
-  --cv-accent-line: rgba(139, 156, 247, 0.38);
-  --cv-accent-ring: rgba(139, 156, 247, 0.15);
-  --cv-accent-veil: rgba(139, 156, 247, 0.07);
-  --cv-select-bg: rgba(139, 156, 247, 0.1);
-  --cv-run-bg: #8b9cf7;
-  --cv-run-bg-hover: #a5b2fa;
-  --cv-run-ink: #0e1130;
-}
-
-[data-palette='graphite'] .canvas-studio,
-[data-palette='graphite'] .flow-shell {
-  --cv-accent: #b6bec7;
-  --cv-accent-hover: #c9cfd6;
-  --cv-accent-ink: #14181c;
-  --cv-accent-soft: rgba(182, 190, 199, 0.12);
-  --cv-accent-line: rgba(182, 190, 199, 0.38);
-  --cv-accent-ring: rgba(182, 190, 199, 0.15);
-  --cv-accent-veil: rgba(182, 190, 199, 0.07);
-  --cv-select-bg: rgba(182, 190, 199, 0.1);
-  --cv-run-bg: #b6bec7;
-  --cv-run-bg-hover: #c9cfd6;
-  --cv-run-ink: #14181c;
-}
-
-/* 画布的渐变配色（只写深色那一档 —— 画布恒深色）。 */
-[data-palette='aurora'] .canvas-studio,
-[data-palette='aurora'] .flow-shell {
-  --cv-accent: #6f95ef;
-  --cv-accent-hover: #8aa8f5;
-  --cv-accent-ink: #0b1226;
-  --cv-accent-soft: rgba(111, 149, 239, 0.12);
-  --cv-accent-line: rgba(111, 149, 239, 0.38);
-  --cv-accent-ring: rgba(111, 149, 239, 0.15);
-  --cv-accent-veil: rgba(111, 149, 239, 0.07);
-  --cv-select-bg: rgba(111, 149, 239, 0.1);
-  --cv-accent-fill: linear-gradient(100deg, #34b98d 0%, #6b7ef7 100%);
-  --cv-accent-fill-hover: linear-gradient(100deg, #46cb9d 0%, #8291fa 100%);
-  --cv-run-bg: var(--cv-accent-fill);
-  --cv-run-bg-hover: var(--cv-accent-fill-hover);
-  --cv-run-ink: #0b1226;
-}
-
-[data-palette='sunset'] .canvas-studio,
-[data-palette='sunset'] .flow-shell {
-  --cv-accent: #f2896f;
-  --cv-accent-hover: #f7a482;
-  --cv-accent-ink: #2b0f0a;
-  --cv-accent-soft: rgba(242, 137, 111, 0.12);
-  --cv-accent-line: rgba(242, 137, 111, 0.38);
-  --cv-accent-ring: rgba(242, 137, 111, 0.15);
-  --cv-accent-veil: rgba(242, 137, 111, 0.07);
-  --cv-select-bg: rgba(242, 137, 111, 0.1);
-  --cv-accent-fill: linear-gradient(100deg, #f0913f 0%, #e0508c 100%);
-  --cv-accent-fill-hover: linear-gradient(100deg, #f7a75c 0%, #ec6ea1 100%);
-  --cv-run-bg: var(--cv-accent-fill);
-  --cv-run-bg-hover: var(--cv-accent-fill-hover);
-  --cv-run-ink: #2b0f0a;
-}
-
-[data-palette='ocean'] .canvas-studio,
-[data-palette='ocean'] .flow-shell {
-  --cv-accent: #5a9ceb;
-  --cv-accent-hover: #76b0f0;
-  --cv-accent-ink: #081326;
-  --cv-accent-soft: rgba(90, 156, 235, 0.12);
-  --cv-accent-line: rgba(90, 156, 235, 0.38);
-  --cv-accent-ring: rgba(90, 156, 235, 0.15);
-  --cv-accent-veil: rgba(90, 156, 235, 0.07);
-  --cv-select-bg: rgba(90, 156, 235, 0.1);
-  --cv-accent-fill: linear-gradient(100deg, #2ea9c8 0%, #4f6ef2 100%);
-  --cv-accent-fill-hover: linear-gradient(100deg, #45bcd8 0%, #6b85f7 100%);
-  --cv-run-bg: var(--cv-accent-fill);
-  --cv-run-bg-hover: var(--cv-accent-fill-hover);
-  --cv-run-ink: #081326;
-}
-
-/* ===================== 画布跟着主题走：日间 / 夜间两套固定预设 =====================
-
-   三轮演变 —— 三次都是徐先提的，记下来免得第 N 次又绕回去：
-
-   1. 最早画布是另一套东西：整套 --cv-* 恒深色，连套在外面的那层壳（顶栏 / 左轨道 /
-      抽屉 …）也不跟主题走 —— 切「日间」主界面白了，画布页还是一整块深色。
-   2. 2026-09-22 第二次改：把**外壳**拉回主题，做法是逐个代表性元素点名、在它自己
-      身上重写一遍 --cv-*。画布内容与节点卡片**刻意留在深色** —— 当时的判断是
-      "节点铺在画布上，深色护眼"。
-   3. 2026-09-22 第三次（就是这份）：徐先要的是「画布节点的颜色和背景也要改变」，
-      而且「日间和夜间是固定预设值」。于是画布不再有例外 —— 地板、点阵、连线、
-      节点卡片、小地图**全部跟着主题分两档**。上面那张逐个点名的名单因此**删掉**了：
-      这里直接写在 .flow-shell 上，整棵子树一起换，外壳天然也在里面。
-
-   做法：自定义属性是**继承**的 —— 在某棵子树的根上重写一份 --cv-*，整棵子树就换了取值，
-   下面几百条规则一条都不用动。这条边界正对着以前记的那个坑「自己也声明着同名变量时会
-   盖掉祖先上的值」：那时候是踩它，现在是靠它。
-
-   唯一还要额外点名的是 .cv-menu / .cv-fpk：它们可能被 portal 到 <body> 上，
-   那种情况认不到 .flow-shell 这个祖先，会拿不到任何 --cv-*（终值掉回初始值）。
-
-   值一律写 --app-* 别名而不是写死浅色：它们指向 globals.css 那套语义令牌，
-   于是画布同时跟着 **7 套配色** 和「主界面自定义底色 / 强调色」走 ——
-   不用每套配色再抄一份，改了主界面底色画布也会跟着动。
-
-   自定义仍然压在上面：--cv-node-bg 读 `--cv-node-bg-custom, <主题那一档>`、
-   --cv-floor 读 `--cv-floor-custom, <主题那一档>`。换主题只是换那个 fallback，
-   用户挑过的色**不会被丢掉** —— appearance 里那几个字符串是不是 null 才是
-   "有没有自定义"的唯一判据，而日间 / 夜间切换不碰它们。
-
-   刻意**留深**的几支：--cv-media-* 垫在图片视频底下、--cv-lightbox 是看大图的遮罩 ——
-   浅了画面上的字就读不清了，跟"第几档主题"无关。 */
-html[data-theme='light'] .canvas-studio,
-html[data-theme='light'] .flow-shell,
-html[data-theme='light'] .cv-menu,
-html[data-theme='light'] .cv-fpk,
-html[data-theme='light'] .cv-cpk,
-html[data-theme='light'] .cv-skill-mask {
-  /* ---- 壳、面板、卡片：一律接全站语义令牌 ---- */
-  --cv-bg: var(--app-bg);
-  --cv-panel: var(--app-surface);
-  --cv-panel-2: var(--app-surface-2);
-  --cv-elev: var(--app-surface-3);
-  --cv-line: var(--app-line);
-  --cv-line-soft: var(--app-line);
-  --cv-line-strong: var(--app-line-strong);
-  --cv-text: var(--app-text);
-  --cv-dim: var(--app-text-dim);
-  --cv-mute: var(--app-text-mute);
-  --cv-field: var(--app-field);
-  --cv-placeholder: var(--app-text-mute);
-  --cv-accent: var(--app-accent);
-  --cv-accent-hover: var(--app-accent-hover);
-  --cv-accent-ink: var(--app-accent-ink);
-  /* 半透明那几档 globals 没给别名，从 --app-accent 现场掺出来。 */
-  --cv-accent-soft: color-mix(in srgb, var(--app-accent) 12%, transparent);
-  --cv-accent-line: color-mix(in srgb, var(--app-accent) 38%, transparent);
-  --cv-accent-ring: color-mix(in srgb, var(--app-accent) 15%, transparent);
-  --cv-accent-veil: color-mix(in srgb, var(--app-accent) 7%, transparent);
-  --cv-select-bg: color-mix(in srgb, var(--app-accent) 10%, transparent);
-  --cv-danger: var(--app-danger);
-  --cv-danger-soft: var(--app-danger-soft);
-  --cv-danger-line: var(--app-danger-line);
-  --cv-warn: var(--app-warn);
-  --cv-warn-line: var(--app-warn-line);
-  --cv-float: var(--app-surface-glass);
-  --cv-float-strong: var(--app-surface-glass);
-  /* 2026-10-07：日间也要三级真阴影，只是压得比夜间淡得多 ——
-     浅底上一点点黑就有，按夜间那个量级会糊成一团脏边。 */
-  --cv-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.06), 0 4px 12px -4px rgba(0, 0, 0, 0.08);
-  --cv-shadow-2: 0 2px 6px rgba(0, 0, 0, 0.08), 0 12px 28px -8px rgba(0, 0, 0, 0.12);
-  --cv-shadow-3: 0 4px 10px rgba(0, 0, 0, 0.1), 0 24px 56px -12px rgba(0, 0, 0, 0.18);
-  /* 🔴 日间必须自己给一份卡片底色：深色那份是 #1e2026，不覆盖的话
-     浅色主题下节点卡会是**一块深灰**，跟白地板撞出极强的违和感。 */
-  --cv-card: var(--app-surface);
-  /* 日间：地板比卡片暗不了多少，节点那道影反而更要留（浅底上没影＝卡片像贴在地板上的纸片）。 */
-  /* 与深色那边同一套结构，只是底色亮、要压得更淡。日间地板比卡片暗不了多少，
-     影反而更要留 —— 浅底上没影，卡片就像贴在地板上的一张纸片。 */
-  /* 这几个数是**照着参考图的灰度剖面反推**的，不是随手写的：blur 30 对应 σ≈15，
-     正好复现出参考那条"dy=10 处还有 0.084"的长尾巴（前两版 16 / 18 都散得太早，实测 13px / 16px 就没了）。
-     spread 必须负（理由见深色那段）。取 −8、offset 取 8 —— 两者绝对值相等，
-     影的下沿才与卡片下沿齐平；这两个数要一起动，只改一个会把整条影挪位。 */
-  --cv-node-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 8px 30px -8px rgba(0, 0, 0, 0.28);
-
-  /* ---- 画布地板、点阵、连线：这三支没有对应的全站语义令牌（画布专有），日间自成一档 ----
-     ⚠️ `-custom` 那条路无论如何都不能丢：它写在 <html> 的行内样式上，优先级最高 ——
-        用户挑过的色必须仍然压得住「换主题」（这就是"自定义是单独选项"的落点）。 */
-  --cv-floor: var(--cv-floor-custom, var(--cv-bg));
-  --cv-dot: rgba(0, 0, 0, 0.18);
-  --cv-edge: var(--cv-edge-custom, #b8b8b8);
-  --cv-edge-active: var(--cv-edge-active-custom, #8f8f8f);
-  --cv-icon-dim: #8a8a8a;
-  --cv-handle-bg: #ffffff;
-  --cv-handle-line: #a1a1aa;
-  --cv-switch-off: #d4d4d8;
-  --cv-switch-knob: #ffffff;
-  /* 节点描边比面板描边要有存在感：卡片（白）压在地板（浅灰）上，差的就是这一根线。
-     默认那支 --cv-line 在这儿太淡，卡片边界会化进地板里。 */
-  --cv-node-line: var(--cv-node-line-custom, var(--app-line-strong));
-  /* 生成键：底色走 --cv-accent-fill（跟着配色），压在上面的字用日间那支 --app-accent-ink
-     （日间强调色是深的，夜间那份写死的深色字会糊成一片）。 */
-  --cv-run-ink: var(--app-accent-ink);
-  /* 节点卡内那几档派生色往**黑里**推（夜间档往白里提）。 */
-  --cv-node-opposite: #101215;
-  /* 小地图那三个是 React Flow 自己的变量名，一样要跟着换档。 */
-  --xy-minimap-mask-background-color: rgba(15, 15, 20, 0.12);
-  --xy-minimap-node-background-color: #e4e4e7;
-  --xy-minimap-node-stroke-color: #b4b4bd;
-}
-
-/* （2026-09-21）以前这里只在「开了背景图」时才把 --xy-background-color 改成透明，但真正盖住
-   背景图的是 `.flow-shell .cv-stage .react-flow { background: var(--cv-floor) }` 那条 ——
-   它比 React Flow 自带规则的特异度高，改变量压不住它。现在地板统一画在 .cv-stage 上、
-   React Flow 那层恒透明，这条规则也就用不着了。 */
-
-/* ===================== 平面风（2026-09-23）=====================
- * 这一块**排在文件最后**才起作用（见文末「平面风 · 收尾」那一节）。
- *
- * ⚠️ 2026-09-23 踩过一次：它原来写在这儿（文件 342 行），选择器是 `.flow-shell .cv-hint`
- *    这种 (0,2,0)，而 .cv-hint / .cv-vp-bar 自己的规则也在 (0,2,0) —— 特异性打平，
- *    **排在后面的赢**，于是它们那几行 `backdrop-filter: blur(8px|10px)` 原封不动地生效，
- *    探针报"主视口条 / 左下提示条还带着毛玻璃"。这不是漏了选择器，是**排错了位置**。
- *    所以：任何"要去掉某个属性"的取消块，只能写在被取消的规则**之后**。 */
