@@ -1,4 +1,4 @@
-﻿/* 外观设置：主题模式 + 画布底色。
+/* 外观设置：主题模式 + 画布底色。
    这套偏好只存在浏览器 localStorage 里（不发数据库）——它是设备级 UI 偏好，
    登录页也要能生效，走服务端存储反而要读库、要迁移，收益不划算。 */
 import { syncTitlebarTheme } from '@/lib/desktop-titlebar';
@@ -588,6 +588,7 @@ export function applyAppearance(appearance: Appearance, prefersDark: boolean): v
       '--cv-node-accent-ink-custom',
       isLightColor(appearance.nodeAccent) ? '#14181c' : '#ffffff',
     );
+  }
 
   /* 鐢诲竷涓婚棰勮 */
   if (appearance.canvasTheme) {
