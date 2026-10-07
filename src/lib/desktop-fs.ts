@@ -8,6 +8,7 @@
 export type DesktopApi = {
   pickFile?: (options?: { title?: string; filters?: { name: string; extensions: string[] }[] }) => Promise<string | null>;
   pickFolder?: (options?: { title?: string; defaultPath?: string }) => Promise<string | null>;
+  pickFiles?: (options?: { title?: string; filters?: { name: string; extensions: string[] }[] }) => Promise<string[]>;
   openFolder?: (dir: string) => Promise<{ ok: boolean; message: string }>;
   /** 桌面版恒为 false：单窗口 hash 路由下，开新窗口只会得到一个没有 hash 的白页。 */
   canOpenWindow?: boolean;
@@ -25,6 +26,40 @@ export type DesktopApi = {
   /** 上一版 Holy Light画布自己装的 `frame_*`（见 `LEGACY_EXTENSIONS`）。 */
   comfyuiLegacyExtensions?: (payload?: { dir?: string }) => Promise<{ ok: boolean; comfyuiDir: string; legacy: ComfyuiLegacyExtensionView[]; message?: string }>;
   comfyuiRemoveLegacyExtension?: (payload: { id: string; dir?: string }) => Promise<{ ok: boolean; comfyuiDir: string; legacy: ComfyuiLegacyExtensionView[]; message: string }>;
+  /** 创作预设的导入 / 列表 / 删组（2026-10-07，见 `electron/main/preset-import.ts`）。**会写数据目录**。 */
+  presetImport?: (payload: { dir?: string; files?: string[]; category: string }) => Promise<PresetImportRunResult>;
+  presetImportList?: () => Promise<PresetImportManifestView>;
+  presetImportRemove?: (groupId: string) => Promise<{ ok: boolean; message: string }>;
+};
+
+/** 一次导入的结果。与主进程 `preset-import.ts` 的 `PresetImportResult` 一致。 */
+export type PresetImportRunResult = {
+  ok: boolean;
+  message: string;
+  group: { id: string; name: string; source: string; importedAt: string; count: number } | null;
+  scanned: number;
+  imported: number;
+  images: number;
+  skipped: string[];
+};
+
+/** 已导入的整份清单。 */
+export type PresetImportManifestView = {
+  version: number;
+  groups: { id: string; name: string; source: string; importedAt: string; count: number }[];
+  presets: ImportedPresetView[];
+};
+
+/** 一条导入的预设（形状与 `CreativePreset` 对齐，`normalizePreset` 认得下）。 */
+export type ImportedPresetView = {
+  id: string;
+  kind: 'style';
+  category: string;
+  name: string;
+  description: string;
+  prompt: string;
+  preview: string;
+  group: string;
 };
 
 /** 与 preload 那边 `ComfyuiStatus` 保持一致。 */
@@ -67,6 +102,20 @@ export function pickFilePath(options: { title?: string; filters?: { name: string
 /** 界面要不要显示「选一个文件」这个按钮（web 版没有主进程，弹不出系统框）。 */
 export function canPickFile(): boolean {
   return Boolean(desktopApi()?.pickFile);
+}
+
+/**
+ * 打开系统文件选择框，**一次选多个**，返回绝对路径数组。
+ *
+ * 加它是为了导入创作预设：ComfyUI-Easy-Use 那批 styles 是按分类拆成几十个 json 的，
+ * 一个一个选不现实。取消返回空数组 —— 与「没选到」是同一回事，调用方不必区分。
+ */
+export function pickFilesPath(
+  options: { title?: string; filters?: { name: string; extensions: string[] }[] } = {},
+): Promise<string[]> {
+  const api = desktopApi();
+  if (!api?.pickFiles) return Promise.resolve([]);
+  return api.pickFiles(options).catch(() => []);
 }
 
 /**
@@ -306,4 +355,72 @@ export function canManageComfyuiExtensions(): boolean {
  */
 export function canOpenNewWindow(): boolean {
   return Boolean(desktopApi()?.canOpenWindow);
+}
+
+/* ------------------------------------------------------------------ *
+ * 创作预设的导入（2026-10-07）
+ * ------------------------------------------------------------------ */
+
+/** 界面上要不要显示「导入预设」那个入口 —— 只有桌面版读得到本机目录、也写得了数据目录。 */
+export function canImportPresets(): boolean {
+  return Boolean(desktopApi()?.presetImport);
+}
+
+/** web 版的空清单（导入这种事本来就没有「半可用」的状态）。 */
+const EMPTY_MANIFEST: PresetImportManifestView = { version: 1, groups: [], presets: [] };
+
+/**
+ * 查已导入的预设。
+ *
+ * 🔴 读失败**一律当「没有」**，绝不抛：这是面板打开时顺带做的一次查询，
+ * 它炸了就是「整个预设面板打不开」，而导入的预设本来就是可选项。
+ */
+export async function presetImportList(): Promise<PresetImportManifestView> {
+  const api = desktopApi();
+  if (!api?.presetImportList) return EMPTY_MANIFEST;
+  try {
+    const result = await api.presetImportList();
+    if (!result || !Array.isArray(result.groups) || !Array.isArray(result.presets)) return EMPTY_MANIFEST;
+    return { version: 1, groups: result.groups, presets: result.presets };
+  } catch {
+    return EMPTY_MANIFEST;
+  }
+}
+
+/**
+ * 导入一批预设。
+ *
+ * ⚠️ 这一趟**会搬预览图**，88 MB 级别要几十秒 —— 调用方必须先把按钮置成「正在导入…」，
+ * 否则用户会以为卡死了（而且 IPC 在这期间是挂着的一趟，界面也没法靠别的请求感知进度）。
+ *
+ * `message` 一定要显示出来：里面写着「导入了多少条 / 搬了多少张图 / 几条没图」，
+ * 那是用户判断「这次到底成没成」的唯一依据。
+ */
+export async function presetImport(payload: {
+  dir?: string; files?: string[]; category: string;
+}): Promise<PresetImportRunResult> {
+  const api = desktopApi();
+  if (!api?.presetImport) {
+    return { ok: false, message: '只有桌面版能导入本机预设。', group: null, scanned: 0, imported: 0, images: 0, skipped: [] };
+  }
+  try {
+    return await api.presetImport(payload);
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : '导入失败。',
+      group: null, scanned: 0, imported: 0, images: 0, skipped: [],
+    };
+  }
+}
+
+/** 删掉一组导入的预设（连它搬进来的图一起）。**会删文件**，所以要用户点确认。 */
+export async function presetImportRemove(groupId: string): Promise<{ ok: boolean; message: string }> {
+  const api = desktopApi();
+  if (!api?.presetImportRemove) return { ok: false, message: '只有桌面版能删除导入的预设。' };
+  try {
+    return await api.presetImportRemove(groupId);
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : '删除失败。' };
+  }
 }

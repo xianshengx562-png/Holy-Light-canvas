@@ -31,8 +31,14 @@ import { useRef, useState, type ReactNode } from 'react';
 import { apiPost } from '@/lib/client';
 import { useApi } from '@/lib/client';
 import { customEngineVisible } from '@/lib/providers/custom-visible';
-import { ArrowUp, ChevronDown, Download, Loader, Plus, SlidersHorizontal, Sparkles } from 'lucide-react';
+import { ArrowUp, ChevronDown, Download, Loader, Plus, SlidersHorizontal, Sparkles, Wand2, X } from 'lucide-react';
 import type { NodeData } from './types';
+import {
+  CREATIVE_KIND_LABEL, creativeKindsFor, creativePicksFrom, picksOf, picksOfKind, togglePickIn,
+  type CreativePreset, type CreativePresetKind,
+} from './creativePresets';
+import CreativePresetPicker from './CreativePresetPicker';
+import { readPresetFavorites, writePresetFavorites } from '@/lib/creativePresetStore';
 import {
   ASPECT_RATIOS, DEFAULT_RATIO, IMAGE2_FIXED_RATIO, IMAGE2_RATIOS, IMAGE2_RESOLUTIONS, IMAGE2_SIZE_AUTO,
   IMAGE_DEFAULTS, IMAGE_SIZE_MODES, INSTANCE_TYPE_OPTIONS, MAX_BATCH, MAX_CFG, MAX_CUSTOM_SIDE,
@@ -123,6 +129,24 @@ type AppField = {
  * 这个问题从结构上就不存在了。`NodeParamBar` 那份仍然用哨兵值（它还是原生下拉）。
  */
 
+/**
+ * 预设标签上那张小图（2026-10-07）。
+ *
+ * 🔴 运镜的 `preview` 是 **.mp4**，`<img>` 根本显示不了 —— 必须用它的静帧 `poster`。
+ * 直接拿 preview 去当 src 的话，标签上就是一个永远加载不出来的破图占位。
+ *
+ * 没有图（老数据、导入时那张图没搬成功）就返回空串：标签退化成纯文字胶囊，
+ * 而不是挂一个破图 —— 「没有预览」不构成「这条预设不可用」。
+ */
+function presetThumbSrc(preset: CreativePreset): string {
+  const poster = String(preset.poster || '').trim();
+  if (poster) return poster;
+  const preview = String(preset.preview || '').trim();
+  if (!preview) return '';
+  if (/\.(mp4|webm|mov|m4v)$/i.test(preview)) return '';
+  return preview;
+}
+
 export default function GenerateDock({ data, nodeId, anchor }: {
   data: NodeData;
   /** 挂在哪个节点上 —— 只给探针 / 排查看，业务逻辑一概不用它。 */
@@ -137,6 +161,36 @@ export default function GenerateDock({ data, nodeId, anchor }: {
   /** 「超清」那一颗胶囊自己的弹层（不与参数摘要共用一个开关：两个都开着会互相盖住）。 */
   const [upPop, setUpPop] = useState(false);
   const running = data.status === 'running';
+  /*
+   * 创作预设（2026-10-06，从 AIFISHER 迁移）：挑中的风格 / 滤镜 / 运镜。
+   *
+   * 🔴 这一排按钮**只在生成节点上出现**（`creativeKindsFor` 给空数组的节点一个都不显示）——
+   * 参数条里没有的位置它也不该有。运镜只对视频生成节点开放。
+   */
+  const presetKinds = creativeKindsFor(kind);
+  const presetPicks = creativePicksFrom(data);
+  /*
+   * 已选的那几档，**按固定顺序**（风格 → 滤镜 → 运镜）—— 提示词框里那排标签就照这个顺序排。
+   *
+   * 为什么顺序要钉死而不是照 `Object.keys()`：对象键的顺序在老画布 / 手改过的 JSON 上
+   * 不一定是我们写的那个，同一个节点今天显示「风格、运镜」明天显示「运镜、风格」，
+   * 用户会以为自己改过什么。`picksOf()` 是界面显示与拼提示词共用的那一处，这里也走它。
+   */
+  const pickedPresets = picksOf(presetPicks);
+  /** 正开着哪个面板；`null` = 没开。 */
+  const [presetOpen, setPresetOpen] = useState<CreativePresetKind | null>(null);
+  /*
+   * 收藏只存本机（跟 AIFISHER 一样，不进画布 JSON）。用 state 存是为了点星标立刻有反馈；
+   * 每次改动直接落 localStorage，不额外走接口 —— 它太小了，为它加一条路由不值当。
+   */
+  const [presetFavorites, setPresetFavorites] = useState<string[]>(() => readPresetFavorites());
+  const togglePresetFavorite = (id: string) => {
+    setPresetFavorites(current => {
+      const next = current.includes(id) ? current.filter(item => item !== id) : [...current, id];
+      writePresetFavorites(next);
+      return next;
+    });
+  };
 
   /*
    * 自定义接口清单（2026-09-21）。
@@ -1477,14 +1531,89 @@ export default function GenerateDock({ data, nodeId, anchor }: {
       */}
       <div className="cv-dock-scroll">
         {slotRow}
-        <textarea
-          className="cv-dock-input nodrag nowheel"
-          data-dock-prompt=""
-          aria-label="提示词"
-          placeholder="描述你想要生成的内容"
-          value={String(data.text || '')}
-          onChange={event => data.onText?.(event.target.value)}
-        />
+        {/*
+          提示词**框**（2026-10-07 徐先：「选择之后可以添加到提示词，以标签的形式出现」）。
+
+          原来这里是一个裸 `<textarea>`（`background: transparent; border: 0`），
+          挑了预设之后用户在框里**什么都看不见**，只能靠下面那排按钮上的小字知道「选过了」。
+          现在框里上半部分是**已选预设的标签**（缩略图 + 档位 + 名字 + 一个 ×），
+          下半部分才是自己写的那句正文 —— 看上去就是「这句提示词 = 这几个标签 + 这段话」。
+
+          🔴 标签**不是**把预设文字塞进 `data.text`：那句正文仍然只存用户自己写的字。
+          提交时由 `composeCreativePrompt()` 把标签展开成预设文字、和正文**合并**成一句
+          （前缀们 → 正文 → 预设正文们）。这样换一条预设不会覆盖掉用户改过的字，
+          删掉标签（×）也只是那一档变空、正文一个字不动。
+
+          🔴 为什么不做成 `<textarea>` 里真的嵌 DOM：textarea 只能装纯文本。
+          做成「一个框 + 里面一排 chip + 下面一个无框 textarea」，视觉上就是标签在提示词里，
+          而且不用把输入框换成 contenteditable（那会把中文输入法、撤销栈、粘贴全弄坏）。
+        */}
+        <div
+          className={`cv-dock-promptbox nodrag nowheel${pickedPresets.length ? ' tagged' : ''}`}
+          data-dock-promptbox=""
+          data-dock-ptag-count={pickedPresets.length}
+        >
+          {pickedPresets.length > 0 && (
+            <div className="cv-dock-ptags" data-dock-ptags="">
+              {pickedPresets.map(preset => {
+                const thumb = presetThumbSrc(preset);
+                return (
+                  <span
+                    key={preset.id}
+                    className="cv-dock-ptag"
+                    data-dock-ptag={preset.kind}
+                    data-dock-ptag-name={preset.name}
+                  >
+                    {/*
+                      点标签本体 = 去换一条（跟下面那排按钮一个去处）；
+                      点 × = 清掉这一档。**别把两个动作塞进同一个按钮** ——
+                      想换的人会误删，想删的人会弹出一个面板。
+                    */}
+                    <button
+                      type="button"
+                      className="cv-dock-ptag-main"
+                      data-dock-ptag-main={preset.kind}
+                      title={`${CREATIVE_KIND_LABEL[preset.kind]}：${preset.name}\n${String(preset.prompt || '').trim() || '（这条没有附加文字）'}\n—— 点开可以继续加 / 换一条`}
+                      onClick={() => setPresetOpen(preset.kind)}
+                    >
+                      {thumb
+                        ? <img className="cv-dock-ptag-thumb" src={thumb} alt="" draggable={false} />
+                        : <Wand2 size={11} strokeWidth={1.8} aria-hidden />}
+                      <span className="cv-dock-ptag-kind">{CREATIVE_KIND_LABEL[preset.kind]}</span>
+                      <span className="cv-dock-ptag-name">{preset.name}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="cv-dock-ptag-x"
+                      data-dock-ptag-x={preset.kind}
+                      data-dock-ptag-x-id={preset.id}
+                      aria-label={`去掉${CREATIVE_KIND_LABEL[preset.kind]}：${preset.name}`}
+                      title={`去掉「${preset.name}」（其余标签和正文都不动）`}
+                      /*
+                        🔴 点 × 是**去掉这一条**，不是把这一档清空：风格可以叠好几条，
+                        想去掉其中一条却把别的也一起清掉，是最容易让人骂的那种行为。
+                      */
+                      onClick={() => data.onCreativePresets?.(
+                        preset.kind,
+                        togglePickIn(presetPicks, preset.kind, preset),
+                      )}
+                    >
+                      <X size={10} strokeWidth={2.2} aria-hidden />
+                    </button>
+                  </span>
+                );
+              })}
+            </div>
+          )}
+          <textarea
+            className="cv-dock-input nodrag nowheel"
+            data-dock-prompt=""
+            aria-label="提示词"
+            placeholder="描述你想要生成的内容"
+            value={String(data.text || '')}
+            onChange={event => data.onText?.(event.target.value)}
+          />
+        </div>
         {/*
           这一排现在只放「自定义接口的模型」下拉 —— 「优化提示词」挪去了操作排。
 
@@ -1517,6 +1646,46 @@ export default function GenerateDock({ data, nodeId, anchor }: {
             )}
           </div>
         ) : null}
+        {/*
+          创作预设那一排（2026-10-06，从 AIFISHER 迁移）：「风格 / 滤镜 / 运镜」三颗按钮。
+          位置就照参考产品 —— **紧挨在提示词下面**，因为它改的正是这句话
+          （拼前缀 / 拼后缀，见 `composeCreativePrompt`）。
+          放操作排的话会被读成「跟发送同级的一次动作」，那样每次点都要问「生成了吗」。
+
+          已选那一档直接显示成「风格 · 暖阳赛璐璐CG」：光一个「风格」看不出选没选，
+          而这一排存在的意义就是让人一眼看到「我挂了几档、挂的是哪条」。
+        */}
+        {presetKinds.length > 0 && (
+          <div className="cv-dock-presets" data-dock-presets="">
+            {presetKinds.map(item => {
+              /*
+               * 这一档可以有多条（风格 / 滤镜）：按钮上写第一条的名字，多出来的写「+N」。
+               * 不写全部名字 —— 一颗按钮放不下三四个风格名，而且标签那一排已经全列出来了，
+               * 这里再列一遍是同一份信息说两遍。
+               */
+              const list = picksOfKind(presetPicks, item);
+              const picked = list[0] || null;
+              const more = list.length - (picked ? 1 : 0);
+              return (
+                <button
+                  key={item}
+                  className={`cv-dock-preset${picked ? ' on' : ''}`}
+                  type="button"
+                  data-dock-preset={item}
+                  data-dock-preset-count={list.length}
+                  aria-haspopup="dialog"
+                  title={picked
+                    ? `${CREATIVE_KIND_LABEL[item]}：${list.map(x => x.name).join('、')} —— 点开可以继续加 / 换一条`
+                    : `挑一条${CREATIVE_KIND_LABEL[item]}预设，拼进这句提示词`}
+                  onClick={() => setPresetOpen(item)}
+                >
+                  <Wand2 size={12} strokeWidth={1.8} aria-hidden />
+                  <span>{picked ? `${CREATIVE_KIND_LABEL[item]} · ${picked.name}${more ? ` +${more}` : ''}` : CREATIVE_KIND_LABEL[item]}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
         {moreBox}
       </div>
 
@@ -1644,6 +1813,37 @@ export default function GenerateDock({ data, nodeId, anchor }: {
 
       {settingsPop}
       {upscalePop}
+      {/*
+        预设面板用 portal 挂到 `.flow-shell`（组件内部自己找宿主），所以它写在这里
+        只是「跟着这个对话框一起存在」—— 位置由 portal 决定，不是在这里被布局的。
+        换一档时用 `key` 强制重挂：面板里 tab 是**开场状态**，不重挂的话
+        从「风格」切到「滤镜」会看到 tab 还停在上一次那一档。
+      */}
+      {presetOpen && (
+        <CreativePresetPicker
+          key={presetOpen}
+          kind={presetOpen}
+          selected={presetPicks}
+          favorites={presetFavorites}
+          onToggleFavorite={togglePresetFavorite}
+          /*
+           * 🔴 挑一条 = **这一档改完之后完整的那几条**（2026-10-07 起可多条）。
+           * 加 / 删都由 `togglePickIn` 一处算，这里不自己拼数组 ——
+           * 「点第二张卡片是替换还是叠加」这个规矩写两遍迟早对不上。
+           *
+           * `kind` 用面板当前那一档（它里面能切 tab），**不是**开场那一档：
+           * 从「风格」切到「滤镜」再点卡片，改的必须是滤镜。
+           *
+           * 面板**不因为挑了一条就自动关**：风格可以叠好几条，关了就得重新点开、重新找分类。
+           * 想关有右上角 ×、Esc、点遮罩三条路。
+           */
+          onToggle={(presetKind: CreativePresetKind, preset: CreativePreset) => {
+            data.onCreativePresets?.(presetKind, togglePickIn(presetPicks, presetKind, preset));
+          }}
+          onClear={(presetKind: CreativePresetKind) => data.onCreativePresets?.(presetKind, [])}
+          onClose={() => setPresetOpen(null)}
+        />
+      )}
     </div>
   );
 }

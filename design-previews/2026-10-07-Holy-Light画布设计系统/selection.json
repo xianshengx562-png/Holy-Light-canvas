@@ -1,0 +1,14 @@
+{
+  "id": "D",
+  "label": "D: 玻璃工坊",
+  "name": "玻璃工坊",
+  "notes": "",
+  "dials": {
+    "variance": 4,
+    "motion": 3,
+    "density": 7
+  },
+  "adjustments": "Figma弥散渐变效果，高级灰渐变色",
+  "source": "click",
+  "receivedAt": "2026-10-07T07:57:46.881Z"
+}

@@ -56,6 +56,40 @@ contextBridge.exposeInMainWorld('api', {
   pickFolder: (options?: { title?: string; defaultPath?: string }) =>
     ipcRenderer.invoke('pick-folder', options ?? {}) as Promise<string | null>,
   /**
+   * 选**多个**文件，返回绝对路径数组（取消返回空数组）。
+   *
+   * 加它是为了「导入创作预设」：ComfyUI-Easy-Use 那批 styles 是按分类拆成几十个 json 的，
+   * 让人一个一个选不现实。
+   */
+  pickFiles: (options?: { title?: string; filters?: { name: string; extensions: string[] }[] }) =>
+    ipcRenderer.invoke('pick-files', options ?? {}) as Promise<string[]>,
+  /**
+   * 创作预设的导入 / 列表 / 删组（2026-10-07）。
+   *
+   * 预览图由主进程搬进数据目录并从 `app://app/ipassets/...` 喂回来 ——
+   * 所以这里传的只是「选哪个目录 / 归到哪个分类」，字节不过 IPC。
+   *
+   * `importPresets` 会搬 88 MB 级别的图，可能要几十秒：调用方必须显示「正在导入」，
+   * 别让它看起来像卡死了。
+   */
+  presetImport: (payload: { dir?: string; files?: string[]; category: string }) =>
+    ipcRenderer.invoke('preset-import:run', payload) as Promise<{
+      ok: boolean; message: string;
+      group: { id: string; name: string; source: string; importedAt: string; count: number } | null;
+      scanned: number; imported: number; images: number; skipped: string[];
+    }>,
+  presetImportList: () =>
+    ipcRenderer.invoke('preset-import:list') as Promise<{
+      version: number;
+      groups: { id: string; name: string; source: string; importedAt: string; count: number }[];
+      presets: {
+        id: string; kind: 'style'; category: string; name: string;
+        description: string; prompt: string; preview: string; group: string;
+      }[];
+    }>,
+  presetImportRemove: (groupId: string) =>
+    ipcRenderer.invoke('preset-import:remove', groupId) as Promise<{ ok: boolean; message: string }>,
+  /**
    * 在系统文件管理器里打开一个目录（Windows 是资源管理器，macOS 是 Finder）。
    *
    * 注意 `shell.openPath` **不抛异常**，只回错误串，所以这里把 `message` 原样带回——

@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>设计方向预览 — Holy Light 画布 · 设计系统 + 主界面</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Serif+SC:wght@600&text=星夜列车第幕分镜脚本图片生成站台尽头&display=swap" rel="stylesheet">
+<style>
+/* ============ 外壳：中性克制，不参与方向竞争 ============ */
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+     background:#f2f2f0;color:#1a1a1a;-webkit-font-smoothing:antialiased}
+.bar{position:sticky;top:0;z-index:12;padding:16px 28px;border-bottom:1px solid #dcdcd8;
+     background:#f2f2f0;display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
+.bar strong{font-size:15px;font-weight:650;letter-spacing:0}
+.bar .sub{font-size:12.5px;color:#5c5c58}
+.bar .spacer{flex:1}
+.bar .hint{font-size:12px;color:#77776f}
+
+.dials{display:grid;grid-template-columns:repeat(3,minmax(200px,1fr));gap:14px 26px;
+       padding:16px 28px;border-bottom:1px solid #dcdcd8;background:#eeeeeb}
+.dial{display:grid;gap:5px;font-size:12.5px;min-width:0}
+.dial b{font-weight:650;display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.dial output{font-variant-numeric:tabular-nums;font-weight:600;color:#1a1a1a}
+.dial .exp{font-size:11.5px;color:#77776f;line-height:1.45}
+.dial input[type=range]{width:100%;accent-color:#1a1a1a;margin:0}
+
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px;padding:24px 28px 8px}
+.card{background:#fff;border:2px solid #e0e0dc;border-radius:12px;overflow:hidden;
+      display:flex;flex-direction:column;min-width:0;position:relative}
+.card.selected{border-color:#1a1a1a}
+.card .badge{position:absolute;top:12px;left:12px;z-index:3;font-size:11px;font-weight:650;
+             padding:3px 9px;border-radius:999px;background:#1a1a1a;color:#fff;letter-spacing:.02em}
+.mock{height:352px;overflow:hidden;position:relative;display:grid;place-items:center;background:#e9e9e5}
+.mock>.stage{width:960px;height:600px;transform-origin:center center;flex:none}
+.meta{padding:14px 18px 0;display:grid;gap:8px;min-width:0;width:100%}
+.meta h3{margin:0;font-size:15px;font-weight:650;letter-spacing:0}
+.meta .tags{display:flex;gap:6px;flex-wrap:wrap}
+.meta .tags span{font-size:11.5px;padding:2px 8px;border-radius:999px;background:#f0f0ec;color:#55554f}
+.meta p{margin:0;font-size:12.5px;line-height:1.6;color:#55554f;max-width:64ch}
+.qmdp-pick-button{position:relative;z-index:1;width:calc(100% - 36px);min-height:44px;margin:6px 18px 18px;
+  font:inherit;font-size:13px;font-weight:600;color:#fff;background:#1a1a1a;border:1px solid #1a1a1a;
+  border-radius:8px;cursor:pointer;white-space:normal;writing-mode:horizontal-tb}
+.qmdp-pick-button:hover{background:#000}
+
+.notes{padding:8px 28px 32px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px}
+.note{background:#fff;border:1px solid #e0e0dc;border-radius:12px;padding:16px 18px;font-size:12.5px;line-height:1.65;color:#44443f}
+.note h4{margin:0 0 8px;font-size:13px;font-weight:650;color:#1a1a1a}
+.note dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+.note dt{color:#77776f;white-space:nowrap}
+.note dd{margin:0;color:#33332f}
+.note .mix{margin-top:10px;padding-top:10px;border-top:1px solid #ecece8;color:#77776f;font-size:12px}
+
+.confirm{position:fixed;inset:0;display:none;place-items:center;background:rgba(0,0,0,.34);z-index:40}
+.confirm.open{display:grid}
+.dialog{width:min(540px,calc(100vw - 32px));background:#fff;border-radius:12px;padding:22px}
+.dialog h2{margin:0 0 6px;font-size:16px;font-weight:650}
+.dialog #confirmMeta{font-size:12.5px;color:#55554f;margin:0 0 14px;line-height:1.6}
+.dialog textarea{width:100%;min-height:86px;resize:vertical;font:inherit;font-size:13px;
+  padding:10px;border:1px solid #ddd;border-radius:8px}
+.dialog .row{display:flex;gap:10px;justify-content:flex-end;margin-top:14px}
+.dialog button{font:inherit;font-size:13px;font-weight:600;padding:9px 16px;border-radius:8px;cursor:pointer}
+#cancelPick{background:#fff;border:1px solid #ccc;color:#333}
+#confirmPick{background:#1a1a1a;border:1px solid #1a1a1a;color:#fff}
+
+.pickbar{position:fixed;bottom:0;left:0;right:0;padding:14px;background:#1a1a1a;color:#fff;
+  text-align:center;font-size:13px;font-weight:600;z-index:50;
+  transform:translateY(100%);transition:transform 200ms cubic-bezier(.23,1,.32,1)}
+.pickbar.show{transform:translateY(0)}
+
+@media (max-width:900px){
+  .bar{padding:14px 16px}.dials{grid-template-columns:1fr;padding:14px 16px}
+  .grid,.notes{grid-template-columns:1fr;padding:16px;gap:16px}
+}
+
+/* ==================================================================
+   方向 A · 暗房仪器（Instrument Dark）
+   纯黑画布 + 中性灰面板链 + 暖白单一强调；四级灰阶；参数与数字走等宽
+   ================================================================== */
+.sa-a{--bg:#000;--p1:#141414;--p2:#1c1c1c;--p3:#242424;--field:#0e0e0e;
+  --line:rgba(255,255,255,.09);--line2:rgba(255,255,255,.16);
+  --ink:#f2f3f4;--ink2:#a8a8b0;--ink3:#8a8a94;
+  --acc:#f5f2ea;--acc-ink:#0a0a0a;--run:#e0a44a;--ok:#6fcf97;--bad:#f2777a;
+  --r1:6px;--r2:10px;--r3:14px;
+  --sh-panel:0 1px 2px rgba(0,0,0,.5),0 8px 24px -10px rgba(0,0,0,.6);
+  --sh-float:0 2px 4px rgba(0,0,0,.55),0 18px 46px -12px rgba(0,0,0,.75);
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Consolas,monospace;
+  --sans:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+  width:960px;height:600px;background:var(--bg);color:var(--ink);
+  font-family:var(--sans);font-size:12px;position:relative;overflow:hidden;
+  display:grid;grid-template-rows:52px 1fr}
+.sa-a .dots{position:absolute;inset:52px 0 0 0;
+  background-image:radial-gradient(rgba(255,255,255,.10) 1px,transparent 1px);background-size:22px 22px}
+.sa-a .top{grid-row:1;display:flex;align-items:center;gap:9px;padding:0 16px;
+  background:var(--bg);border-bottom:1px solid rgba(255,255,255,.06);position:relative;z-index:3}
+.sa-a .brand{font-size:13px;font-weight:600;letter-spacing:.01em}
+.sa-a .save{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--ink2)}
+.sa-a .save i{width:5px;height:5px;border-radius:50%;background:var(--ok);display:block}
+.sa-a .top .sp{flex:1}
+.sa-a .btn{font-family:var(--sans);font-size:11.5px;font-weight:600;height:26px;padding:0 12px;
+  border-radius:var(--r1);border:1px solid var(--line2);background:var(--p2);color:var(--ink);
+  display:inline-flex;align-items:center;cursor:default}
+.sa-a .btn.pri{background:var(--acc);color:var(--acc-ink);border-color:var(--acc)}
+.sa-a .stage{grid-row:2;position:relative}
+.sa-a .rail{position:absolute;left:22px;top:50%;transform:translateY(-50%);z-index:4;
+  width:58px;padding:8px 0;background:var(--p2);border:1px solid var(--line2);
+  border-radius:999px;box-shadow:var(--sh-float);display:flex;flex-direction:column;align-items:center;gap:7px}
+.sa-a .rb{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;
+  font-size:11px;color:var(--ink2);background:transparent;border:1px solid transparent}
+.sa-a .rb.pri{width:42px;height:42px;font-size:17px;background:var(--acc);color:var(--acc-ink)}
+.sa-a .rb.on{background:rgba(245,242,234,.12);color:var(--acc)}
+.sa-a .rsep{width:22px;height:1px;background:var(--line)}
+.sa-a .node{position:absolute;width:250px;background:transparent}
+.sa-a .nh{height:24px;display:flex;align-items:center;gap:6px;padding:0 2px;margin-bottom:6px}
+.sa-a .nglyph{width:14px;height:14px;border-radius:4px;background:var(--p3);flex:none;
+  display:grid;place-items:center;font-size:9px;color:var(--ink2)}
+.sa-a .ntitle{font-size:12.5px;font-weight:600;color:var(--ink);letter-spacing:.01em}
+.sa-a .nact{margin-left:auto;font-size:10px;color:var(--ink3);border:1px solid var(--line2);
+  border-radius:999px;padding:2px 8px}
+.sa-a .nframe{background:var(--p1);border:1px solid var(--line);border-radius:var(--r2);
+  box-shadow:var(--sh-panel);padding:10px;min-height:150px}
+.sa-a .nbody{font-size:11.5px;line-height:1.7;color:var(--ink2)}
+.sa-a .nempty{min-height:104px;border-radius:var(--r1);background:var(--field);
+  border:1px dashed var(--line2);display:grid;place-items:center;color:var(--ink3);font-size:11px}
+.sa-a .nstat{margin-top:8px;display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--ink3)}
+.sa-a .nstat b{font-family:var(--mono);color:var(--ok);font-weight:500}
+.sa-a .edge{position:absolute;height:2px;background:linear-gradient(90deg,rgba(255,255,255,.10),rgba(255,255,255,.22));transform-origin:0 50%}
+.sa-a .dock{position:absolute;left:132px;top:392px;width:700px;background:var(--p1);
+  border:1px solid var(--line2);border-radius:var(--r3);box-shadow:var(--sh-float);padding:12px 14px}
+.sa-a .dhead{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+.sa-a .dkind{font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--ink2)}
+.sa-a .dbadge{font-family:var(--mono);font-size:10.5px;color:var(--ink3)}
+.sa-a .dock .sp{flex:1}
+.sa-a .pbox{border:1px solid var(--line2);border-radius:var(--r2);background:var(--field);
+  padding:8px 9px}
+.sa-a .ptags{display:flex;gap:6px;margin-bottom:7px;flex-wrap:wrap}
+.sa-a .ptag{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;
+  border:1px solid var(--line2);border-radius:999px;background:var(--p2);font-size:11px;color:var(--ink)}
+.sa-a .ptag i{width:16px;height:16px;border-radius:4px;background:#3a3a42;display:block}
+.sa-a .ptag em{font-style:normal;font-family:var(--mono);font-size:10px;color:var(--ink3)}
+.sa-a .ptext{font-size:12px;line-height:1.6;color:var(--ink);min-height:38px}
+.sa-a .prow{display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:nowrap}
+.sa-a .pbtn{flex:0 1 auto;min-width:0;height:28px;padding:0 10px;border-radius:var(--r1);
+  border:1px solid var(--line2);background:var(--p2);color:var(--ink2);font-size:11.5px;
+  display:inline-flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sa-a .pbtn.on{border-color:var(--acc);color:var(--acc);background:rgba(245,242,234,.08)}
+.sa-a .pbtn em{font-style:normal;font-family:var(--mono);font-size:10px;opacity:.8}
+.sa-a .pmeta{margin-left:auto;flex:none;font-family:var(--mono);font-size:11px;color:var(--ink2)}
+.sa-a .pgo{flex:none;height:28px;padding:0 16px;border-radius:var(--r1);background:var(--acc);
+  color:var(--acc-ink);font-size:11.5px;font-weight:600;border:1px solid var(--acc);
+  display:inline-flex;align-items:center}
+.sa-a .zoom{position:absolute;right:16px;bottom:14px;font-family:var(--mono);font-size:11px;color:var(--ink2)}
+
+/* ==================================================================
+   方向 B · 制版台（Industrial Print）· 亮底
+   纸白底 + 墨黑 + 朱砂；印刷规则线分栏；衬线标题 + 等宽参数；近乎方角
+   ================================================================== */
+.sa-b{--paper:#f2efe9;--card:#ffffff;--canvas:#e8e4dc;--ink:#1a1a18;--ink2:#5a564e;--ink3:#8b857a;
+  --line:rgba(26,26,24,.14);--line2:rgba(26,26,24,.30);--acc:#c0392b;--ok:#2f6b4a;--run:#b06a12;
+  --serif:"Noto Serif SC",Georgia,"Songti SC","SimSun",serif;
+  --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+  --sans:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+  width:960px;height:600px;background:var(--canvas);color:var(--ink);font-family:var(--sans);
+  font-size:12px;position:relative;overflow:hidden;display:grid;grid-template-rows:52px 1fr}
+.sa-b .grid-bg{position:absolute;inset:52px 0 0 0;
+  background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
+  background-size:24px 24px;opacity:.7}
+.sa-b .top{grid-row:1;display:flex;align-items:center;gap:10px;padding:0 16px;background:var(--paper);
+  border-bottom:1px solid var(--ink);position:relative;z-index:3}
+.sa-b .brand{font-family:var(--serif);font-size:15px;font-weight:600;letter-spacing:.02em}
+.sa-b .rule{width:1px;height:22px;background:var(--ink);opacity:.35}
+.sa-b .save{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10.5px;
+  color:var(--ink2);letter-spacing:.02em}
+.sa-b .save i{width:5px;height:5px;background:var(--ok);display:block}
+.sa-b .top .sp{flex:1}
+.sa-b .btn{font-family:var(--mono);font-size:11px;height:26px;padding:0 11px;border:1px solid var(--ink);
+  background:transparent;color:var(--ink);display:inline-flex;align-items:center;letter-spacing:.02em}
+.sa-b .btn.pri{background:var(--ink);color:#fff}
+.sa-b .btn.acc{border-color:var(--acc);color:var(--acc)}
+.sa-b .stage{grid-row:2;position:relative}
+.sa-b .rail{position:absolute;left:0;top:52px;bottom:0;width:76px;background:var(--paper);
+  border-right:1px solid var(--ink);display:flex;flex-direction:column;padding:14px 0;gap:2px;z-index:4}
+.sa-b .rb{height:34px;margin:0 10px;display:flex;align-items:center;gap:8px;font-size:11px;
+  color:var(--ink2);border-bottom:1px solid var(--line);padding-left:4px}
+.sa-b .rb b{font-family:var(--mono);font-size:10px;width:14px;color:var(--ink3);font-weight:500}
+.sa-b .rb.on{color:var(--ink);font-weight:600;box-shadow:inset 0 0 0 0 transparent;border-bottom-color:var(--acc)}
+.sa-b .rb.on b{color:var(--acc)}
+.sa-b .rhead{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;color:var(--ink3);
+  margin:0 10px 6px;text-transform:uppercase}
+.sa-b .node{position:absolute;width:250px}
+.sa-b .nh{height:22px;display:flex;align-items:baseline;gap:6px;border-bottom:1px solid var(--ink);margin-bottom:0}
+.sa-b .nh .num{font-family:var(--mono);font-size:9.5px;color:var(--acc);width:16px}
+.sa-b .ntitle{font-family:var(--serif);font-size:13.5px;font-weight:600;letter-spacing:.02em}
+.sa-b .nact{margin-left:auto;font-family:var(--mono);font-size:9.5px;color:var(--ink3)}
+.sa-b .nframe{background:var(--card);border:1px solid var(--ink);padding:10px;min-height:150px;
+  box-shadow:3px 3px 0 rgba(26,26,24,.10)}
+.sa-b .nbody{font-size:11.5px;line-height:1.72;color:var(--ink2)}
+.sa-b .nempty{min-height:104px;background:var(--canvas);border:1px solid var(--line2);
+  display:grid;place-items:center;color:var(--ink3);font-family:var(--mono);font-size:10.5px}
+.sa-b .nstat{margin-top:8px;font-family:var(--mono);font-size:10px;color:var(--ink3);
+  border-top:1px solid var(--line);padding-top:6px}
+.sa-b .nstat b{color:var(--ok);font-weight:500}
+.sa-b .dock{position:absolute;left:132px;top:392px;width:700px;background:var(--card);
+  border:1px solid var(--ink);box-shadow:4px 4px 0 rgba(26,26,24,.12);padding:12px 14px}
+.sa-b .dhead{display:flex;align-items:center;gap:8px;margin-bottom:8px;
+  border-bottom:1px solid var(--ink);padding-bottom:6px}
+.sa-b .dkind{font-family:var(--serif);font-size:13px;font-weight:600}
+.sa-b .dbadge{font-family:var(--mono);font-size:10px;color:var(--ink3);letter-spacing:.04em}
+.sa-b .dock .sp{flex:1}
+.sa-b .pbox{border:1px solid var(--ink);background:var(--paper);padding:8px 9px}
+.sa-b .ptags{display:flex;gap:6px;margin-bottom:7px;flex-wrap:wrap}
+.sa-b .ptag{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;
+  border:1px solid var(--ink);background:var(--card);font-size:11px}
+.sa-b .ptag i{width:16px;height:16px;background:var(--canvas);display:block;border:1px solid var(--line2)}
+.sa-b .ptag em{font-style:normal;font-family:var(--mono);font-size:10px;color:var(--ink3)}
+.sa-b .ptext{font-size:12px;line-height:1.68;color:var(--ink);min-height:38px}
+.sa-b .prow{display:flex;align-items:center;gap:8px;margin-top:10px}
+.sa-b .pbtn{flex:0 1 auto;min-width:0;height:28px;padding:0 10px;border:1px solid var(--ink);
+  background:transparent;color:var(--ink2);font-size:11.5px;display:inline-flex;align-items:center;
+  gap:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sa-b .pbtn.on{border-color:var(--acc);color:var(--acc);box-shadow:inset 0 -2px 0 var(--acc)}
+.sa-b .pbtn em{font-style:normal;font-family:var(--mono);font-size:10px;opacity:.85}
+.sa-b .pmeta{margin-left:auto;flex:none;font-family:var(--mono);font-size:11px;color:var(--ink2)}
+.sa-b .pgo{flex:none;height:28px;padding:0 16px;background:var(--ink);color:#fff;font-size:11.5px;
+  font-weight:600;border:1px solid var(--ink);display:inline-flex;align-items:center}
+.sa-b .zoom{position:absolute;right:16px;bottom:14px;font-family:var(--mono);font-size:11px;color:var(--ink2)}
+
+/* ==================================================================
+   方向 C · 暗色控制台（Terminal Console）
+   近黑带绿 + 荧光单色（青绿主 / 琥珀副）；全等宽；方角；扫描线
+   ================================================================== */
+.sa-c{--bg:#080b09;--p1:#0e1310;--p2:#131a16;--ink:#c9ffdf;--ink2:#7dffb0;--ink3:#4e9c72;
+  --line:rgba(125,255,176,.16);--line2:rgba(125,255,176,.34);--acc:#7dffb0;--acc-ink:#04140b;
+  --run:#ffb000;--ok:#7dffb0;--bad:#ff6b6b;
+  --mono:"JetBrains Mono",ui-monospace,Consolas,"Microsoft YaHei",monospace;
+  width:960px;height:600px;background:var(--bg);color:var(--ink2);font-family:var(--mono);
+  font-size:11.5px;position:relative;overflow:hidden;display:grid;grid-template-rows:52px 1fr}
+.sa-c .scan{position:absolute;inset:0;pointer-events:none;z-index:6;
+  background:repeating-linear-gradient(0deg,rgba(125,255,176,.045) 0 1px,transparent 1px 3px)}
+.sa-c .dots{position:absolute;inset:52px 0 0 0;
+  background-image:radial-gradient(rgba(125,255,176,.13) 1px,transparent 1px);background-size:20px 20px}
+.sa-c .top{grid-row:1;display:flex;align-items:center;gap:8px;padding:0 16px;background:var(--p1);
+  border-bottom:1px solid var(--line2);position:relative;z-index:3}
+.sa-c .brand{color:var(--acc);font-weight:600;letter-spacing:.04em}
+.sa-c .brand::after{content:"_";animation:cb 1.1s step-end infinite}
+@keyframes cb{0%,49%{opacity:1}50%,100%{opacity:0}}
+.sa-c .save{display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--ink3)}
+.sa-c .save i{width:5px;height:5px;background:var(--ok);display:block}
+.sa-c .top .sp{flex:1}
+.sa-c .btn{font-family:var(--mono);font-size:11px;height:26px;padding:0 11px;border:1px solid var(--line2);
+  background:transparent;color:var(--ink2);display:inline-flex;align-items:center;letter-spacing:.03em}
+.sa-c .btn.pri{background:var(--acc);color:var(--acc-ink);border-color:var(--acc);font-weight:600}
+.sa-c .stage{grid-row:2;position:relative}
+.sa-c .rail{position:absolute;left:20px;top:50%;transform:translateY(-50%);z-index:4;width:60px;
+  background:var(--p1);border:1px solid var(--line2);display:flex;flex-direction:column;
+  align-items:center;padding:8px 0;gap:6px;box-shadow:0 0 0 1px rgba(125,255,176,.06),0 0 24px -6px rgba(125,255,176,.25)}
+.sa-c .rb{width:44px;height:26px;display:grid;place-items:center;font-size:10.5px;color:var(--ink3);
+  border:1px solid transparent;letter-spacing:.03em}
+.sa-c .rb.pri{color:var(--acc-ink);background:var(--acc);font-weight:600}
+.sa-c .rb.on{color:var(--acc);border-color:var(--line2);background:rgba(125,255,176,.08)}
+.sa-c .rsep{width:32px;height:1px;background:var(--line)}
+.sa-c .node{position:absolute;width:250px}
+.sa-c .nh{height:24px;display:flex;align-items:center;gap:6px;margin-bottom:6px}
+.sa-c .nh .num{color:var(--acc);font-size:10px}
+.sa-c .ntitle{font-size:12px;font-weight:600;color:var(--acc);letter-spacing:.03em}
+.sa-c .nact{margin-left:auto;font-size:10px;color:var(--ink3);border:1px solid var(--line2);padding:1px 7px}
+.sa-c .nframe{background:var(--p1);border:1px solid var(--line2);padding:10px;min-height:150px;
+  box-shadow:0 0 22px -8px rgba(125,255,176,.18)}
+.sa-c .nbody{font-size:11px;line-height:1.7;color:var(--ink)}
+.sa-c .nempty{min-height:104px;border:1px dashed var(--line2);display:grid;place-items:center;
+  color:var(--ink3);font-size:10.5px}
+.sa-c .nstat{margin-top:8px;font-size:10px;color:var(--ink3);display:flex;gap:6px}
+.sa-c .nstat b{color:var(--ok);font-weight:500}
+.sa-c .dock{position:absolute;left:132px;top:392px;width:700px;background:var(--p1);
+  border:1px solid var(--line2);padding:12px 14px;box-shadow:0 0 30px -8px rgba(125,255,176,.22)}
+.sa-c .dhead{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+.sa-c .dkind{font-size:11px;font-weight:600;color:var(--acc);letter-spacing:.06em}
+.sa-c .dbadge{font-size:10px;color:var(--ink3)}
+.sa-c .dock .sp{flex:1}
+.sa-c .pbox{border:1px solid var(--line2);background:var(--bg);padding:8px 9px}
+.sa-c .ptags{display:flex;gap:6px;margin-bottom:7px;flex-wrap:wrap}
+.sa-c .ptag{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;
+  border:1px solid var(--line2);background:var(--p2);font-size:10.5px;color:var(--ink)}
+.sa-c .ptag i{width:16px;height:16px;background:var(--line2);display:block}
+.sa-c .ptag em{font-style:normal;font-size:9.5px;color:var(--ink3)}
+.sa-c .ptext{font-size:11.5px;line-height:1.65;color:var(--ink);min-height:38px}
+.sa-c .prow{display:flex;align-items:center;gap:8px;margin-top:10px}
+.sa-c .pbtn{flex:0 1 auto;min-width:0;height:28px;padding:0 10px;border:1px solid var(--line2);
+  background:transparent;color:var(--ink2);font-family:var(--mono);font-size:11px;
+  display:inline-flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sa-c .pbtn.on{border-color:var(--acc);color:var(--acc);background:rgba(125,255,176,.08)}
+.sa-c .pbtn em{font-style:normal;font-size:9.5px;opacity:.85}
+.sa-c .pmeta{margin-left:auto;flex:none;font-size:11px;color:var(--ink2)}
+.sa-c .pgo{flex:none;height:28px;padding:0 16px;background:var(--acc);color:var(--acc-ink);
+  font-family:var(--mono);font-size:11px;font-weight:600;border:1px solid var(--acc);
+  display:inline-flex;align-items:center}
+.sa-c .zoom{position:absolute;right:16px;bottom:14px;font-size:11px;color:var(--ink2)}
+
+/* ==================================================================
+   方向 D · 玻璃工坊（Soft Atelier）· 中调灰
+   中调灰底 + 多色语义（节点类型各一色）+ 大圆角 + 软分层；玻璃只给浮层
+   ================================================================== */
+.sa-d{--bg:#24252a;--canvas:#1e1f23;--glass:rgba(255,255,255,.07);--glass2:rgba(255,255,255,.10);
+  --ink:#f0f1f4;--ink2:#b6b9c2;--ink3:#868a95;
+  --line:rgba(255,255,255,.10);--line2:rgba(255,255,255,.18);
+  --acc:#8ab4f8;--acc-ink:#101828;--c-text:#8ab4f8;--c-img:#f3a3c0;--c-vid:#8fd6b4;
+  --c-aud:#f5cf8f;--c-up:#c3a6f7;--ok:#8fd6b4;--run:#f5cf8f;
+  --r1:12px;--r2:18px;--r3:24px;
+  --sh-soft:0 8px 30px -12px rgba(0,0,0,.55);
+  --sh-float:0 24px 60px -18px rgba(0,0,0,.7);
+  --sans:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+  width:960px;height:600px;background:var(--canvas);color:var(--ink);font-family:var(--sans);
+  font-size:12px;position:relative;overflow:hidden;display:grid;grid-template-rows:56px 1fr}
+.sa-d .glow{position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(760px 380px at 26% 22%,rgba(138,180,248,.10),transparent 70%),
+             radial-gradient(620px 340px at 78% 78%,rgba(243,163,192,.08),transparent 70%)}
+.sa-d .dots{position:absolute;inset:56px 0 0 0;
+  background-image:radial-gradient(rgba(255,255,255,.07) 1px,transparent 1px);background-size:26px 26px}
+.sa-d .top{grid-row:1;display:flex;align-items:center;gap:10px;padding:0 18px;position:relative;z-index:3;
+  background:rgba(255,255,255,.05);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
+.sa-d .brand{font-size:13.5px;font-weight:650;letter-spacing:.01em}
+.sa-d .save{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--ink2)}
+.sa-d .save i{width:6px;height:6px;border-radius:50%;background:var(--ok);display:block}
+.sa-d .top .sp{flex:1}
+.sa-d .btn{font-family:var(--sans);font-size:12px;font-weight:600;height:30px;padding:0 14px;
+  border-radius:var(--r1);border:1px solid var(--line2);background:var(--glass);color:var(--ink);
+  display:inline-flex;align-items:center}
+.sa-d .btn.pri{background:var(--acc);color:var(--acc-ink);border-color:var(--acc);
+  box-shadow:0 6px 18px -8px rgba(138,180,248,.6)}
+.sa-d .stage{grid-row:2;position:relative}
+.sa-d .rail{position:absolute;left:22px;top:50%;transform:translateY(-50%);z-index:4;width:62px;
+  padding:10px 0;border-radius:var(--r3);background:rgba(255,255,255,.08);
+  backdrop-filter:blur(16px);border:1px solid var(--line2);box-shadow:var(--sh-float);
+  display:flex;flex-direction:column;align-items:center;gap:8px}
+.sa-d .rb{width:42px;height:42px;border-radius:14px;display:grid;place-items:center;font-size:12px;
+  color:var(--ink2);background:transparent;border:1px solid transparent}
+.sa-d .rb.pri{background:var(--acc);color:var(--acc-ink);font-size:18px;font-weight:600}
+.sa-d .rb.on{background:rgba(138,180,248,.16);color:var(--acc)}
+.sa-d .rsep{width:24px;height:1px;background:var(--line)}
+.sa-d .node{position:absolute;width:250px}
+.sa-d .nh{height:26px;display:flex;align-items:center;gap:7px;padding:0 2px;margin-bottom:8px}
+.sa-d .nglyph{width:18px;height:18px;border-radius:6px;flex:none;display:grid;place-items:center;
+  font-size:9px;color:#101828;background:var(--c-text)}
+.sa-d .nglyph.img{background:var(--c-img)}
+.sa-d .ntitle{font-size:13px;font-weight:650;letter-spacing:.01em}
+.sa-d .nact{margin-left:auto;font-size:10.5px;color:var(--ink3);border:1px solid var(--line2);
+  border-radius:999px;padding:2px 9px}
+.sa-d .nframe{background:rgba(255,255,255,.06);backdrop-filter:blur(12px);
+  border:1px solid var(--line2);border-radius:var(--r2);box-shadow:var(--sh-soft);padding:12px;min-height:150px}
+.sa-d .nbody{font-size:12px;line-height:1.72;color:var(--ink2)}
+.sa-d .nempty{min-height:104px;border-radius:var(--r1);background:rgba(0,0,0,.18);
+  border:1px dashed var(--line2);display:grid;place-items:center;color:var(--ink3);font-size:11.5px}
+.sa-d .nstat{margin-top:10px;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--ink3)}
+.sa-d .nstat b{color:var(--ok);font-weight:600}
+.sa-d .edge{position:absolute;height:2px;border-radius:2px;
+  background:linear-gradient(90deg,rgba(138,180,248,.35),rgba(243,163,192,.5));transform-origin:0 50%}
+.sa-d .dock{position:absolute;left:132px;top:390px;width:700px;padding:14px 16px;border-radius:var(--r3);
+  background:rgba(255,255,255,.08);backdrop-filter:blur(18px);border:1px solid var(--line2);
+  box-shadow:var(--sh-float)}
+.sa-d .dhead{display:flex;align-items:center;gap:9px;margin-bottom:10px}
+.sa-d .dkind{font-size:12px;font-weight:650;letter-spacing:.02em}
+.sa-d .dkind .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--c-img);margin-right:6px}
+.sa-d .dbadge{font-size:11px;color:var(--ink3)}
+.sa-d .dock .sp{flex:1}
+.sa-d .pbox{border:1px solid var(--line2);border-radius:var(--r2);background:rgba(0,0,0,.20);padding:9px 10px}
+.sa-d .ptags{display:flex;gap:7px;margin-bottom:8px;flex-wrap:wrap}
+.sa-d .ptag{display:inline-flex;align-items:center;gap:7px;height:24px;padding:0 10px;
+  border:1px solid var(--line2);border-radius:999px;background:rgba(255,255,255,.08);font-size:11.5px}
+.sa-d .ptag i{width:16px;height:16px;border-radius:5px;background:var(--c-img);display:block}
+.sa-d .ptag em{font-style:normal;font-size:10px;color:var(--ink3)}
+.sa-d .ptext{font-size:12.5px;line-height:1.68;color:var(--ink);min-height:38px}
+.sa-d .prow{display:flex;align-items:center;gap:9px;margin-top:11px}
+.sa-d .pbtn{flex:0 1 auto;min-width:0;height:30px;padding:0 12px;border-radius:var(--r1);
+  border:1px solid var(--line2);background:rgba(255,255,255,.06);color:var(--ink2);font-size:12px;
+  display:inline-flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sa-d .pbtn.on{border-color:var(--acc);color:var(--acc);background:rgba(138,180,248,.14)}
+.sa-d .pbtn em{font-style:normal;font-size:10px;opacity:.85}
+.sa-d .pmeta{margin-left:auto;flex:none;font-size:11.5px;color:var(--ink2)}
+.sa-d .pgo{flex:none;height:30px;padding:0 18px;border-radius:var(--r1);background:var(--acc);
+  color:var(--acc-ink);font-size:12px;font-weight:650;border:1px solid var(--acc);
+  display:inline-flex;align-items:center;box-shadow:0 6px 18px -8px rgba(138,180,248,.6)}
+.sa-d .zoom{position:absolute;right:16px;bottom:14px;font-size:11.5px;color:var(--ink2)}
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <strong>Holy Light 画布 · 设计系统 + 主界面 · 方向样机</strong>
+  <span class="sub">这是设计方向样机，不是最终界面；选定后才进入正式实现</span>
+  <span class="spacer"></span>
+  <span class="hint">键盘 1-4 选择</span>
+</div>
+
+<div class="dials" data-qmdp-dials aria-label="设计拨盘">
+  <label class="dial">
+    <b><span>视觉冒险度 <span style="font-weight:400;color:#77776f">VARIANCE</span></span><output id="varianceOut" data-qmdp-output="variance">4</output></b>
+    <input id="variance" data-qmdp-dial="variance" type="range" min="1" max="10" value="4">
+    <span class="exp">越大越敢打破常规；这是每天要盯 8 小时的生产力工具，先给 4</span>
+  </label>
+  <label class="dial">
+    <b><span>动效强度 <span style="font-weight:400;color:#77776f">MOTION</span></span><output id="motionOut" data-qmdp-output="motion">3</output></b>
+    <input id="motion" data-qmdp-dial="motion" type="range" min="1" max="10" value="3">
+    <span class="exp">越大动效编排越重；工具页反馈要快不花哨，先给 3</span>
+  </label>
+  <label class="dial">
+    <b><span>信息密度 <span style="font-weight:400;color:#77776f">DENSITY</span></span><output id="densityOut" data-qmdp-output="density">7</output></b>
+    <input id="density" data-qmdp-dial="density" type="range" min="1" max="10" value="7">
+    <span class="exp">越大一屏塞得越满；参数多、要并行对照，先给 7</span>
+  </label>
+</div>
+
+<div class="grid">
+
+  <!-- ================= A ================= -->
+  <div class="card" data-id="A" data-name="暗房仪器" data-rec="1">
+    <span class="badge">推荐</span>
+    <div class="mock"><div class="stage"><div class="sa-a">
+      <div class="top">
+        <div class="brand">星夜列车 · 第 3 幕</div>
+        <div class="save"><i></i>已保存</div>
+        <div class="sp"></div>
+        <div class="btn">项目</div><div class="btn">保存</div><div class="btn pri">启动</div>
+      </div>
+      <div class="stage">
+        <div class="dots"></div>
+        <div class="rail">
+          <div class="rb pri">+</div>
+          <div class="rsep"></div>
+          <div class="rb">图</div><div class="rb on">视</div><div class="rb">文</div>
+          <div class="rb">音</div><div class="rb">标</div>
+        </div>
+        <div class="node" style="left:172px;top:82px">
+          <div class="nh"><div class="nglyph">T</div><div class="ntitle">分镜脚本</div><div class="nact">编辑</div></div>
+          <div class="nframe"><div class="nbody">1. 站台尽头，蒸汽从车底漫上来，逆光只留下轮廓。<br>2. 车厢门打开，光源从门缝里切出一道光。<br>3. 镜头推近，玻璃上的雾气被手指擦开。</div></div>
+        </div>
+        <div class="node" style="left:552px;top:196px">
+          <div class="nh"><div class="nglyph">▣</div><div class="ntitle">图片生成</div><div class="nact">超清</div></div>
+          <div class="nframe"><div class="nempty">4 张 · 等待启动</div>
+            <div class="nstat">已生成 <b>4</b> / 4 · 1:1 · 1008×1008</div></div>
+        </div>
+        <div class="edge" style="left:422px;top:180px;width:132px;transform:rotate(12deg)"></div>
+        <div class="dock">
+          <div class="dhead"><div class="dkind">图片生成</div><div class="dbadge">seed 4821</div><div class="sp"></div>
+            <div class="dbadge">1:1 · 1008×1008</div></div>
+          <div class="pbox">
+            <div class="ptags">
+              <span class="ptag"><i></i>电影胶片<em>风格</em></span>
+              <span class="ptag"><i></i>颗粒<em>滤镜</em></span>
+            </div>
+            <div class="ptext">站台尽头的列车，蒸汽弥漫，逆光</div>
+          </div>
+          <div class="prow">
+            <div class="pbtn on">风格<em>电影胶片 +1</em></div>
+            <div class="pbtn on">滤镜<em>颗粒</em></div>
+            <div class="pbtn">运镜<em>推轨</em></div>
+            <div class="pmeta">× 4</div>
+            <div class="pgo">生成</div>
+          </div>
+        </div>
+        <div class="zoom">126%</div>
+      </div>
+    </div></div></div>
+    <div class="meta">
+      <h3>A · 暗房仪器 <span style="font-weight:400;color:#77776f;font-size:12px">Instrument Dark</span></h3>
+      <div class="tags"><span>纯黑画布</span><span>中性灰面板链</span><span>暖白单一强调</span><span>参数走等宽</span></div>
+    </div>
+    <button type="button" class="qmdp-pick-button" data-dir="A">选择 A · 暗房仪器</button>
+  </div>
+
+  <!-- ================= B ================= -->
+  <div class="card" data-id="B" data-name="制版台">
+    <div class="mock"><div class="stage"><div class="sa-b">
+      <div class="top">
+        <div class="brand">星夜列车 · 第 3 幕</div>
+        <div class="rule"></div>
+        <div class="save"><i></i>SAVED</div>
+        <div class="sp"></div>
+        <div class="btn">项目</div><div class="btn">保存</div><div class="btn pri">启动</div>
+      </div>
+      <div class="stage">
+        <div class="grid-bg"></div>
+        <div class="rail">
+          <div class="rhead">节点</div>
+          <div class="rb"><b>01</b>图片生成</div>
+          <div class="rb on"><b>02</b>视频生成</div>
+          <div class="rb"><b>03</b>文本</div>
+          <div class="rb"><b>04</b>音频</div>
+          <div class="rb"><b>05</b>超清</div>
+          <div class="rb" style="border-bottom:0"><b>+</b>添加</div>
+        </div>
+        <div class="node" style="left:172px;top:82px">
+          <div class="nh"><span class="num">01</span><div class="ntitle">分镜脚本</div><div class="nact">EDIT</div></div>
+          <div class="nframe"><div class="nbody">1. 站台尽头，蒸汽从车底漫上来，逆光只留下轮廓。<br>2. 车厢门打开，光源从门缝里切出一道光。<br>3. 镜头推近，玻璃上的雾气被手指擦开。</div></div>
+        </div>
+        <div class="node" style="left:552px;top:196px">
+          <div class="nh"><span class="num">02</span><div class="ntitle">图片生成</div><div class="nact">UPSCALE</div></div>
+          <div class="nframe"><div class="nempty">4 SHEETS · READY</div>
+            <div class="nstat">已生成 <b>4</b> / 4 · 1:1 · 1008×1008</div></div>
+        </div>
+        <div class="dock">
+          <div class="dhead"><div class="dkind">图片生成</div><div class="dbadge">SEED 4821</div><div class="sp"></div>
+            <div class="dbadge">1:1 · 1008×1008</div></div>
+          <div class="pbox">
+            <div class="ptags">
+              <span class="ptag"><i></i>电影胶片<em>风格</em></span>
+              <span class="ptag"><i></i>颗粒<em>滤镜</em></span>
+            </div>
+            <div class="ptext">站台尽头的列车，蒸汽弥漫，逆光</div>
+          </div>
+          <div class="prow">
+            <div class="pbtn on">风格<em>电影胶片 +1</em></div>
+            <div class="pbtn on">滤镜<em>颗粒</em></div>
+            <div class="pbtn">运镜<em>推轨</em></div>
+            <div class="pmeta">× 4</div>
+            <div class="pgo">生成</div>
+          </div>
+        </div>
+        <div class="zoom">126%</div>
+      </div>
+    </div></div></div>
+    <div class="meta">
+      <h3>B · 制版台 <span style="font-weight:400;color:#77776f;font-size:12px">Industrial Print</span></h3>
+      <div class="tags"><span>亮底纸白</span><span>墨黑 + 朱砂</span><span>衬线标题 + 等宽参数</span><span>印刷规则线</span></div>
+    </div>
+    <button type="button" class="qmdp-pick-button" data-dir="B">选择 B · 制版台</button>
+  </div>
+
+  <!-- ================= C ================= -->
+  <div class="card" data-id="C" data-name="暗色控制台">
+    <div class="mock"><div class="stage"><div class="sa-c">
+      <div class="top">
+        <div class="brand">holy-light</div>
+        <div class="save"><i></i>saved</div>
+        <div class="sp"></div>
+        <div class="btn">proj</div><div class="btn">save</div><div class="btn pri">run</div>
+      </div>
+      <div class="stage">
+        <div class="dots"></div>
+        <div class="rail">
+          <div class="rb pri">+</div>
+          <div class="rsep"></div>
+          <div class="rb">img</div><div class="rb on">vid</div><div class="rb">txt</div>
+          <div class="rb">aud</div><div class="rb">up</div>
+        </div>
+        <div class="node" style="left:172px;top:82px">
+          <div class="nh"><span class="num">01</span><div class="ntitle">分镜脚本</div><div class="nact">edit</div></div>
+          <div class="nframe"><div class="nbody">1. 站台尽头，蒸汽从车底漫上来，逆光只留下轮廓。<br>2. 车厢门打开，光源从门缝里切出一道光。<br>3. 镜头推近，玻璃上的雾气被手指擦开。</div></div>
+        </div>
+        <div class="node" style="left:552px;top:196px">
+          <div class="nh"><span class="num">02</span><div class="ntitle">图片生成</div><div class="nact">upscale</div></div>
+          <div class="nframe"><div class="nempty">4 sheets · ready</div>
+            <div class="nstat">已生成 <b>4</b> / 4 · 1:1 · 1008×1008</div></div>
+        </div>
+        <div class="dock">
+          <div class="dhead"><div class="dkind">IMG-GENERATE</div><div class="dbadge">seed 4821</div><div class="sp"></div>
+            <div class="dbadge">1:1 · 1008×1008</div></div>
+          <div class="pbox">
+            <div class="ptags">
+              <span class="ptag"><i></i>电影胶片<em>style</em></span>
+              <span class="ptag"><i></i>颗粒<em>filter</em></span>
+            </div>
+            <div class="ptext">站台尽头的列车，蒸汽弥漫，逆光</div>
+          </div>
+          <div class="prow">
+            <div class="pbtn on">style<em>film +1</em></div>
+            <div class="pbtn on">filter<em>grain</em></div>
+            <div class="pbtn">motion<em>push</em></div>
+            <div class="pmeta">× 4</div>
+            <div class="pgo">run</div>
+          </div>
+        </div>
+        <div class="zoom">126%</div>
+      </div>
+      <div class="scan"></div>
+    </div></div></div>
+    <div class="meta">
+      <h3>C · 暗色控制台 <span style="font-weight:400;color:#77776f;font-size:12px">Terminal Console</span></h3>
+      <div class="tags"><span>近黑带绿</span><span>荧光青绿单色</span><span>全等宽</span><span>方角 + 扫描线</span></div>
+    </div>
+    <button type="button" class="qmdp-pick-button" data-dir="C">选择 C · 暗色控制台</button>
+  </div>
+
+  <!-- ================= D ================= -->
+  <div class="card" data-id="D" data-name="玻璃工坊">
+    <div class="mock"><div class="stage"><div class="sa-d">
+      <div class="top">
+        <div class="brand">星夜列车 · 第 3 幕</div>
+        <div class="save"><i></i>已保存</div>
+        <div class="sp"></div>
+        <div class="btn">项目</div><div class="btn">保存</div><div class="btn pri">启动</div>
+      </div>
+      <div class="stage">
+        <div class="dots"></div><div class="glow"></div>
+        <div class="rail">
+          <div class="rb pri">+</div>
+          <div class="rsep"></div>
+          <div class="rb">图</div><div class="rb on">视</div><div class="rb">文</div>
+          <div class="rb">音</div><div class="rb">标</div>
+        </div>
+        <div class="node" style="left:172px;top:82px">
+          <div class="nh"><div class="nglyph">T</div><div class="ntitle">分镜脚本</div><div class="nact">编辑</div></div>
+          <div class="nframe"><div class="nbody">1. 站台尽头，蒸汽从车底漫上来，逆光只留下轮廓。<br>2. 车厢门打开，光源从门缝里切出一道光。<br>3. 镜头推近，玻璃上的雾气被手指擦开。</div></div>
+        </div>
+        <div class="node" style="left:552px;top:196px">
+          <div class="nh"><div class="nglyph img">▣</div><div class="ntitle">图片生成</div><div class="nact">超清</div></div>
+          <div class="nframe"><div class="nempty">4 张 · 等待启动</div>
+            <div class="nstat">已生成 <b>4</b> / 4 · 1:1 · 1008×1008</div></div>
+        </div>
+        <div class="edge" style="left:422px;top:180px;width:132px;transform:rotate(12deg)"></div>
+        <div class="dock">
+          <div class="dhead"><div class="dkind"><span class="dot"></span>图片生成</div><div class="dbadge">seed 4821</div><div class="sp"></div>
+            <div class="dbadge">1:1 · 1008×1008</div></div>
+          <div class="pbox">
+            <div class="ptags">
+              <span class="ptag"><i></i>电影胶片<em>风格</em></span>
+              <span class="ptag"><i></i>颗粒<em>滤镜</em></span>
+            </div>
+            <div class="ptext">站台尽头的列车，蒸汽弥漫，逆光</div>
+          </div>
+          <div class="prow">
+            <div class="pbtn on">风格<em>电影胶片 +1</em></div>
+            <div class="pbtn on">滤镜<em>颗粒</em></div>
+            <div class="pbtn">运镜<em>推轨</em></div>
+            <div class="pmeta">× 4</div>
+            <div class="pgo">生成</div>
+          </div>
+        </div>
+        <div class="zoom">126%</div>
+      </div>
+    </div></div></div>
+    <div class="meta">
+      <h3>D · 玻璃工坊 <span style="font-weight:400;color:#77776f;font-size:12px">Soft Atelier</span></h3>
+      <div class="tags"><span>中调灰底</span><span>节点类型各一色</span><span>大圆角</span><span>浮层走玻璃</span></div>
+    </div>
+    <button type="button" class="qmdp-pick-button" data-dir="D">选择 D · 玻璃工坊</button>
+  </div>
+
+</div>
+
+<div class="notes">
+  <div class="note">
+    <h4>A · 暗房仪器 — 像一台徕卡机身 / 调色台</h4>
+    <dl>
+      <dt>字体</dt><dd>中文系统栈；参数、尺寸、seed 走等宽</dd>
+      <dt>色彩</dt><dd>纯黑画布 #000 + 面板链 #141414 / #1c1c1c / #242424；单一暖白强调 #f5f2ea</dd>
+      <dt>布局</dt><dd>左轨浮层 + 底栏浮层，画布无限延展</dd>
+      <dt>记忆点</dt><dd>一切数字都是等宽表格数字，纵向永远对齐</dd>
+      <dt>推荐理由</dt><dd>它是现有系统的<strong>进化不是推翻</strong>，改动可控；四级灰阶直接修掉对比度问题；暗底中性灰适合长时间盯屏</dd>
+    </dl>
+    <div class="mix">可混搭：要 B 的衬线标题、或 D 的节点类型配色</div>
+  </div>
+  <div class="note">
+    <h4>B · 制版台 — 像印刷打样稿 / 工程图纸</h4>
+    <dl>
+      <dt>字体</dt><dd>衬线做标题（子集化）+ 等宽做参数，最接近「纸」</dd>
+      <dt>色彩</dt><dd>纸白 #f2efe9 + 墨黑 #1a1a18 + 朱砂 #c0392b</dd>
+      <dt>布局</dt><dd>左轨变成有编号的实体栏，1px 规则线切分</dd>
+      <dt>记忆点</dt><dd>卡片带 3px 硬偏移，像套印没对准</dd>
+      <dt>适合</dt><dd>想让产品「不像又一个 AI 工具」、且白天使用为主</dd>
+    </dl>
+    <div class="mix">可混搭：要 A 的暗底，但保留衬线标题与朱砂</div>
+  </div>
+  <div class="note">
+    <h4>C · 暗色控制台 — 像示波器 / 音频工作站</h4>
+    <dl>
+      <dt>字体</dt><dd>全等宽，中文也走等宽 fallback</dd>
+      <dt>色彩</dt><dd>近黑带绿 #080b09 + 荧光青绿 #7dffb0，副色琥珀</dd>
+      <dt>布局</dt><dd>方角、1px 实描边、扫描线覆盖</dd>
+      <dt>记忆点</dt><dd>顶栏品牌名带闪烁光标</dd>
+      <dt>代价</dt><dd>中文在等宽 fallback 下字形会偏，长段落可读性最弱</dd>
+    </dl>
+    <div class="mix">可混搭：只要 C 的状态色（琥珀运行 / 青绿完成）</div>
+  </div>
+  <div class="note">
+    <h4>D · 玻璃工坊 — 像一间有天窗的工作室</h4>
+    <dl>
+      <dt>字体</dt><dd>几何无衬线 + 中文系统栈</dd>
+      <dt>色彩</dt><dd>中调灰 #24252a；文本蓝 / 图像粉 / 视频绿 / 音频黄 / 超清紫</dd>
+      <dt>布局</dt><dd>大圆角 12 / 18 / 24，浮层走真玻璃</dd>
+      <dt>记忆点</dt><dd><strong>节点类型各有颜色</strong>——一眼分清这条链上都是什么</dd>
+      <dt>代价</dt><dd>玻璃在 Electron 合成层上可能出横纹（本机已踩过一次）</dd>
+    </dl>
+    <div class="mix">可混搭：要 D 的类型配色，但回到 A 的纯黑与无玻璃</div>
+  </div>
+</div>
+
+<div class="confirm" id="confirm" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+  <div class="dialog">
+    <h2 id="confirmTitle">确认设计方向</h2>
+    <p id="confirmMeta"></p>
+    <textarea id="adjustments" placeholder="可选：写下想调整的地方，比如更稳一点、要 B 的字体 + A 的配色"></textarea>
+    <div class="row">
+      <button type="button" id="cancelPick">取消</button>
+      <button type="button" id="confirmPick">确认并回传</button>
+    </div>
+  </div>
+</div>
+
+<div class="pickbar" id="pickbar"></div>
+
+<script>
+(function(){
+  var DIRS = [
+    {id:'A', name:'暗房仪器'},
+    {id:'B', name:'制版台'},
+    {id:'C', name:'暗色控制台'},
+    {id:'D', name:'玻璃工坊'}
+  ];
+  var pending = null;
+
+  function dials(){
+    return {
+      variance: Number(document.getElementById('variance').value),
+      motion: Number(document.getElementById('motion').value),
+      density: Number(document.getElementById('density').value)
+    };
+  }
+
+  ['variance','motion','density'].forEach(function(id){
+    var input = document.getElementById(id), out = document.getElementById(id + 'Out');
+    input.addEventListener('input', function(){ out.value = input.value; out.textContent = input.value; });
+  });
+
+  /* 舞台按容器宽度缩放，样机填满留给它的空间 */
+  function fit(){
+    var mocks = document.querySelectorAll('.mock');
+    for (var i=0;i<mocks.length;i++){
+      var m = mocks[i], st = m.querySelector('.stage');
+      if (!st) continue;
+      var s = m.clientWidth / 960;
+      var h = m.clientHeight / 600;
+      st.style.transform = 'scale(' + Math.min(s, h) + ')';
+    }
+  }
+  window.addEventListener('resize', fit);
+  fit();
+
+  function selectionText(p){
+    var v = p.dials || dials();
+    var adv = p.adjustments ? '；建议：' + p.adjustments : '';
+    return p.label + '；拨盘：视觉冒险度 ' + v.variance + ' / 动效强度 ' + v.motion + ' / 信息密度 ' + v.density + adv;
+  }
+
+  async function sendSelection(payload){
+    var msg = selectionText(payload);
+    if (location.protocol === 'file:') {
+      if (navigator.clipboard) { try { await navigator.clipboard.writeText(msg); } catch(e){} }
+      return {ok:false, fallback:true};
+    }
+    try {
+      var res = await fetch('/api/select', {
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)
+      });
+      return await res.json();
+    } catch (e) {
+      if (navigator.clipboard) { try { await navigator.clipboard.writeText(msg); } catch(e2){} }
+      return {ok:false, fallback:true};
+    }
+  }
+
+  function openConfirm(i){
+    var id = DIRS[i].id, name = DIRS[i].name;
+    pending = {id: id, name: name, label: '选 ' + id + '：' + name};
+    var v = dials();
+    document.getElementById('confirmMeta').textContent =
+      pending.label + ' · 视觉冒险度 ' + v.variance + ' / 动效强度 ' + v.motion + ' / 信息密度 ' + v.density;
+    document.getElementById('confirm').classList.add('open');
+    document.getElementById('adjustments').focus();
+  }
+
+  async function confirmSelection(){
+    if (!pending) return;
+    var msg = pending.label;
+    var payload = Object.assign({}, pending, {
+      dials: dials(),
+      adjustments: document.getElementById('adjustments').value.trim()
+    });
+    var result = await sendSelection(payload);
+    var bar = document.getElementById('pickbar');
+    bar.textContent = result && result.ok
+      ? '已选择 ' + msg + ' — 已回传'
+      : '已选择 ' + msg + ' — 当前为静态降级，请回到对话发送这句话';
+    bar.classList.add('show');
+    document.getElementById('confirm').classList.remove('open');
+    var cards = document.querySelectorAll('.card');
+    for (var i=0;i<cards.length;i++) cards[i].classList.toggle('selected', cards[i].dataset.id === pending.id);
+  }
+
+  var cards = document.querySelectorAll('.card');
+  for (var i=0;i<cards.length;i++){
+    (function(idx, card){
+      card.addEventListener('click', function(e){
+        if (e.target.closest('.qmdp-pick-button')) return;
+        openConfirm(idx);
+      });
+    })(i, cards[i]);
+  }
+  var picks = document.querySelectorAll('.qmdp-pick-button');
+  for (var j=0;j<picks.length;j++){
+    (function(btn){
+      btn.addEventListener('click', function(e){
+        e.stopPropagation();
+        var id = btn.getAttribute('data-dir');
+        for (var k=0;k<DIRS.length;k++) if (DIRS[k].id === id) openConfirm(k);
+      });
+    })(picks[j]);
+  }
+
+  document.addEventListener('keydown', function(e){
+    var i = ['1','2','3','4'].indexOf(e.key);
+    if (i > -1) openConfirm(i);
+    if (e.key === 'Escape') document.getElementById('confirm').classList.remove('open');
+  });
+  document.getElementById('cancelPick').onclick = function(){
+    document.getElementById('confirm').classList.remove('open');
+  };
+  document.getElementById('confirmPick').onclick = confirmSelection;
+
+  window.__qmdpSendSelection = sendSelection;
+  window.__qmdpOpenConfirm = openConfirm;
+})();
+</script>
+</body>
+</html>

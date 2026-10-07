@@ -4,6 +4,8 @@ import { Handle, NodeResizeControl, Position, useNodeId, useStore } from '@xyflo
 import { Move3d, Play, Sparkles, TriangleAlert } from 'lucide-react';
 import type { NodeData, ParamRow } from './types';
 import { nodeTintVars } from '@/lib/appearance';
+/* 创作预设（2026-10-06）：卡片上那几颗「已选」角标。 */
+import { CREATIVE_KIND_LABEL, creativePicksFrom, picksOf } from './creativePresets';
 import {
   LATENT_SLOTS, NODE_META, NODE_SIZE,
   isAudioUrl, isGeneratorKind, isLatentKind, isPinnedUploadKind, isVideoUrl, latentAssetPrefix, latentBrokenHint, latentLabel,
@@ -86,6 +88,12 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
   const pinnedMediaLabel = data.mediaKind === 'video' ? '透传视频' : '透传图片';
   const pinnedBroken = String(data.relayBroken || '') as 'cycle' | 'upstream' | '';
   const latentIndexes = (data.latentIndexes || []).filter(index => index >= 1 && index <= LATENT_SLOTS);
+  /*
+   * 已选的创作预设（2026-10-06）—— 卡片底部那几颗小角标，形如「风格 · 暖阳赛璐璐CG」。
+   * 只显示**选了的那几档**（没选的不占位置）。
+   */
+  const creativeTags = picksOf(creativePicksFrom(data))
+    .map(item => `${CREATIVE_KIND_LABEL[item.kind]} · ${item.name}`);
   const chosenWorkflow = (data.workflows || []).find(item => item.workflowId === String(data.workflowId || ''));
   /** Generated video urls must not be rendered as an image. */
   const resultValue = String(data.resultUrl || '');
@@ -553,6 +561,10 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
 
   return (
     <div
+      /* 类型色（2026-10-07 方向 D，DESIGN.md §3.3）：只给 CSS 认，用来画卡片顶上那条
+         2px 的类型条和标题里的图标色 —— 一眼分清这条链上都是什么节点。
+         ⚠️ 它是**内容层**的色，不参与界面 chrome：面板 / 顶栏 / 按钮仍全是中性灰。 */
+      data-kind={kind}
       className={`cv-node ${selected ? 'selected' : ''} ${running ? 'running' : ''} ${sizedWidth ? 'sized-w' : ''} ${!mediaFace && sizedHeight ? 'sized-h' : ''} ${writable && kind === 'text' ? 'editing' : ''} ${bypassed ? 'bypassed' : ''}`}
       /* 正面是媒体：高度不写死 —— 交给图自己的宽高比，画框永远贴着图（2026-09-24）。 */
       style={{ width: sizedWidth, height: mediaFace ? undefined : sizedHeight, ...nodeTint } as CSSProperties}
@@ -761,6 +773,17 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
       {bypassed && isGeneratorKind(kind) && (
         <div className="cv-node-status warn" data-node-bypass-note="">
           已绕过 —— 这一轮不跑它，下游拿不到它的产出
+        </div>
+      )}
+      {/*
+        已选创作预设（2026-10-06）—— 挂在卡片上而不是只在对话框里。
+        对话框只在选中这个节点时出现，而「我这条链上到底挂了哪几档预设」是**扫一眼画布**
+        就该看出来的事：换一条预设会明显改画面，看不到挂了什么就只能凭记忆。
+        按钮那排已经说了「风格 · 暖阳赛璐璐CG」，这一行只为**没选中时**也看得到。
+      */}
+      {creativeTags.length > 0 && (
+        <div className="cv-node-status preset" data-node-presets="">
+          {creativeTags.map(item => <em key={item}>{item}</em>)}
         </div>
       )}
 

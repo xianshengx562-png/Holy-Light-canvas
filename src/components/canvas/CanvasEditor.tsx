@@ -82,6 +82,11 @@ import {
   uploadFieldOf, uploadNodeIdOf,
 } from './nodeMeta';
 import type { NodeKind } from './nodeMeta';
+/* 创作预设（2026-10-06）：挑中的风格 / 滤镜 / 运镜，提交时拼进提示词。 */
+import {
+  composeCreativePrompt, creativePicksFrom, supportsCreativePresets,
+  type CreativePreset, type CreativePresetKind,
+} from './creativePresets';
 import { validateImageParams } from '@/lib/workflows/imageParams';
 /*
  * 参考图 / 视频 / 音频的槽位上限**与配置页能绑的绑定数同源**：
@@ -2172,7 +2177,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       fine: String(placedNodeIds[1] || '').trim(),
     };
     /*
-     * 提示词 = 上游文本节点 + 上游导演台的构图描述。
+     * 提示词 = 上游文本节点 + 上游导演台的构图描述 + **本节点挑的创作预设**。
      *
      * 导演台那段是**追加**而不是替换：它说的是机位和站位，用户自己写的说的是画面内容，
      * 两件事都得讲，丢掉任何一半模型就只收到一半意图。
@@ -2182,10 +2187,20 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       .filter(item => item.data.kind === 'director')
       .map(item => String(item.data.directorPrompt || '').trim())
       .filter(Boolean);
-    const prompt = [
+    const basePrompt = [
       promptTextOf(upstream),
       ...directorShots,
     ].filter(Boolean).join('\n') || String(node.data.text || '').trim();
+    /*
+     * 创作预设（2026-10-06，从 AIFISHER 迁移）拼在**最外层**：
+     * 它的规矩是「前缀们 → 正文 → 后缀们」，而上面的 `basePrompt` 就是那个「正文」。
+     * 顺序由 `composeCreativePrompt()` 一处决定（它同时被单测钉着），
+     * 这里只负责把「这一轮本来要提交的那句」交给它。
+     *
+     * 🔴 为什么不让用户自己把预设文字粘进提示词：那样换一条预设就得手动删掉上一段，
+     * 而且「已选了哪几档」在界面上彻底看不出来 —— 用户会以为选了没生效。
+     */
+    const prompt = composeCreativePrompt(basePrompt, creativePicksFrom(node.data));
     /*
      * 🔴 提示词**不是一道闸**（2026-10-04 徐先：「视频音频生成以及图片生成节点就算不写提示词
      * 也没关系，照样提交上游」）。
@@ -4224,6 +4239,34 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
           : undefined,
         onLatentPicks: node.data.kind === 'latent-relay'
           ? (picks: string[]) => patch(node.id, { latentPicks: picks })
+          : undefined,
+        /*
+         * 创作预设（2026-10-06）：一次改**一档**，其余两档原样留着。
+         *
+         * 整体替换（像 `onLatentPicks` 那样传个数组）在这里是错的：挑风格会把已选的
+         * 滤镜一起冲掉，而用户在界面上做的是「换这一档」这一件事。
+         * `preset` 传 `null` = 把这一档清掉，清掉之后那一格从 `creativePresets` 里**删掉**
+         * （不是留个 `null`）：留 null 的话 `hasCreativePicks` 之类的地方要多判一层，
+         * 而「没有这一档」和「这一档是空的」本来就没有区别。
+         */
+        /*
+         * 创作预设（2026-10-06；2026-10-07 起**每档可以多条**）：一次改**一档**，
+         * 其余两档原样留着。
+         *
+         * 整体替换（像 `onLatentPicks` 那样传个数组）在这里是错的：挑风格会把已选的
+         * 滤镜一起冲掉，而用户在界面上做的是「换这一档」这一件事。
+         * `list` 为空 = 把这一档清掉，清掉之后那一格从 `creativePresets` 里**删掉**
+         * （不是留个 `null` 或空数组）：留 null 的话 `hasCreativePicks` 之类的地方要多判一层，
+         * 而「没有这一档」和「这一档是空的」本来就没有区别。
+         */
+        onCreativePresets: supportsCreativePresets(node.data.kind)
+          ? (presetKind: CreativePresetKind, list: CreativePreset[]) => {
+            const current = creativePicksFrom(node.data);
+            const next: Record<string, unknown> = { ...current };
+            if (list.length) next[presetKind] = list;
+            else delete next[presetKind];
+            patch(node.id, { creativePresets: next });
+          }
           : undefined,
         onMeasure: (size: string) => { if (node.data.imageSize !== size) patch(node.id, { imageSize: size }); },
         onPreview: setPreview,

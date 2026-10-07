@@ -14,16 +14,26 @@
 
 .canvas-studio,
 .flow-shell {
-  --cv-bg: #000000;
-  --cv-panel: #141414;
-  --cv-panel-2: #1c1c1c;
-  --cv-elev: #262626;
-  --cv-line: rgba(255, 255, 255, 0.07);
-  --cv-line-soft: rgba(255, 255, 255, 0.045);
-  --cv-line-strong: rgba(255, 255, 255, 0.14);
-  --cv-text: #f2f3f4;
-  --cv-dim: #9a9aa4;
-  --cv-mute: #63636e;
+  /* ------------------------------------------------------------------
+     2026-10-07 方向 D · 玻璃工坊（见 DESIGN.md §3.1）。
+     四级明度从下往上排：**画布地板 < 节点卡 < 面板 < 顶栏/浮层**。
+     ⚠️ 画布地板（--cv-bg）刻意**不是纯黑但很深**：纯黑上落不出弥散渐变，
+        而提到中调灰又会让人误判生成结果的黑位 —— 取 #131417 这个折中。
+     ------------------------------------------------------------------ */
+  --cv-bg: #131417;
+  --cv-panel: #2a2c34;
+  --cv-panel-2: #31333c;
+  --cv-elev: #3a3c45;
+  --cv-line: rgba(255, 255, 255, 0.09);
+  --cv-line-soft: rgba(255, 255, 255, 0.055);
+  --cv-line-strong: rgba(255, 255, 255, 0.17);
+  /* 中文界面按 7:1 设防。这三个对 --cv-panel 实测：15.4 / 7.4 / 5.5。
+     ⚠️ --cv-mute 提过两档（#8f939e → #a6abb6）：压在最深的底上原来只有 3.57:1，
+        压在账户卡那种最亮的次级面上原来只有 4.3:1 —— 都不是"够不够好看"的问题，
+        是中文低对比下真的读不出来。 */
+  --cv-text: #f2f3f6;
+  --cv-dim: #bcbfc8;
+  --cv-mute: #a6abb6;
   --cv-accent: #f2f2f2;
   --cv-accent-ink: #0a0a0a;
   --cv-danger: #f87171;
@@ -33,9 +43,9 @@
   --cv-floor: var(--cv-floor-custom, var(--cv-bg));
   --cv-edge: var(--cv-edge-custom, #3f3f46);
   --cv-edge-active: var(--cv-edge-active-custom, #6f6f7a);
-  --cv-dot: rgba(255, 255, 255, 0.09);
-  --cv-field: #111111;
-  --cv-placeholder: #52525b;
+  --cv-dot: rgba(255, 255, 255, 0.075);
+  --cv-field: #1e2026;
+  --cv-placeholder: #7b7f8a;
   --cv-accent-hover: #ffffff;
   /* 同 globals 那条：渐变只走背景那一路（画布里就是「运行」按钮那颗实心块）。 */
   --cv-accent-fill: var(--cv-accent);
@@ -48,15 +58,18 @@
   --cv-danger-soft: rgba(248, 113, 113, 0.1);
   --cv-danger-line: rgba(248, 113, 113, 0.35);
   --cv-warn-line: rgba(251, 146, 60, 0.4);
-  --cv-icon-dim: #3f3f46;
-  --cv-handle-bg: #26262c;
-  --cv-handle-line: #6f6f7a;
-  --cv-switch-off: #2a2a31;
-  --cv-switch-knob: #d4d4d8;
-  /* 平面风（2026-09-23）：浮层底**不透明** —— 半透明 + 背后模糊会在画布上糊出一圈光边，
-     看着"浮起来"、跟平面不搭；顺带把毛玻璃整个去掉（见下 .cv-topbar 那段注释）。 */
-  --cv-float: #1c1c1c;
-  --cv-float-strong: #141414;
+  --cv-icon-dim: #6a6e78;
+  --cv-handle-bg: #3a3c45;
+  --cv-handle-line: #8f939e;
+  --cv-switch-off: #3a3c45;
+  --cv-switch-knob: #d8dae0;
+  /* 浮层底（2026-10-07）：方向 D 要软分层，所以这两档比画布与卡片都亮，
+     浮层读成"架在台面上方的一块"。
+     🔴 **不透明度必须 ≥ 0.88**：Electron 合成层上「半透明/裁剪的祖先 + 底下有被缩放的图」
+     会被画成横纹（2026-10-06 在 CreativePresetPicker 上踩过一次，见 DESIGN.md §6）。
+     允许挂 backdrop-filter，但底色不许再往下压。 */
+  --cv-float: #31333c;
+  --cv-float-strong: #2a2c34;
   --cv-run-bg: var(--cv-accent-fill);
   --cv-run-bg-hover: var(--cv-accent-fill-hover);
   --cv-run-ink: #0a0a0a;
@@ -77,10 +90,19 @@
   --xy-minimap-mask-background-color: rgba(0, 0, 0, 0.72);
   --xy-minimap-node-background-color: #26262c;
   --xy-minimap-node-stroke-color: #3f3f46;
-  /* 圆角跟着全站收小一档：14→9 / 8→5 / 16→11（原来是 12/8/16） */
-  --cv-radius: 9px;
-  --cv-radius-sm: 5px;
-  --cv-radius-lg: 11px;
+  /* 圆角（2026-10-07 方向 D）：比上一代大一档（9/5/11 → 14/10/20），
+     配合下面那三级真阴影 —— 圆角越大越需要阴影把它跟背景分开。 */
+  --cv-radius: 14px;
+  --cv-radius-sm: 10px;
+  --cv-radius-lg: 20px;
+  /* 字号台阶（2026-10-07，DESIGN.md §4）。画布这一套跟 globals 那份数值一致，
+     只是独立声明一份（画布的 --cv-* 从来不复用 globals 的变量）。
+     🔴 新增规则只许用这五个，不许再写裸 `calc(11.7px * var(--ui))`。 */
+  --cv-fs-1: calc(10.5px * var(--ui));
+  --cv-fs-2: calc(11.5px * var(--ui));
+  --cv-fs-3: calc(12.5px * var(--ui));
+  --cv-fs-4: calc(13.5px * var(--ui));
+  --cv-fs-5: calc(15px * var(--ui));
   /* 平面风：阴影只留"贴边 + 一段很短的扩散"。原来那三档（尤其 3 的 0 24px 56px）
      是一团朝四周散开的黑雾，一眼就看出"浮在空中"。变量名刻意不换 —— 全项目几十处在用。 */
   /* 平面风（2026-09-23）：画布里的浮层 / 菜单 / 视口条一律不投影（1 与 3 直接置 none，
@@ -109,13 +131,23 @@
         正下方 200x30 全是 (0,0,0)）。所以深色这边额外给了一道 inset 顶边高光：
         光从上方来，卡片看上去是"被抬起来"的。那道黑影仍然留着 —— 用户在设置里
         改过 canvasBg（不是纯黑）时它就生效了。 */
-  --cv-shadow-1: none;
-  --cv-shadow-2: none;
-  --cv-shadow-3: none;
+  /* 🔴🔴 2026-10-07 方向 D：**三级真阴影全部启用**。
+     上面那段 09-23 / 09-30 的注释是上一代「平面风」的决定（三档置 none），
+     它在纯黑底 + 7% 白描边下已经不够用 —— 真机实测浮层跟画布连成一片、
+     「压在画布上」这个关系根本没建立。方向 D 要的就是软分层，所以三档给真值。
+     ⚠️ 别照着上面那段把它们改回 none；若确实要回到平面风，走用户设置里的配色档。 */
+  --cv-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.28), 0 4px 12px -4px rgba(0, 0, 0, 0.32);
+  --cv-shadow-2: 0 2px 6px rgba(0, 0, 0, 0.3), 0 12px 28px -8px rgba(0, 0, 0, 0.4);
+  --cv-shadow-3: 0 4px 10px rgba(0, 0, 0, 0.34), 0 24px 56px -12px rgba(0, 0, 0, 0.52);
   /* 两层分工：上面那层贴边、管边界清楚；下面那层偏移大 + 扩散大 + 负 spread，
-     让它只从下沿往外散，是"坐在地板上"的那点立体感。 */
-  --cv-node-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 8px 30px -8px rgba(0, 0, 0, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+     让它只从下沿往外散，是"坐在地板上"的那点立体感。
+     2026-10-07：地板不再是纯黑（#131417），那道黑影现在真的落得出来了，
+     所以 inset 顶边高光可以收淡一点（0.07 → 0.05），让卡片靠影而不是靠高光立体。 */
+  --cv-node-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 10px 30px -8px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  /* 节点卡片自己的底色（2026-10-07）：比画布地板亮一档、比面板暗一档 ——
+     四级明度「地板 < 卡片 < 面板 < 浮层」的中间那一级。 */
+  --cv-card: #1e2026;
 }
 
 /*
@@ -132,7 +164,9 @@
  */
 .canvas-studio,
 .flow-shell {
-  --cv-node-bg: var(--cv-node-bg-custom, var(--cv-panel));
+  /* 2026-10-07：默认从 --cv-card(#1e2026) 取，不再是 --cv-panel ——
+     卡片属于画布那一层，比面板暗一档（四级明度的第二级）。 */
+  --cv-node-bg: var(--cv-node-bg-custom, var(--cv-card));
   --cv-node-line: var(--cv-node-line-custom, var(--cv-line));
   --cv-node-line-hover: var(--cv-node-line-hover-custom, var(--cv-line-strong));
   --cv-node-accent: var(--cv-node-accent-custom, var(--cv-accent));
@@ -307,6 +341,7 @@ html[data-theme='light'] .canvas-studio,
 html[data-theme='light'] .flow-shell,
 html[data-theme='light'] .cv-menu,
 html[data-theme='light'] .cv-fpk,
+html[data-theme='light'] .cv-cpk,
 html[data-theme='light'] .cv-skill-mask {
   /* ---- 壳、面板、卡片：一律接全站语义令牌 ---- */
   --cv-bg: var(--app-bg);
@@ -337,9 +372,14 @@ html[data-theme='light'] .cv-skill-mask {
   --cv-warn-line: var(--app-warn-line);
   --cv-float: var(--app-surface-glass);
   --cv-float-strong: var(--app-surface-glass);
-  --cv-shadow-1: none;
-  --cv-shadow-2: none;
-  --cv-shadow-3: none;
+  /* 2026-10-07：日间也要三级真阴影，只是压得比夜间淡得多 ——
+     浅底上一点点黑就有，按夜间那个量级会糊成一团脏边。 */
+  --cv-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.06), 0 4px 12px -4px rgba(0, 0, 0, 0.08);
+  --cv-shadow-2: 0 2px 6px rgba(0, 0, 0, 0.08), 0 12px 28px -8px rgba(0, 0, 0, 0.12);
+  --cv-shadow-3: 0 4px 10px rgba(0, 0, 0, 0.1), 0 24px 56px -12px rgba(0, 0, 0, 0.18);
+  /* 🔴 日间必须自己给一份卡片底色：深色那份是 #1e2026，不覆盖的话
+     浅色主题下节点卡会是**一块深灰**，跟白地板撞出极强的违和感。 */
+  --cv-card: var(--app-surface);
   /* 日间：地板比卡片暗不了多少，节点那道影反而更要留（浅底上没影＝卡片像贴在地板上的纸片）。 */
   /* 与深色那边同一套结构，只是底色亮、要压得更淡。日间地板比卡片暗不了多少，
      影反而更要留 —— 浅底上没影，卡片就像贴在地板上的一张纸片。 */
@@ -407,7 +447,10 @@ html[data-theme='light'] .cv-skill-mask {
   align-items: center;
   gap: calc(10px * var(--ui));
   padding: 0 calc(12px * var(--ui));
-  background: var(--cv-bg);
+  /* 2026-10-07：顶栏是**界面 chrome**，不是画布 —— 它站四级明度的最高层
+     （地板 #131417 < 卡片 #1e2026 < 面板 #2a2c34 < 顶栏/浮层 #31333c）。
+     原来它跟画布同色（--cv-bg），于是「哪块是工具、哪块是工作区」全靠底下那根 1px 线分。 */
+  background: var(--cv-float);
   border-bottom: 1px solid var(--cv-line-soft);
   z-index: 20;
 }
@@ -417,7 +460,7 @@ html[data-theme='light'] .cv-skill-mask {
   gap: calc(8px * var(--ui));
   max-width: calc(320px * var(--ui));
   padding: calc(5px * var(--ui)) calc(8px * var(--ui));
-  font-size: calc(14px * var(--ui));
+  font-size: var(--cv-fs-4);
   font-weight: 600;
   color: var(--cv-text);
   border-radius: var(--cv-radius-sm);
@@ -462,7 +505,7 @@ html[data-theme='light'] .cv-skill-mask {
   color: var(--cv-text); background: var(--cv-panel);
 }
 .cv-topbar .cv-run-times .cv-run-step:disabled { opacity: 0.45; cursor: default; }
-.cv-topbar .cv-save { display: flex; align-items: center; gap: calc(6px * var(--ui)); font-size: calc(12px * var(--ui)); color: var(--cv-mute); }
+.cv-topbar .cv-save { display: flex; align-items: center; gap: calc(6px * var(--ui)); font-size: var(--cv-fs-3); color: var(--cv-mute); }
 .cv-topbar .cv-save i {
   display: block;
   width: calc(6px * var(--ui));
@@ -482,7 +525,7 @@ html[data-theme='light'] .cv-skill-mask {
   align-items: center;
   gap: 8px;
   padding: 7px 12px;
-  font-size: 12px;
+  font-size: var(--cv-fs-3);
   color: var(--cv-danger);
   background: var(--cv-danger-soft);
   border-bottom: 1px solid var(--cv-danger-line);
@@ -500,7 +543,7 @@ html[data-theme='light'] .cv-skill-mask {
   gap: calc(6px * var(--ui));
   height: calc(28px * var(--ui));
   padding: 0 calc(10px * var(--ui));
-  font-size: calc(12px * var(--ui));
+  font-size: var(--cv-fs-3);
   color: var(--cv-text);
   background: var(--cv-panel-2);
   border: 1px solid var(--cv-line);
@@ -545,6 +588,30 @@ html[data-theme='light'] .cv-skill-mask {
 .cv-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .cv-btn.sm { height: calc(26px * var(--ui)); padding: 0 calc(9px * var(--ui)); }
 
+/* ------------------------------------------------------------------
+   顶栏控件统一高度（2026-10-07）
+
+   真机实测：顶栏一排里出现过 **5 种高度**（15 / 17 / 23 / 29 / 32 px）——
+   品牌名自己算 padding、按钮走 `.cv-btn.sm` 的 26px、运行次数那格被数字框撑到 32px。
+   同一排的东西高矮不一，视线会一直在跳，这也是「看着没对齐」的真因
+   （上一轮记过一笔：三颗按钮**几何其实完全一致**，错的是"看不看得见"——
+    这次是高矮真的不一样，两件事别混）。
+
+   做法：顶栏里所有**控件**（品牌 / 按钮 / 数字框那格）钉到同一个高度。
+   ⚠️ 不碰 `.cv-divider`（它就是一根 20px 的竖线）和 `.cv-save`（那是状态文字，
+      不是控件 —— 文字跟着基线走，硬拉成 28px 反而更歪）。
+   ⚠️ 选择器要比 `.cv-btn.sm` 高一级，否则被它那 26px 盖回来。
+   ------------------------------------------------------------------ */
+.flow-shell .cv-topbar { --cv-topbar-ctl: calc(28px * var(--ui)); }
+.cv-topbar .cv-brand,
+.cv-topbar .cv-btn.sm,
+.cv-topbar .cv-btn,
+.cv-topbar .cv-run-times { height: var(--cv-topbar-ctl); }
+/* 品牌名原来是「padding 撑高」，改成钉高之后 padding 只留左右。 */
+.cv-topbar .cv-brand { padding: 0 calc(8px * var(--ui)); }
+/* 数字框自己填满那一格（原来是 23px，比旁边的按钮矮一截）。 */
+.cv-topbar .cv-run-times .cv-input { height: 100%; }
+
 /* ---------- 主体：左轨道 + 画布 + 右侧面板 ---------- */
 .flow-shell .cv-body { flex: 1; display: flex; min-height: 0; }
 .flow-shell .cv-stage {
@@ -553,7 +620,13 @@ html[data-theme='light'] .cv-skill-mask {
   min-width: 0;
   /* 画布地板：这一层里最底的颜色，垫在背景图与点阵下面。
      以前画在 .react-flow 上 —— 那条既盖住了背景图，也盖住了点阵（2026-09-21）。 */
-  background: var(--cv-floor);
+  background-color: var(--cv-floor);
+  /* 弥散渐变（2026-10-07 用户指定「Figma 弥散渐变效果」）：一层天光落在地板上。
+     🔴 它是**氛围不是装饰** —— 单点不透明度 ≤ 10%，不进面板 / 卡片 / 按钮 / 文字。
+     `--cv-mesh` 留了个总闸：以后要关（比如用户在设置里要一块纯净地板），
+     把它置成 none 即可，不用改这条规则。 */
+  background-image: var(--cv-mesh, var(--canvas-mesh));
+  background-repeat: no-repeat;
 }
 /* React Flow 自带那条 `background-color: var(--xy-background-color)` 已经被上面的变量置成透明，
    这里再补一条特异度更高的：以后谁把变量改回去，也不会重新踩一遍「背景图看不见」。 */
@@ -609,7 +682,7 @@ html[data-theme='light'] .cv-skill-mask {
   flex: none;
   padding: 0;
   font-family: inherit;
-  font-size: calc(11.5px * var(--ui));
+  font-size: var(--cv-fs-2);
   line-height: 1;
   color: var(--cv-dim);
   background: transparent;
@@ -643,7 +716,7 @@ html[data-theme='light'] .cv-skill-mask {
   height: calc(34px * var(--ui));
   flex: none;
   padding: 0;
-  font-size: calc(15px * var(--ui));
+  font-size: var(--cv-fs-5);
   color: var(--cv-accent);
   background: transparent;
   border: 0;
@@ -661,7 +734,7 @@ html[data-theme='light'] .cv-skill-mask {
    二级分类（只有图片才有角色 / 场景 / 道具）是内容区上面那一排 chip。
    2026-09-21 之前它是贴着轨道展开的 340px 窄浮层，改成大卡片之后那套定位就没用了。 */
 .cv-assets-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
-.cv-assets-note { margin: 0; padding: 12px 4px; font-size: 12px; color: var(--cv-mute); text-align: center; }
+.cv-assets-note { margin: 0; padding: 12px 4px; font-size: var(--cv-fs-3); color: var(--cv-mute); text-align: center; }
 .cv-assets-note.error { color: var(--cv-danger); }
 /* 一行一项。全局 `button { display:inline-flex; height:36px; justify-content:center }`
    会把它们拉成一条条居中的横条，这里逐条收回来。 */
@@ -698,12 +771,12 @@ html[data-theme='light'] .cv-skill-mask {
 .cv-assets-meta { display: grid; gap: 3px; min-width: 0; }
 .cv-assets-name {
   overflow: hidden;
-  font-size: 12.5px;
+  font-size: var(--cv-fs-3);
   color: var(--cv-text);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.cv-assets-sub { font-size: 11px; color: var(--cv-mute); }
+.cv-assets-sub { font-size: var(--cv-fs-2); color: var(--cv-mute); }
 
 /* Tooltip 纯 CSS：悬浮工具条和左下控制条位置都是固定的，提示永远往右弹，
    没必要为了几个字再引入一层 JS 定位。
@@ -722,7 +795,7 @@ html[data-theme='light'] .cv-skill-mask {
   z-index: 40;
   display: none;
   padding: 4px 8px;
-  font-size: 11px;
+  font-size: var(--cv-fs-2);
   line-height: 1.2;
   white-space: nowrap;
   color: var(--cv-text);
@@ -776,7 +849,7 @@ html[data-theme='light'] .cv-skill-mask {
   --cv-accent-ink: var(--cv-node-accent-ink);
   width: 240px;
   overflow: visible;
-  font-size: 13px;
+  font-size: var(--cv-fs-3);
   color: var(--cv-text);
   background: transparent;
   border: 0;
@@ -802,7 +875,7 @@ html[data-theme='light'] .cv-skill-mask {
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  font-size: 12.5px;
+  font-size: var(--cv-fs-3);
   font-weight: 600;
   /* 2026-09-21：节点名要看得清 —— 以前是 --cv-dim，压在地板上几乎读不出来。 */
   color: var(--cv-text);
@@ -816,7 +889,7 @@ html[data-theme='light'] .cv-skill-mask {
   width: 100%;
   box-sizing: border-box;
   font-family: inherit;
-  font-size: 12.5px;
+  font-size: var(--cv-fs-3);
   font-weight: 600;
   color: var(--cv-text);
   background: transparent;
@@ -837,7 +910,7 @@ html[data-theme='light'] .cv-skill-mask {
   height: 20px;
   padding: 0 7px;
   font-family: inherit;
-  font-size: 10px;
+  font-size: var(--cv-fs-1);
   font-weight: 500;
   line-height: 1;
   color: var(--cv-dim);
@@ -875,7 +948,7 @@ html[data-theme='light'] .cv-skill-mask {
   flex: none;
   height: 18px;
   padding: 0 7px;
-  font-size: 10px;
+  font-size: var(--cv-fs-1);
   font-weight: 600;
   line-height: 1;
   color: var(--cv-accent-ink);
@@ -895,6 +968,31 @@ html[data-theme='light'] .cv-skill-mask {
 /* 键盘焦点必须显形 —— 悬停才出现的按钮一旦不能用鼠标触发就成了死角。 */
 .cv-node-upscale:focus-visible { opacity: 1; outline: 2px solid var(--cv-accent-ring); outline-offset: 1px; }
 
+/* ---------- 节点类型色（2026-10-07 方向 D，DESIGN.md §3.3） ----------
+   「高级灰」= 低饱和带灰，不是鲜艳色。规则来自 Figma：**彩色只出现在内容层** ——
+   节点卡属于内容，面板 / 顶栏 / 按钮一律中性灰。
+   ⚠️ 类型条画在**卡片顶上**，不是左侧 —— 左侧竖线装饰是硬禁令（P-38）。 */
+/* 取值与 `nodeMeta.ts` 里 `NODE_META[kind].color` **一一对应**（改那边就要改这边）。
+   同族共享色相、靠明度分档：蓝=文本/提示词，粉=图片，绿=视频，黄=音频，紫=latent 接续。 */
+.cv-node { --cv-node-kind: var(--kind-other); }
+.cv-node[data-kind='text'] { --cv-node-kind: #8fa3c4; }
+.cv-node[data-kind='prompt-optimize'] { --cv-node-kind: #a6b3c9; }
+.cv-node[data-kind='image'] { --cv-node-kind: #c78ea6; }
+.cv-node[data-kind='image-generate'] { --cv-node-kind: #cf98a4; }
+.cv-node[data-kind='image-out'] { --cv-node-kind: #bf9aa8; }
+.cv-node[data-kind='video-input'] { --cv-node-kind: #8fbca4; }
+.cv-node[data-kind='video-generate'] { --cv-node-kind: #86b79c; }
+.cv-node[data-kind='video'] { --cv-node-kind: #9fbdb0; }
+.cv-node[data-kind='frame-extract'] { --cv-node-kind: #7fa2ad; }
+.cv-node[data-kind='audio-input'] { --cv-node-kind: #cbb083; }
+.cv-node[data-kind='latent'] { --cv-node-kind: #a893c6; }
+.cv-node[data-kind='latent-relay'] { --cv-node-kind: #b0a2c4; }
+.cv-node[data-kind='pinned-upload'] { --cv-node-kind: #b8937a; }
+.cv-node[data-kind='workflow'] { --cv-node-kind: #bd8f95; }
+.cv-node[data-kind='params'] { --cv-node-kind: #c2a184; }
+.cv-node[data-kind='app-generate'] { --cv-node-kind: #8fb0bd; }
+.cv-node[data-kind='director'] { --cv-node-kind: #9aa0aa; }
+
 .cv-node-frame {
   position: relative;
   display: grid;
@@ -908,6 +1006,32 @@ html[data-theme='light'] .cv-skill-mask {
   box-shadow: var(--cv-node-shadow);
   transition: border-color 0.14s ease, box-shadow 0.14s ease;
 }
+/*
+ * 卡片顶上那条 2px 的**类型色条**（2026-10-07 方向 D）。
+ * 目的：一眼分清这条链上都是什么节点 —— 缩略图还没出来时也认得出。
+ * ⚠️ 画在**顶上**不是左侧：左侧竖线装饰是硬禁令（见 DESIGN.md §9 Don't）。
+ * ⚠️ 不用 `overflow: hidden` 去裁圆角：画布上几百张被缩放的图 + 裁剪祖先会在
+ *    Electron 合成层上画成横纹（2026-10-06 踩过）。给条自己写圆角。
+ */
+.cv-node-frame::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  border-radius: var(--cv-radius) var(--cv-radius) 0 0;
+  background: var(--cv-node-kind);
+  /* 静止时压到 0.6：一屏十几个节点时，满亮的色条会把注意力从图上抢走。 */
+  opacity: 0.6;
+  pointer-events: none;
+  transition: opacity 0.14s ease;
+}
+.cv-node:hover .cv-node-frame::before,
+.cv-node.selected .cv-node-frame::before { opacity: 1; }
+/* 标题行那个小图标也跟着类型走：色条在卡片上，图标在标题上，两处互相印证。 */
+.cv-node-glyph { color: var(--cv-node-kind); }
+
 .cv-node:hover .cv-node-frame { border-color: var(--cv-node-line-hover); }
 /*
  * 选中 = **只把描边换成强调色**，外面那圈环从 3px 收到 1px。
@@ -959,7 +1083,7 @@ html[data-theme='light'] .cv-skill-mask {
   margin: 0;
   padding: 0;
   font-family: inherit;
-  font-size: 13px;
+  font-size: var(--cv-fs-3);
   line-height: 1.6;
   color: var(--cv-text);
   background: transparent;
@@ -1083,7 +1207,7 @@ html[data-theme='light'] .cv-skill-mask {
   min-height: 128px;
   padding: 14px;
   text-align: center;
-  font-size: 12px;
+  font-size: var(--cv-fs-3);
   line-height: 1.5;
   color: var(--cv-mute);
   border: 1px solid transparent;
@@ -1131,7 +1255,7 @@ html[data-theme='light'] .cv-skill-mask {
 .cv-node-status {
   margin-top: 6px;
   padding: 5px 9px;
-  font-size: 11px;
+  font-size: var(--cv-fs-2);
   line-height: 1.4;
   color: var(--cv-dim);
   background: var(--cv-panel);
@@ -1159,7 +1283,7 @@ html[data-theme='light'] .cv-skill-mask {
   max-height: 128px;
   margin: 0;
   overflow: hidden;
-  font-size: 12px;
+  font-size: var(--cv-fs-3);
   line-height: 1.6;
   color: var(--cv-dim);
   white-space: pre-wrap;
@@ -1175,7 +1299,7 @@ html[data-theme='light'] .cv-skill-mask {
  * 唯一的目的就是**别让那个 span 变成 grid item**。
  */
 .cv-node-info { text-align: center; }
-.cv-node-info b { display: block; margin-bottom: 5px; font-size: 14px; font-weight: 600; }
+.cv-node-info b { display: block; margin-bottom: 5px; font-size: var(--cv-fs-4); font-weight: 600; }
 /*
  * 🔴 这一行必须能收缩 + 能断词（2026-10-03 徐先：latent 中转的卡片文字跃出节点框）。
  *
@@ -1188,7 +1312,7 @@ html[data-theme='light'] .cv-skill-mask {
  * scrollHeight 必然更大（这么判会假红）。要看**可见高度**是不是两行以内。
  */
 .cv-node-info span {
-  font-size: 11px;
+  font-size: var(--cv-fs-2);
   color: var(--cv-mute);
   margin-bottom: 5px;
   min-width: 0;
@@ -1199,7 +1323,7 @@ html[data-theme='light'] .cv-skill-mask {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.cv-node-info em { display: block; font-style: normal; font-size: 11px; color: var(--cv-dim); }
+.cv-node-info em { display: block; font-style: normal; font-size: var(--cv-fs-2); color: var(--cv-dim); }
 
 /* ---------- 图片 / 视频 ------------- */
 .cv-thumb {
@@ -1222,7 +1346,7 @@ html[data-theme='light'] .cv-skill-mask {
   left: 8px;
   bottom: 8px;
   padding: 2px 8px;
-  font-size: 10px;
+  font-size: var(--cv-fs-1);
   color: var(--cv-text);
   background: var(--cv-media-scrim);
   border-radius: var(--cv-radius-full, 999px);
@@ -1278,7 +1402,7 @@ html[data-theme='light'] .cv-skill-mask {
 }
 .cv-text-result pre {
   margin: 0; white-space: pre-wrap; word-break: break-word;
-  font-family: inherit; font-size: calc(12px * var(--ui)); line-height: 1.5;
+  font-family: inherit; font-size: var(--cv-fs-3); line-height: 1.5;
   color: var(--cv-text); user-select: text;
 }
 
@@ -1312,7 +1436,7 @@ html[data-theme='light'] .cv-skill-mask {
   right: 3px;
   bottom: 3px;
   padding: 1px 4px;
-  font-size: 10px;
+  font-size: var(--cv-fs-1);
   line-height: 1.5;
   color: var(--cv-mute);
   background: var(--cv-media-solid);
@@ -1323,7 +1447,7 @@ html[data-theme='light'] .cv-skill-mask {
   left: 3px;
   top: 3px;
   padding: 1px 5px;
-  font-size: 10px;
+  font-size: var(--cv-fs-1);
   line-height: 1.5;
   color: var(--cv-text);
   background: var(--cv-media-solid);
@@ -1535,7 +1659,7 @@ html[data-theme='light'] .cv-skill-mask {
   align-items: center;
   gap: 6px;
   padding: 7px 10px;
-  font-size: 11px;
+  font-size: var(--cv-fs-2);
   color: var(--cv-mute);
   border-bottom: 1px solid var(--cv-line);
 }
@@ -1562,8 +1686,8 @@ html[data-theme='light'] .cv-skill-mask {
   gap: 10px;
   padding: 12px;
 }
-.cv-results-section-title { font-size: 11px; margin-top: 4px; color: var(--cv-mute); }
-.cv-results-empty { font-size: 12px; line-height: 1.7; color: var(--cv-mute); }
+.cv-results-section-title { font-size: var(--cv-fs-2); margin-top: 4px; color: var(--cv-mute); }
+.cv-results-empty { font-size: var(--cv-fs-3); line-height: 1.7; color: var(--cv-mute); }
 .cv-results-item {
   display: grid;
   gap: 6px;
@@ -1576,7 +1700,7 @@ html[data-theme='light'] .cv-skill-mask {
   display: flex;
   align-items: baseline;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--cv-fs-3);
   color: var(--cv-text);
 }
 .cv-results-head > b { font-weight: 600; }
@@ -1593,7 +1717,7 @@ html[data-theme='light'] .cv-skill-mask {
   flex: none;
   max-width: 132px;
   padding: 1px 6px;
-  font-size: 10px;
+  font-size: var(--cv-fs-1);
   color: var(--cv-dim);
   background: var(--cv-elev);
   border: 1px solid var(--cv-line);
@@ -1603,9 +1727,9 @@ html[data-theme='light'] .cv-skill-mask {
   white-space: nowrap;
 }
 .cv-results-proj.current { color: var(--cv-accent); border-color: var(--cv-accent-line); }
-.cv-results-open { font-size: 11px; color: var(--cv-accent); text-decoration: none; }
+.cv-results-open { font-size: var(--cv-fs-2); color: var(--cv-accent); text-decoration: none; }
 .cv-results-open:hover { text-decoration: underline; }
-.cv-results-at { font-size: 10.5px; color: var(--cv-mute); }
+.cv-results-at { font-size: var(--cv-fs-1); color: var(--cv-mute); }
 .cv-results-media { display: grid; gap: 6px; justify-items: start; }
 .cv-results-media .cv-video { width: 100%; border-radius: 8px; border: 1px solid var(--cv-line); }
 /* 音频：一条窄条就够了 —— 用 16:9 的黑框装一段只有波形的声音，既难看也看不出进度。 */
@@ -1614,7 +1738,7 @@ html[data-theme='light'] .cv-skill-mask {
 .cv-results-text {
   display: block; width: 100%; padding: 10px 12px; text-decoration: none;
   border: 1px solid var(--cv-line); border-radius: 8px;
-  background: var(--cv-field); color: var(--cv-text); font-size: calc(13px * var(--ui));
+  background: var(--cv-field); color: var(--cv-text); font-size: var(--cv-fs-3);
 }
 
 /* ---------- 画布右侧抽屉（内置浏览器 / Codex 共用外壳） ----------
@@ -1666,7 +1790,7 @@ html[data-theme='light'] .cv-skill-mask {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 12px;
+  font-size: var(--cv-fs-3);
   color: var(--cv-text);
 }
 /*
@@ -1779,7 +1903,7 @@ html[data-theme='light'] .cv-skill-mask {
   border-radius: 7px;
   background: var(--cv-panel-2);
   color: var(--cv-text);
-  font-size: 12px;
+  font-size: var(--cv-fs-3);
 }
 .cv-browser-addr::placeholder { color: var(--cv-mute); }
 /*
@@ -1823,7 +1947,7 @@ html[data-theme='light'] .cv-skill-mask {
   grid-column: 1 / -1;
   margin: 0;
   padding: 10px 2px;
-  font-size: 11px;
+  font-size: var(--cv-fs-2);
   line-height: 1.6;
   color: var(--cv-mute);
 }
@@ -1846,7 +1970,7 @@ html[data-theme='light'] .cv-skill-mask {
   row-gap: 6px;
   gap: 6px;
   padding: 7px 10px;
-  font-size: 11px;
+  font-size: var(--cv-fs-2);
   color: var(--cv-mute);
   border-bottom: 1px solid var(--cv-line);
 }
@@ -1866,7 +1990,7 @@ html[data-theme='light'] .cv-skill-mask {
 .cv-codex-tag {
   flex: none;
   padding: 1px 6px;
-  font-size: 10px;
+  font-size: var(--cv-fs-1);
   color: var(--cv-dim);
   background: var(--cv-panel-2);
   border: 1px solid var(--cv-line);
@@ -1889,7 +2013,7 @@ html[data-theme='light'] .cv-skill-mask {
   max-width: 108px;
   height: 18px;
   padding: 0 2px;
-  font-size: 11px;
+  font-size: var(--cv-fs-2);
   color: var(--cv-dim);
   background: transparent;
   border: 0;
@@ -1909,7 +2033,7 @@ html[data-theme='light'] .cv-skill-mask {
 .cv-codex-msg {
   max-width: 92%;
   padding: 8px 10px;
-  font-size: 12px;
+  font-size: var(--cv-fs-3);
   line-height: 1.65;
   /* 消息里有换行，也有代码块式的长行 —— 两个都要能看。 */
   white-space: pre-wrap;
@@ -1922,7 +2046,7 @@ html[data-theme='light'] .cv-skill-mask {
 .cv-codex-msg.reasoning {
   align-self: flex-start;
   padding: 2px 0 2px 8px;
-  font-size: 11px;
+  font-size: var(--cv-fs-2);
   color: var(--cv-mute);
   background: transparent;
   border-left: 2px solid var(--cv-line-strong);
@@ -1947,18 +2071,18 @@ html[data-theme='light'] .cv-skill-mask {
   border: 1px solid var(--cv-line);
   border-radius: 8px;
 }
-.cv-codex-tool-name { font-size: 11px; color: var(--cv-dim); }
-.cv-codex-tool-raw { font-size: 10px; color: var(--cv-mute); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.cv-codex-tool-err { font-size: 11px; line-height: 1.6; color: var(--cv-danger); }
-.cv-codex-empty { font-size: 12px; line-height: 1.7; color: var(--cv-mute); }
+.cv-codex-tool-name { font-size: var(--cv-fs-2); color: var(--cv-dim); }
+.cv-codex-tool-raw { font-size: var(--cv-fs-1); color: var(--cv-mute); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.cv-codex-tool-err { font-size: var(--cv-fs-2); line-height: 1.6; color: var(--cv-danger); }
+.cv-codex-empty { font-size: var(--cv-fs-3); line-height: 1.7; color: var(--cv-mute); }
 .cv-codex-empty p { margin: 0 0 8px; }
 .cv-codex-empty ul { margin: 0 0 8px; padding-left: 18px; }
 .cv-codex-empty li { margin-bottom: 3px; }
-.cv-codex-empty-note { font-size: 11px; color: var(--cv-mute); }
+.cv-codex-empty-note { font-size: var(--cv-fs-2); color: var(--cv-mute); }
 .cv-codex-notice {
   flex: none;
   padding: 6px 10px;
-  font-size: 11px;
+  font-size: var(--cv-fs-2);
   line-height: 1.6;
   color: var(--cv-warn);
   border-top: 1px solid var(--cv-line);
@@ -1978,7 +2102,7 @@ html[data-theme='light'] .cv-skill-mask {
   max-height: 160px;
   padding: 8px 9px;
   font-family: inherit;
-  font-size: 12px;
+  font-size: var(--cv-fs-3);
   line-height: 1.5;
   color: var(--cv-text);
   background: var(--cv-field);
@@ -2003,7 +2127,7 @@ html[data-theme='light'] .cv-skill-mask {
  * `.cv-param-desc` 下的**那些字段。
  */
 .cv-field { display: grid; gap: 5px; min-width: 0; }
-.cv-field > span { font-size: 11px; color: var(--cv-mute); }
+.cv-field > span { font-size: var(--cv-fs-2); color: var(--cv-mute); }
 
 /*
  * 中转节点「取自哪次生成」：**一列两行**（2026-10-03，N-114）。
@@ -2012,7 +2136,7 @@ html[data-theme='light'] .cv-skill-mask {
  */
 .cv-relay-picks { display: grid; gap: 6px; }
 .cv-relay-pick { display: grid; grid-template-columns: 58px minmax(0, 1fr); align-items: center; gap: 8px; }
-.cv-relay-pick em { font-style: normal; font-size: 11px; color: var(--cv-mute); }
+.cv-relay-pick em { font-style: normal; font-size: var(--cv-fs-2); color: var(--cv-mute); }
 /* 「一行两格」。2026-10-01 起真的有人在用了（`NodeParamBar` 的粗 / 精采节点 id）。
    `min-width: 0` 不能少：栅格子项默认 `min-width: auto`，里面那个 `width: 100%` 的输入框
    会把列撑破、两格挤成一大一小。 */
@@ -2026,7 +2150,7 @@ html[data-theme='light'] .cv-skill-mask {
   min-width: 0;
   padding: calc(7px * var(--ui)) calc(9px * var(--ui));
   font-family: inherit;
-  font-size: calc(12px * var(--ui));
+  font-size: var(--cv-fs-3);
   color: var(--cv-text);
   background: var(--cv-field);
   border: 1px solid var(--cv-line);
@@ -2047,7 +2171,7 @@ html[data-theme='light'] .cv-skill-mask {
   justify-content: space-between;
   gap: 8px;
   padding: 6px 9px;
-  font-size: 12px;
+  font-size: var(--cv-fs-3);
   color: var(--cv-dim);
   background: var(--cv-field);
   border: 1px solid var(--cv-line);
@@ -2055,7 +2179,7 @@ html[data-theme='light'] .cv-skill-mask {
 }
 .cv-stat b { font-weight: 500; color: var(--cv-accent); }
 
-.cv-switch { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--cv-dim); cursor: pointer; }
+.cv-switch { display: flex; align-items: center; gap: 8px; font-size: var(--cv-fs-3); color: var(--cv-dim); cursor: pointer; }
 .cv-switch input {
   appearance: none;
   -webkit-appearance: none;
@@ -2084,10 +2208,10 @@ html[data-theme='light'] .cv-skill-mask {
 .cv-switch input:checked { background: var(--cv-accent); }
 .cv-switch input:checked::after { transform: translateX(14px); background: var(--cv-accent-ink); }
 
-.cv-note { font-size: 11px; line-height: 1.6; color: var(--cv-mute); }
+.cv-note { font-size: var(--cv-fs-2); line-height: 1.6; color: var(--cv-mute); }
 .cv-msg {
   padding: 6px 9px;
-  font-size: 12px;
+  font-size: var(--cv-fs-3);
   line-height: 1.5;
   color: var(--cv-accent);
   background: var(--cv-accent-soft);
@@ -2099,7 +2223,7 @@ html[data-theme='light'] .cv-skill-mask {
 .cv-link {
   display: block;
   padding: 6px;
-  font-size: 12px;
+  font-size: var(--cv-fs-3);
   color: var(--cv-text);
   text-align: center;
   background: var(--cv-panel-2);
@@ -2124,7 +2248,7 @@ html[data-theme='light'] .cv-skill-mask {
   display: flex;
   justify-content: space-between;
   gap: 8px;
-  font-size: 11px;
+  font-size: var(--cv-fs-2);
   color: var(--cv-mute);
 }
 .cv-param-slots-head span:last-child { color: var(--cv-dim); }
@@ -2142,7 +2266,7 @@ html[data-theme='light'] .cv-skill-mask {
 }
 .cv-slots.bar .cv-slot { width: 48px; height: 48px; }
 .cv-slot img { display: block; width: 100%; height: 100%; object-fit: cover; cursor: zoom-in; }
-.cv-slot-code { padding: 2px 4px; font-size: 10px; line-height: 1.3; color: var(--cv-text); text-align: center; word-break: break-all; }
+.cv-slot-code { padding: 2px 4px; font-size: var(--cv-fs-1); line-height: 1.3; color: var(--cv-text); text-align: center; word-break: break-all; }
 .cv-slot.pending { border-color: var(--cv-warn-line); }
 .cv-slot.pending .cv-slot-code { color: var(--cv-warn); }
 .cv-slot.ready { border-color: var(--cv-accent-line); }
@@ -2202,7 +2326,7 @@ html[data-theme='light'] .cv-skill-mask {
   width: 520px;
   max-width: calc(100vw - 32px);
   padding: 12px;
-  font-size: 12.5px;
+  font-size: var(--cv-fs-3);
   color: var(--cv-text);
   text-align: left;
   cursor: default;
@@ -2214,8 +2338,8 @@ html[data-theme='light'] .cv-skill-mask {
 /* 靠画布右边界时翻到左边（`flip` 由 NodeParamBar 量节点位置决定，不量自己）。 */
 .cv-param-bar.flip { left: auto; right: -14px; }
 
-.cv-param-title { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--cv-dim); }
-.cv-param-title em { margin-left: auto; font-style: normal; font-size: 10px; color: var(--cv-mute); }
+.cv-param-title { display: flex; align-items: center; gap: 8px; font-size: var(--cv-fs-3); color: var(--cv-dim); }
+.cv-param-title em { margin-left: auto; font-style: normal; font-size: var(--cv-fs-1); color: var(--cv-mute); }
 /*
  * `flex-wrap` 是必须的：面板只有 ~326px 可用宽（节点 348 − 边框内边距 22），
  * 而工作流引擎那一档有 7 个控件（比例 / 张数 / 步数 / CFG / 种子 / MP / 采样器）。
@@ -2223,14 +2347,14 @@ html[data-theme='light'] .cv-skill-mask {
  */
 .cv-param-top { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .cv-param-desc { flex: 1; min-width: 0; display: grid; gap: 7px; align-content: start; }
-.cv-param-hint { font-size: 11px; color: var(--cv-mute); }
+.cv-param-hint { font-size: var(--cv-fs-2); color: var(--cv-mute); }
 /* 与底栏那条 `.cv-dock-hint.warn` 同一个令牌：同一句警告在两处要长得一样。 */
 .cv-param-hint.warn { color: var(--cv-warn); }
 /*
  * 「这么填不会生效」的警告（例如同步出图那档接了参考图）。
  * 必须用警示色而不是普通灰：它和上面那串说明文字长得一样就没人在读了。
  */
-.cv-param-warn { font-size: 11px; line-height: 1.5; color: var(--cv-warn); }
+.cv-param-warn { font-size: var(--cv-fs-2); line-height: 1.5; color: var(--cv-warn); }
 
 .cv-param-input {
   flex: 1;
@@ -2238,7 +2362,7 @@ html[data-theme='light'] .cv-skill-mask {
   min-height: 64px;
   padding: 10px 2px;
   font-family: inherit;
-  font-size: 13px;
+  font-size: var(--cv-fs-3);
   line-height: 1.55;
   color: var(--cv-text);
   resize: vertical;
@@ -2250,7 +2374,7 @@ html[data-theme='light'] .cv-skill-mask {
 .cv-param-input.neg {
   min-height: 38px;
   padding-top: 8px;
-  font-size: 12px;
+  font-size: var(--cv-fs-3);
   color: var(--cv-dim);
   border-top: 1px dashed var(--cv-line-soft);
 }
@@ -2289,7 +2413,7 @@ html[data-theme='light'] .cv-skill-mask {
   border-top: 1px solid var(--cv-line-soft);
 }
 .cv-param-spacer { flex: 1; min-width: 8px; }
-.cv-param-mini { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--cv-mute); }
+.cv-param-mini { display: inline-flex; align-items: center; gap: 5px; font-size: var(--cv-fs-2); color: var(--cv-mute); }
 /*
   「长宽」那一档的读数。它是**算出来的**不是填进去的，所以按数字等宽排、
   颜色和普通输入框区分开 —— 否则会被当成又一个可以改的输入框。
@@ -2303,7 +2427,7 @@ html[data-theme='light'] .cv-skill-mask {
   justify-content: center;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
-  font-size: 11px;
+  font-size: var(--cv-fs-2);
   color: var(--cv-text);
   background: var(--cv-panel-2);
   border: 1px solid var(--cv-line);
@@ -2329,8 +2453,8 @@ html[data-theme='light'] .cv-skill-mask {
 .cv-param-run:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 
 .cv-param-bar .cv-select.sm,
-.cv-param-bar .cv-input.sm { height: calc(28px * var(--ui)); padding: 0 calc(8px * var(--ui)); font-size: calc(12px * var(--ui)); }
-.cv-param-bar .cv-switch { font-size: 12px; }
+.cv-param-bar .cv-input.sm { height: calc(28px * var(--ui)); padding: 0 calc(8px * var(--ui)); font-size: var(--cv-fs-3); }
+.cv-param-bar .cv-switch { font-size: var(--cv-fs-3); }
 .cv-param-bar .cv-btn.sm { height: calc(28px * var(--ui)); }
 .cv-param-bar .cv-btn.off { pointer-events: none; }
 
@@ -2374,7 +2498,7 @@ html[data-theme='light'] .cv-skill-mask {
 /* 选节点类型这一份条目最多、每行都是图标 + 文案：照参考给足宽度与行高，
    呼吸感靠行距，不靠投影和粗边。 */
 .cv-menu.add-nodes { width: 320px; }
-.cv-menu-title { padding: 8px 10px 6px; font-size: 12px; color: var(--cv-mute); }
+.cv-menu-title { padding: 8px 10px 6px; font-size: var(--cv-fs-3); color: var(--cv-mute); }
 .cv-menu-item {
   display: flex;
   align-items: center;
@@ -2383,7 +2507,7 @@ html[data-theme='light'] .cv-skill-mask {
   height: 38px;
   padding: 0 10px;
   font-family: inherit;
-  font-size: 13px;
+  font-size: var(--cv-fs-3);
   color: var(--cv-text);
   text-align: left;
   background: transparent;
@@ -2395,12 +2519,12 @@ html[data-theme='light'] .cv-skill-mask {
    inset 内高光（specificity 0-3-1，比 .cv-menu-item 高）—— 就是它让每行看起来
    像张凸起的小卡。这里照抄它的 :not 链再垫一层 .cv-menu，稳压一头。 */
 .cv-menu .cv-menu-item:not(.secondary):not(.subtle):not(:disabled) { box-shadow: none; }
-.cv-menu.add-nodes .cv-menu-item { height: 44px; font-size: 14px; border-radius: 10px; }
-.cv-menu.add-nodes .cv-menu-item .cv-menu-text { font-size: 14px; }
+.cv-menu.add-nodes .cv-menu-item { height: 44px; font-size: var(--cv-fs-4); border-radius: 10px; }
+.cv-menu.add-nodes .cv-menu-item .cv-menu-text { font-size: var(--cv-fs-4); }
 .cv-menu-item:hover { background: var(--cv-panel-2); }
 .cv-menu-item .cv-menu-glyph { display: grid; place-items: center; width: 20px; color: var(--cv-mute); }
 .cv-menu-item:hover .cv-menu-glyph { color: var(--cv-accent); }
-.cv-menu-item em { margin-left: auto; font-style: normal; font-size: 10px; color: var(--cv-mute); }
+.cv-menu-item em { margin-left: auto; font-style: normal; font-size: var(--cv-fs-1); color: var(--cv-mute); }
 .cv-menu-item.off { opacity: 0.38; cursor: not-allowed; }
 /* globals 的 `button:disabled:hover` 会给禁用行刷一层强调色底 —— 菜单里禁用行悬停就该是透明的。 */
 .cv-menu-item.off:hover { background: transparent; }
@@ -2419,7 +2543,7 @@ html[data-theme='light'] .cv-skill-mask {
   flex: none;
   padding: 2px 5px;
   font-family: inherit;
-  font-size: 10px;
+  font-size: var(--cv-fs-1);
   color: var(--cv-mute);
   background: var(--cv-panel-2);
   border: 1px solid var(--cv-line);
@@ -2488,7 +2612,7 @@ html[data-theme='light'] .cv-skill-mask {
   z-index: 20;
   display: grid;
   place-items: center;
-  font-size: 13px;
+  font-size: var(--cv-fs-3);
   color: var(--cv-accent);
   pointer-events: none;
   background: var(--cv-accent-veil);
@@ -2502,7 +2626,7 @@ html[data-theme='light'] .cv-skill-mask {
   z-index: 11;
   max-width: 340px;
   padding: 6px 10px;
-  font-size: 11px;
+  font-size: var(--cv-fs-2);
   color: var(--cv-mute);
   background: var(--cv-float);
   border: 1px solid var(--cv-line);
@@ -2521,7 +2645,7 @@ html[data-theme='light'] .cv-skill-mask {
   max-width: min(560px, calc(100% - 32px));
   line-height: 1.5;
   text-align: left;
-  font-size: 12px;
+  font-size: var(--cv-fs-3);
   color: var(--cv-warn);
   background: var(--cv-float-strong);
   border: 1px solid var(--cv-warn-line);
@@ -2583,7 +2707,7 @@ html[data-theme='light'] .cv-skill-mask {
 .cv-vp .cv-vp-btn:hover { background: var(--cv-panel-2); color: var(--cv-text); }
 .cv-vp .cv-vp-btn:focus-visible { outline: 2px solid var(--cv-accent-ring); }
 .cv-vp .cv-vp-btn.on { color: var(--cv-accent); background: var(--cv-accent-soft); }
-.cv-vp .cv-vp-percent { min-width: calc(40px * var(--ui)); font-size: calc(11px * var(--ui)); color: var(--cv-mute); text-align: center; }
+.cv-vp .cv-vp-percent { min-width: calc(40px * var(--ui)); font-size: var(--cv-fs-2); color: var(--cv-mute); text-align: center; }
 .flow-shell .cv-vp-slider,
 .flow-shell .cv-ap-slider input[type='range'] {
   -webkit-appearance: none;
@@ -2663,14 +2787,14 @@ html[data-theme='light'] .cv-skill-mask {
   border-radius: var(--cv-radius);
   box-shadow: var(--cv-shadow-3);
 }
-.cv-vp-help-head { font-size: 11px; color: var(--cv-mute); }
-.cv-vp-help-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; font-size: 11.5px; color: var(--cv-dim); }
+.cv-vp-help-head { font-size: var(--cv-fs-2); color: var(--cv-mute); }
+.cv-vp-help-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; font-size: var(--cv-fs-2); color: var(--cv-dim); }
 .cv-vp-help-row span { color: var(--cv-text); }
 .cv-vp-help-row kbd {
   justify-self: start;
   padding: 2px 5px;
   font-family: inherit;
-  font-size: 10px;
+  font-size: var(--cv-fs-1);
   color: var(--cv-mute);
   background: var(--cv-panel-2);
   border: 1px solid var(--cv-line);
@@ -2835,7 +2959,7 @@ html[data-theme='light'] .cv-skill-mask {
 .cv-ap-main .cv-ap-item { min-height: 22px; }
 .cv-ap-row { display: grid; gap: 5px; }
 .cv-ap-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex: none; }
-.cv-ap-head strong { font-size: 12.5px; font-weight: 600; color: var(--cv-text); }
+.cv-ap-head strong { font-size: var(--cv-fs-3); font-weight: 600; color: var(--cv-text); }
 .cv-ap-x {
   display: grid;
   place-items: center;
@@ -2852,18 +2976,18 @@ html[data-theme='light'] .cv-skill-mask {
 }
 .cv-ap-x:hover { color: var(--cv-text); background: var(--cv-panel-2); }
 .cv-ap-sect { display: grid; gap: 8px; }
-.cv-ap-label { font-size: 11px; line-height: 1.3; color: var(--cv-mute); }
+.cv-ap-label { font-size: var(--cv-fs-2); line-height: 1.3; color: var(--cv-mute); }
 /* 行内的控件串：`min-height: 24px` 让"只有一行说明"和"四支颜色"两行一样高，
    不会因为内容多寡把行距撑得忽大忽小。 */
 .cv-ap-line { display: flex; align-items: center; gap: 8px; min-height: 22px; }
 .cv-ap-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.cv-ap-hint { font-size: 10.5px; line-height: 1.6; color: var(--cv-mute); }
+.cv-ap-hint { font-size: var(--cv-fs-1); line-height: 1.6; color: var(--cv-mute); }
 /* 右栏那一行说明：截图里它是 14px 正文、宽得能折出个孤零零的「。」，
    还把右栏撑成一整块空白。压到 11px、单行高度。 */
-.cv-ap-main .cv-ap-hint { font-size: 11px; line-height: 1.5; }
+.cv-ap-main .cv-ap-hint { font-size: var(--cv-fs-2); line-height: 1.5; }
 
 .cv-ap-slider { display: grid; gap: 5px; }
-.cv-ap-slider > span { display: flex; justify-content: space-between; font-size: 11px; color: var(--cv-mute); }
+.cv-ap-slider > span { display: flex; justify-content: space-between; font-size: var(--cv-fs-2); color: var(--cv-mute); }
 .cv-ap-slider output { color: var(--cv-text); }
 /* （`.cv-ap-swatches` 原在这里：这一版色块串改名 `.cv-ap-item-body` 并入自定义那一档，
    全项目已无引用，删掉 —— 留着只会让人以为还有第二种排法。） */
@@ -2935,7 +3059,7 @@ html[data-theme='light'] .cv-skill-mask {
   z-index: 5;
   width: 210px;
   padding: 8px 9px;
-  font-size: 10.5px;
+  font-size: var(--cv-fs-1);
   line-height: 1.65;
   color: var(--cv-text);
   text-align: left;
@@ -2961,7 +3085,7 @@ html[data-theme='light'] .cv-skill-mask {
   height: 26px;
   padding: 0 6px;
   font-family: inherit;
-  font-size: 11.5px;
+  font-size: var(--cv-fs-2);
   color: var(--cv-dim);
   background: transparent;
   border: 1px solid var(--cv-line);
@@ -3028,7 +3152,7 @@ html[data-theme='light'] .cv-skill-mask {
 .cv-ap-preset.on { color: var(--cv-text); background: var(--cv-accent-veil); border-color: var(--cv-accent-line); }
 .cv-ap-preset:disabled { opacity: 0.45; cursor: not-allowed; }
 .cv-ap-preset-text { display: grid; gap: 0; min-width: 0; }
-.cv-ap-preset-text strong { font-size: 11px; font-weight: 500; white-space: nowrap; }
+.cv-ap-preset-text strong { font-size: var(--cv-fs-2); font-weight: 500; white-space: nowrap; }
 .cv-ap-preset-text em { font-style: normal; font-size: 9px; color: var(--cv-mute); white-space: nowrap; }
 /* 左栏那一列的说明隐掉：五张卡每张挂一行小字，摞起来比右栏高出一倍，面板整体被拉长。
    卡片本来就有 `title`（原生悬停）和那枚勾，足够传达 —— 面板正文里不该出现说明书。 */
@@ -3085,7 +3209,7 @@ html[data-theme='light'] .cv-skill-mask {
   text-align: left;
 }
 .cv-ap-side .cv-ap-preset-text strong {
-  font-size: 12px;
+  font-size: var(--cv-fs-3);
   font-weight: 500;
   white-space: nowrap;
 }
@@ -3093,7 +3217,7 @@ html[data-theme='light'] .cv-skill-mask {
    9px 太糊，抬到 10px。 */
 .cv-ap-side .cv-ap-preset-text em {
   display: block;
-  font-size: 10px;
+  font-size: var(--cv-fs-1);
   white-space: nowrap;
 }
 .cv-ap-side .cv-ap-mini {
@@ -3180,7 +3304,7 @@ html[data-theme='light'] .cv-skill-mask {
 }
 /* 名字列固定 42px：四支的名字长短不一（地板 / 卡片底色 / 卡片描边 / 强调色），
    不固定的话色块串的起点会一行一个位置。 */
-.cv-ap-item-name { flex: none; width: 42px; font-size: 11px; color: var(--cv-mute); white-space: nowrap; }
+.cv-ap-item-name { flex: none; width: 42px; font-size: var(--cv-fs-2); color: var(--cv-mute); white-space: nowrap; }
 /* 被钉住的支：名字转强调色 —— 满面板只有这一处用色，一眼就看得出改过哪支。 */
 .cv-ap-item.on .cv-ap-item-name { color: var(--cv-accent); }
 /* 色块串紧挨着名字列（**不是**推到右边）：这一列就是"名字 + 色块串"，
@@ -3206,7 +3330,7 @@ html[data-theme='light'] .cv-skill-mask {
   margin-left: 0;
   padding: 0 7px;
   font-family: inherit;
-  font-size: 10px;
+  font-size: var(--cv-fs-1);
   color: var(--cv-dim);
   background: transparent;
   border: 1px solid var(--cv-line);
@@ -3229,7 +3353,7 @@ html[data-theme='light'] .cv-skill-mask {
   cursor: zoom-out;
 }
 .cv-lightbox img { max-width: 92vw; max-height: 86vh; border-radius: var(--cv-radius); box-shadow: var(--cv-shadow-3); }
-.cv-lightbox span { font-size: 12px; color: var(--cv-dim); }
+.cv-lightbox span { font-size: var(--cv-fs-3); color: var(--cv-dim); }
 /* 视频 / 音频也走这一层：原来这里只画 `<img>`，视频结果点「预览」是一张打不开的坏图。
    `cursor: auto` + 自己不关（`onClick` 里 stopPropagation）—— 不然调进度条的动作会被当成「点遮罩关闭」。 */
 .cv-lightbox video { max-width: 92vw; max-height: 86vh; border-radius: var(--cv-radius); box-shadow: var(--cv-shadow-3); cursor: auto; }
@@ -3254,7 +3378,7 @@ html[data-theme='light'] .cv-skill-mask {
 .cv-prow-head .cv-input.sm { min-width: 0; }
 .cv-prow-grid { display: grid; grid-template-columns: 76px 1fr 1.3fr; gap: 6px; }
 .cv-prow-cell { display: grid; gap: 3px; min-width: 0; }
-.cv-prow-cell > span { font-size: 10px; color: var(--cv-mute); }
+.cv-prow-cell > span { font-size: var(--cv-fs-1); color: var(--cv-mute); }
 .cv-prow-cell .cv-input.sm { min-width: 0; }
 .cv-prow-del {
   display: inline-flex;
@@ -3273,7 +3397,7 @@ html[data-theme='light'] .cv-skill-mask {
 .cv-prows-add { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .cv-prows-add .cv-note { max-width: 100%; }
 /* 值那个框底下的类型提示：图 / 视频 / latent 这些填的不是随手一个字符串，不写会一直填错。 */
-.cv-prow-kind { font-style: normal; font-size: 10px; color: var(--cv-mute); }
+.cv-prow-kind { font-style: normal; font-size: var(--cv-fs-1); color: var(--cv-mute); }
 
 /* ---------- 挑字段弹层 ---------- */
 /* 居中弹一层而不是贴着按钮：`select` 装不下一百多个字段，而且要带搜索框。
@@ -3300,8 +3424,8 @@ html[data-theme='light'] .cv-skill-mask {
 }
 .cv-fpk-head { display: flex; align-items: flex-start; gap: 8px; padding: 12px 12px 8px; }
 .cv-fpk-title { display: grid; gap: 2px; min-width: 0; flex: 1; }
-.cv-fpk-title > span { font-size: 13px; font-weight: 600; color: var(--cv-text); }
-.cv-fpk-title > em { font-style: normal; font-size: 11px; color: var(--cv-mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-fpk-title > span { font-size: var(--cv-fs-3); font-weight: 600; color: var(--cv-text); }
+.cv-fpk-title > em { font-style: normal; font-size: var(--cv-fs-2); color: var(--cv-mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cv-fpk-x {
   display: inline-flex;
   align-items: center;
@@ -3337,7 +3461,7 @@ html[data-theme='light'] .cv-skill-mask {
   border: 0;
   outline: none;
   font-family: inherit;
-  font-size: 12.5px;
+  font-size: var(--cv-fs-3);
 }
 .cv-fpk-search input::placeholder { color: var(--cv-placeholder); }
 .cv-fpk-list { min-height: 0; overflow-y: auto; padding: 0 6px 6px; display: grid; gap: 2px; align-content: start; }
@@ -3347,7 +3471,7 @@ html[data-theme='light'] .cv-skill-mask {
   justify-content: center;
   gap: 7px;
   padding: 22px 12px;
-  font-size: 12px;
+  font-size: var(--cv-fs-3);
   color: var(--cv-mute);
   text-align: center;
 }
@@ -3370,12 +3494,12 @@ html[data-theme='light'] .cv-skill-mask {
 .cv-fpk-item.on { background: var(--cv-panel-2); border-color: var(--cv-accent-line); }
 .cv-fpk-item.taken { opacity: 0.5; }
 .cv-fpk-main { display: grid; gap: 1px; min-width: 0; flex: 1; }
-.cv-fpk-label { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cv-fpk-sub { font-size: 10.5px; color: var(--cv-mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-fpk-label { font-size: var(--cv-fs-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-fpk-sub { font-size: var(--cv-fs-1); color: var(--cv-mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cv-fpk-tags { display: flex; align-items: center; gap: 4px; flex: none; }
 .cv-fpk-tag {
   font-style: normal;
-  font-size: 10px;
+  font-size: var(--cv-fs-1);
   color: var(--cv-dim);
   padding: 1px 5px;
   background: var(--cv-field);
@@ -3391,7 +3515,7 @@ html[data-theme='light'] .cv-skill-mask {
   justify-content: space-between;
   gap: 10px;
   padding: 8px 12px;
-  font-size: 11px;
+  font-size: var(--cv-fs-2);
   color: var(--cv-mute);
   border-top: 1px solid var(--cv-line);
 }
@@ -3404,17 +3528,17 @@ html[data-theme='light'] .cv-skill-mask {
   width: 100%;
   padding: 10px;
   text-align: left;
-  font-size: 12px;
+  font-size: var(--cv-fs-3);
   color: var(--cv-dim);
 }
-.cv-node-params b { font-size: 12px; color: var(--cv-text); }
+.cv-node-params b { font-size: var(--cv-fs-3); color: var(--cv-text); }
 .cv-chip {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
   padding: 4px 7px;
-  font-size: 11px;
+  font-size: var(--cv-fs-2);
   color: var(--cv-text);
   background: var(--cv-panel-2);
   border: 1px solid var(--cv-line);
@@ -3423,19 +3547,19 @@ html[data-theme='light'] .cv-skill-mask {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.cv-chip em { flex: none; font-style: normal; font-size: 10px; color: var(--cv-mute); }
+.cv-chip em { flex: none; font-style: normal; font-size: var(--cv-fs-1); color: var(--cv-mute); }
 .cv-chip.off { color: var(--cv-mute); text-decoration: line-through; }
 
 /* ---------- latent 参数位编号 ---------- */
 .cv-slot-pick { display: grid; gap: 6px; }
-.cv-slot-pick > span { font-size: 11px; color: var(--cv-mute); }
+.cv-slot-pick > span { font-size: var(--cv-fs-2); color: var(--cv-mute); }
 .cv-slot-pick.off { opacity: 0.45; pointer-events: none; }
 .cv-slot-pick-row { display: flex; flex-wrap: wrap; gap: 6px; }
 .cv-slot-chip {
   display: grid;
   gap: 1px;
   padding: 5px 9px;
-  font-size: 12px;
+  font-size: var(--cv-fs-3);
   color: var(--cv-dim);
   text-align: left;
   background: var(--cv-field);
@@ -3443,7 +3567,7 @@ html[data-theme='light'] .cv-skill-mask {
   border-radius: var(--cv-radius-sm);
   cursor: pointer;
 }
-.cv-slot-chip em { font-style: normal; font-size: 10px; color: var(--cv-mute); }
+.cv-slot-chip em { font-style: normal; font-size: var(--cv-fs-1); color: var(--cv-mute); }
 .cv-slot-chip:hover { border-color: var(--cv-line-hi); color: var(--cv-text); }
 .cv-slot-chip.on {
   color: var(--cv-accent);
@@ -3467,11 +3591,11 @@ html[data-theme='light'] .cv-skill-mask {
   justify-content: space-between;
   gap: 8px;
   padding-bottom: 6px;
-  font-size: 12px;
+  font-size: var(--cv-fs-3);
   border-bottom: 1px dashed var(--cv-line);
 }
 .cv-run-head b { color: var(--cv-text); }
-.cv-run-head span { font-size: 11px; color: var(--cv-mute); }
+.cv-run-head span { font-size: var(--cv-fs-2); color: var(--cv-mute); }
 
 /* ---------- 左轨五项共用的「大浮层」（2026-09-21 照参考图） ----------
    形态：一张居中偏上的大卡片，顶栏一个 ✕，左列 200px 分类，右边是内容。
@@ -3529,14 +3653,14 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   border-bottom: 1px solid var(--ov-line, var(--cv-line));
 }
 .cv-ov-kicker {
-  font-size: 10.5px;
+  font-size: var(--cv-fs-1);
   font-weight: 600;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--cv-mute);
 }
 .cv-ov-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
-.cv-ov-link { font-size: 11.5px; color: var(--cv-dim); text-decoration: none; }
+.cv-ov-link { font-size: var(--cv-fs-2); color: var(--cv-dim); text-decoration: none; }
 .cv-ov-link:hover { color: var(--cv-accent); }
 /* 全局 `button { height: 36px; display: inline-flex; justify-content: center }` 会把 ✕ 拉成横条 */
 .cv-ov-x {
@@ -3574,7 +3698,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   width: 100%;
   height: 38px;
   padding: 0 14px;
-  font-size: 13px;
+  font-size: var(--cv-fs-3);
   font-weight: 500;
   color: var(--cv-dim);
   text-align: left;
@@ -3621,13 +3745,13 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   background: var(--cv-accent-soft);
   box-shadow: inset 2px 0 0 var(--cv-accent);
 }
-.cv-ov-nav-item em { font-style: normal; font-size: 11px; color: var(--cv-mute); }
+.cv-ov-nav-item em { font-style: normal; font-size: var(--cv-fs-2); color: var(--cv-mute); }
 
 /* 内容区：标题 + 可滚动的正文。滚动放在 body 上，标题才不会跟着一起滚走 */
 .cv-ov-main { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 0; }
 .cv-ov-head { padding: 18px 24px 10px; }
 .cv-ov-head h2 { margin: 0; font-size: 19px; font-weight: 600; color: var(--app-text, var(--cv-text)); }
-.cv-ov-note { margin: 5px 0 0; font-size: 12px; color: var(--app-text-mute, var(--cv-mute)); }
+.cv-ov-note { margin: 5px 0 0; font-size: var(--cv-fs-3); color: var(--app-text-mute, var(--cv-mute)); }
 .cv-ov-body { min-height: 0; padding: 0 24px 24px; overflow: auto; }
 /*
  * 抽屉内容区里跑着一批**用全站令牌写的**组件（「外观」挂的就是设置页那个
@@ -3677,7 +3801,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   --accent-fill: var(--ov-accent);
   --bracket: color-mix(in srgb, var(--ov-accent) 75%, transparent);
 }
-.cv-ov-empty { margin: 0; padding: 28px 0; font-size: 12.5px; line-height: 1.8; color: var(--app-text-mute, var(--cv-mute)); }
+.cv-ov-empty { margin: 0; padding: 28px 0; font-size: var(--cv-fs-3); line-height: 1.8; color: var(--app-text-mute, var(--cv-mute)); }
 
 /* 资产：大卡片里排多列（340px 那版只能一列一行） */
 .cv-assets-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }
@@ -3716,10 +3840,10 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 .cv-hist-meta { display: grid; gap: 4px; min-width: 0; }
 .cv-hist-meta b,
 .cv-hist-meta small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cv-hist-meta b { font-size: 12.5px; font-weight: 600; color: var(--cv-text); }
-.cv-hist-meta small { font-size: 11px; color: var(--cv-mute); }
+.cv-hist-meta b { font-size: var(--cv-fs-3); font-weight: 600; color: var(--cv-text); }
+.cv-hist-meta small { font-size: var(--cv-fs-2); color: var(--cv-mute); }
 /* 记录还在、生成它的节点已经删了 —— 这一条要点出来，否则点了没反应会以为坏了。 */
-.cv-hist-gone { margin-left: 6px; font-size: 11px; font-style: normal; font-weight: 400; color: var(--cv-mute); }
+.cv-hist-gone { margin-left: 6px; font-size: var(--cv-fs-2); font-style: normal; font-weight: 400; color: var(--cv-mute); }
 
 /* 工作流那一屏：`.workflow-page` 在整页里是「铺满 + 自带底色」，在浮层里两样都得去掉，
    否则卡片里会再垫一层地板色，滚动条也跟着跑到里面去。 */
@@ -3746,7 +3870,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
  * 做成文本框」，那几条规则早就没有作用了 —— 留着只会让下一个人以为节点宽度还随选中变。
  */
 @media (max-width: 900px) {
-  .cv-param-bar { font-size: 12px; }
+  .cv-param-bar { font-size: var(--cv-fs-3); }
 }
 @media (max-width: 640px) {
 .flow-shell .cv-rail { left: 8px; }
@@ -3808,14 +3932,14 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 .cv-dir-canvas:active { cursor: grabbing; }
 
 .cv-dir-shot {
-  font-size: 12px;
+  font-size: var(--cv-fs-3);
   font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--cv-text);
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
-.cv-dir-hint { margin: 0; font-size: 11.5px; line-height: 1.7; color: var(--cv-mute); }
+.cv-dir-hint { margin: 0; font-size: var(--cv-fs-2); line-height: 1.7; color: var(--cv-mute); }
 
 .cv-dir-right {
   display: flex;
@@ -3828,7 +3952,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 .cv-dir-right section { display: flex; flex-direction: column; gap: 7px; flex: none; }
 .cv-dir-right h4 {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--cv-fs-2);
   font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -3842,7 +3966,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   gap: 4px;
   height: 26px;
   padding: 0 10px;
-  font-size: 12px;
+  font-size: var(--cv-fs-3);
   color: var(--cv-dim);
   background: var(--cv-panel-2);
   border: 1px solid var(--cv-line);
@@ -3890,12 +4014,12 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   border: 1px solid var(--cv-line);
   border-radius: var(--cv-radius-sm);
 }
-.cv-dir-bulkhead { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--cv-dim); }
+.cv-dir-bulkhead { display: flex; align-items: center; gap: 6px; font-size: var(--cv-fs-3); color: var(--cv-dim); }
 .cv-dir-bulkhead > span { margin-right: auto; }
 .cv-dir-bulkrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.cv-dir-bulkrow .cv-dir-chip { height: 24px; padding: 0 9px; font-size: 11px; }
+.cv-dir-bulkrow .cv-dir-chip { height: 24px; padding: 0 9px; font-size: var(--cv-fs-2); }
 /* 四个方向键：等宽，别跟着箭头字符的字宽变。 */
-.cv-dir-bulkrow [data-dir-bulk-nudge] { justify-content: center; min-width: 32px; padding: 0 6px; font-size: 13px; }
+.cv-dir-bulkrow [data-dir-bulk-nudge] { justify-content: center; min-width: 32px; padding: 0 6px; font-size: var(--cv-fs-3); }
 
 /*
  * 「我的预设」一条 = 一颗胶囊里两个按钮：点名字套用、点 × 删掉。
@@ -3919,7 +4043,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   width: auto;
   height: 26px;
   padding: 0 10px;
-  font-size: 12px;
+  font-size: var(--cv-fs-3);
   color: var(--cv-dim);
   background: transparent;
   border: 0;
@@ -3938,7 +4062,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 .cv-dir-preset > button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* 「我的预设 / 还没有自己的预设」这类小字。 */
-.cv-dir-sub { font-size: 11px; line-height: 1.6; color: var(--cv-mute); }
+.cv-dir-sub { font-size: var(--cv-fs-2); line-height: 1.6; color: var(--cv-mute); }
 
 /* 存预设那一行：名字输入 + 存按钮。 */
 .cv-dir-saverow { display: flex; align-items: center; gap: 6px; }
@@ -3947,7 +4071,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   min-width: 0;
   height: 28px;
   padding: 0 8px;
-  font-size: 12px;
+  font-size: var(--cv-fs-3);
   color: var(--cv-text);
   background: var(--cv-field);
   border: 1px solid var(--cv-line);
@@ -3961,10 +4085,10 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   align-items: center;
   gap: 8px;
 }
-.cv-dir-slider > span { font-size: 12px; color: var(--cv-dim); }
+.cv-dir-slider > span { font-size: var(--cv-fs-3); color: var(--cv-dim); }
 .cv-dir-slider > input[type='range'] { width: 100%; accent-color: var(--cv-accent); }
 .cv-dir-slider > b {
-  font-size: 11.5px;
+  font-size: var(--cv-fs-2);
   font-weight: 500;
   color: var(--cv-text);
   text-align: right;
@@ -3984,7 +4108,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   flex: 1 1 auto;
   height: 28px;
   padding: 0 8px;
-  font-size: 12.5px;
+  font-size: var(--cv-fs-3);
   color: var(--cv-text);
   background: var(--cv-field);
   border: 1px solid var(--cv-line);
@@ -4007,7 +4131,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 /* 同一排的聚焦 / 复制按钮：悬停不该泛红色（那是「删除」的语义），走中性高亮。 */
 .cv-dir-del.plain:hover { color: var(--cv-text); border-color: var(--cv-line-strong); }
 
-.cv-dir-note { margin: 10px 0 0; font-size: 12px; color: var(--cv-warn); }
+.cv-dir-note { margin: 10px 0 0; font-size: var(--cv-fs-3); color: var(--cv-warn); }
 
 /*
  * 卡片右上角那个「打开舞台」的按钮。
@@ -4022,7 +4146,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   flex: none;
   height: 18px;
   padding: 0 7px;
-  font-size: 10px;
+  font-size: var(--cv-fs-1);
   font-weight: 600;
   line-height: 1;
   color: var(--cv-dim);
@@ -4083,10 +4207,16 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   display: flex;
   flex-direction: column;
   padding: 10px 12px;
-  background: var(--cv-panel);
+  /* 2026-10-07 方向 D：底栏读 `--cv-float`（比面板再亮一档）—— 四级明度的最高层，
+     配合下面那道 --cv-shadow-3，它是"架在台面上方的一块"。
+     🔴 **刻意不加 backdrop-filter**：底栏里装的是参考图缩略图，而
+     「半透明祖先 + 几百张被缩放的图」在 Electron 合成层上会被画成横纹
+     （2026-10-06 在 CreativePresetPicker 上踩过一次，见 DESIGN.md §6）。
+     软分层靠阴影 + 明度差表达，不靠玻璃。 */
+  background: var(--cv-float);
   border: 1px solid var(--cv-line-strong);
-  border-radius: 16px;
-  box-shadow: var(--cv-shadow-3);
+  border-radius: var(--cv-radius-lg);
+  box-shadow: var(--cv-shadow-3), inset 0 1px 0 rgba(255, 255, 255, 0.05);
   max-height: min(50%, 460px);
   /* ⚠️ 面板本体**不滚**（overflow 可见）：参数弹层要绝对定位、往上浮出面板，
      待在滚动容器里会被裁掉。滚动全交给下面的 `.cv-dock-scroll`。 */
@@ -4123,7 +4253,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   border-radius: var(--cv-radius-sm);
   color: var(--cv-text);
   font: inherit;
-  font-size: calc(13px * var(--ui));
+  font-size: var(--cv-fs-3);
   line-height: 1.55;
 }
 .cv-dock-input:focus { outline: none; }
@@ -4189,7 +4319,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   border: 1px solid var(--cv-line);
   border-radius: 999px;
   color: var(--cv-dim);
-  font-size: 12px;
+  font-size: var(--cv-fs-3);
   cursor: pointer;
 }
 .flow-shell .cv-dock-abandon:hover { background: var(--cv-elev); color: var(--cv-danger); border-color: var(--cv-danger); }
@@ -4226,7 +4356,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   border-color: transparent;
   border-radius: 999px;
   color: var(--cv-text);
-  font-size: 11px;
+  font-size: var(--cv-fs-2);
   cursor: pointer;
 }
 .cv-dock-eng:hover { border-color: var(--cv-accent-line); }
@@ -4266,7 +4396,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 .cv-dock-morebtn { padding: 0 7px; }
 
 .cv-dock-field { display: flex; align-items: center; gap: 6px; }
-.cv-dock-field > span { font-size: 11px; color: var(--cv-dim); white-space: nowrap; }
+.cv-dock-field > span { font-size: var(--cv-fs-2); color: var(--cv-dim); white-space: nowrap; }
 .cv-dock-field.grow { flex: 1 1 auto; }
 .cv-dock-field.wide { flex: 1 1 100%; align-items: flex-start; }
 .cv-dock-field.wide .cv-select,
@@ -4313,7 +4443,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   /* 右边让出箭头那一格 —— 名字很长时省略号不会顶到箭头底下。 */
   padding: calc(7px * var(--ui)) calc(22px * var(--ui)) calc(7px * var(--ui)) calc(9px * var(--ui));
   font: inherit;
-  font-size: calc(12px * var(--ui));
+  font-size: var(--cv-fs-3);
   color: var(--cv-text);
   background: var(--cv-field);
   border: 1px solid var(--cv-line);
@@ -4379,7 +4509,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   gap: 2px;
 }
 .cv-combo-group { display: flex; flex-direction: column; gap: 2px; }
-.cv-combo-head { padding: 4px 8px; font-size: 10.5px; color: var(--cv-mute); }
+.cv-combo-head { padding: 4px 8px; font-size: var(--cv-fs-1); color: var(--cv-mute); }
 /*
   🔴 全局 `button { height: 36px; padding: 0 14px }` 会把它钉成一颗 36 高的方钮 ——
   这里必须自己写 `height: auto` 才盖得住（写 padding / 字号是盖不掉那 36px 的）。
@@ -4391,7 +4521,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   width: 100%;
   height: auto;
   padding: 6px 8px;
-  font-size: 12px;
+  font-size: var(--cv-fs-3);
   line-height: 1.4;
   color: var(--cv-dim);
   text-align: left;
@@ -4406,12 +4536,12 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 .cv-combo-row:hover, .cv-combo-row.active { background: var(--cv-panel-2); color: var(--cv-text); }
 .cv-combo-row.on { color: var(--cv-accent); }
 .cv-combo-row.action, .cv-combo-row.current { color: var(--cv-text); }
-.cv-combo-empty { padding: 8px; font-size: 11px; line-height: 1.5; color: var(--cv-mute); white-space: normal; }
+.cv-combo-empty { padding: 8px; font-size: var(--cv-fs-2); line-height: 1.5; color: var(--cv-mute); white-space: normal; }
 .cv-dock-size-inputs { display: flex; align-items: center; gap: 4px; }
-.cv-dock-size-inputs > span { color: var(--cv-mute); font-size: 12px; }
+.cv-dock-size-inputs > span { color: var(--cv-mute); font-size: var(--cv-fs-3); }
 .cv-dock-size-inputs .cv-input { width: 78px; }
 .cv-dock-size-read {
-  font-size: 12px;
+  font-size: var(--cv-fs-3);
   font-weight: 600;
   color: var(--cv-text);
   /* 数字按等宽排：位数变化时读数不会左右抖，看起来才像「算出来的」，不像在跳。 */
@@ -4437,7 +4567,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   border: 1px solid var(--cv-line-strong);
   border-radius: 999px;
   color: var(--cv-dim);
-  font-size: 11px;
+  font-size: var(--cv-fs-2);
   cursor: pointer;
 }
 .cv-dock-chip:hover { color: var(--cv-text); border-color: var(--cv-accent-line); }
@@ -4464,7 +4594,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 .cv-dock-local-modes { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 /* 超清弹层里那两行 chips（触发 / 来源）：跟「本地模型」那两档一个排法，只是名字不同。 */
 .cv-dock-upscale-modes { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.cv-dock-local-state { font-size: 11px; color: var(--cv-mute); white-space: nowrap; }
+.cv-dock-local-state { font-size: var(--cv-fs-2); color: var(--cv-mute); white-space: nowrap; }
 .cv-dock-local-state[data-dock-local-state="on"] { color: var(--cv-accent); }
 
 /*
@@ -4529,9 +4659,9 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   box-shadow: var(--cv-shadow-3);
 }
 .cv-dock-group { display: flex; flex-direction: column; gap: 6px; }
-.cv-dock-grouplabel { font-size: 11px; color: var(--cv-mute); }
+.cv-dock-grouplabel { font-size: var(--cv-fs-2); color: var(--cv-mute); }
 .cv-dock-groupbody { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.cv-dock-grouphint { font-size: 11px; color: var(--cv-mute); }
+.cv-dock-grouphint { font-size: var(--cv-fs-2); color: var(--cv-mute); }
 
 /* 比例可视化格子：一颗 = 小方框（按真实比例画）+ 档位名。 */
 .cv-dock-ratios {
@@ -4549,7 +4679,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   border: 1px solid var(--cv-line);
   border-radius: 8px;
   color: var(--cv-dim);
-  font-size: 11px;
+  font-size: var(--cv-fs-2);
   cursor: pointer;
 }
 .cv-dock-ratio i { display: block; border: 1.5px solid currentColor; border-radius: 3px; }
@@ -4577,7 +4707,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 }
 .cv-dock-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .cv-dock-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 8px; }
-.cv-dock-hint { font-size: 11px; line-height: 1.5; color: var(--cv-mute); }
+.cv-dock-hint { font-size: var(--cv-fs-2); line-height: 1.5; color: var(--cv-mute); }
 .cv-dock-hint.warn { color: var(--cv-warn); }
 /*
  * 接续胶囊（2026-10-01）：从复选框改成 `.cv-dock-chip`，靠右站在工作流那一行末尾。
@@ -4594,7 +4724,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 */
 .cv-dock-appparams { display: flex; flex-direction: column; gap: 10px; }
 .cv-dock-appfield { display: flex; flex-direction: column; gap: 5px; }
-.cv-dock-applabel { font-size: 11px; line-height: 1.4; color: var(--cv-dim); }
+.cv-dock-applabel { font-size: var(--cv-fs-2); line-height: 1.4; color: var(--cv-dim); }
 .cv-dock-appfield .cv-select,
 .cv-dock-appfield .cv-input { width: 100%; }
 
@@ -4719,17 +4849,17 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   align-items: center;
   gap: 8px;
   padding: 10px 12px;
-  font-size: 12.5px;
+  font-size: var(--cv-fs-3);
   border-bottom: 1px solid var(--cv-line);
 }
 .cv-skill-head .cv-spacer { flex: 1; }
-.cv-skill-sub { font-size: 11px; color: var(--cv-mute); }
+.cv-skill-sub { font-size: var(--cv-fs-2); color: var(--cv-mute); }
 .cv-skill-path {
   max-width: 260px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 10px;
+  font-size: var(--cv-fs-1);
   color: var(--cv-dim);
 }
 .cv-skill-x {
@@ -4764,7 +4894,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   height: 30px;
   padding: 0 9px;
   font-family: inherit;
-  font-size: 12px;
+  font-size: var(--cv-fs-3);
   color: var(--cv-text);
   background: var(--cv-field);
   border: 1px solid var(--cv-line);
@@ -4779,7 +4909,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 .cv-skill-notice {
   flex: none;
   padding: 7px 12px;
-  font-size: 11.5px;
+  font-size: var(--cv-fs-2);
   color: var(--cv-warn);
   background: var(--cv-panel-2);
   border-bottom: 1px solid var(--cv-line);
@@ -4793,7 +4923,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 }
 .cv-skill-empty {
   padding: 30px 16px;
-  font-size: 12px;
+  font-size: var(--cv-fs-3);
   line-height: 1.7;
   color: var(--cv-mute);
   text-align: center;
@@ -4821,7 +4951,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 .cv-skill-title {
   flex: 1;
   min-width: 0;
-  font-size: 12.5px;
+  font-size: var(--cv-fs-3);
   font-weight: 600;
   color: var(--cv-text);
 }
@@ -4831,7 +4961,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   min-width: 0;
   height: 22px;
   padding: 0 6px;
-  font-size: 12.5px;
+  font-size: var(--cv-fs-3);
   font-weight: 600;
   color: var(--cv-text);
   background: var(--cv-field);
@@ -4842,7 +4972,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 .cv-skill-usage {
   flex: none;
   padding: 1px 6px;
-  font-size: 10px;
+  font-size: var(--cv-fs-1);
   color: var(--cv-dim);
   border: 1px solid var(--cv-line);
   border-radius: 999px;
@@ -4850,7 +4980,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 .cv-skill-usage.edit { color: var(--cv-warn); border-color: var(--cv-warn); }
 .cv-skill-desc {
   margin: 0;
-  font-size: 11.5px;
+  font-size: var(--cv-fs-2);
   line-height: 1.6;
   color: var(--cv-mute);
   display: -webkit-box;
@@ -4859,7 +4989,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   overflow: hidden;
 }
 /* meta 行右侧放两个小按钮（改为使用/改、删除）—— 主按钮因此不再乱折行。 */
-.cv-skill-meta { display: flex; align-items: center; gap: 10px; font-size: 10.5px; color: var(--cv-dim); }
+.cv-skill-meta { display: flex; align-items: center; gap: 10px; font-size: var(--cv-fs-1); color: var(--cv-dim); }
 .cv-skill-meta .cv-spacer { flex: 1; }
 /* 点开卡片：完整说明 + 文件清单（2026-09-25 徐先要的「点击展开」）。 */
 .cv-skill-card { cursor: pointer; }
@@ -4874,7 +5004,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   max-width: 100%;
   padding: 1px 6px;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 10px;
+  font-size: var(--cv-fs-1);
   color: var(--cv-dim);
   background: var(--cv-panel);
   border: 1px solid var(--cv-line);
@@ -4892,7 +5022,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 .cv-skill-mini {
   padding: 0 9px;
   height: 26px;
-  font-size: 11px;
+  font-size: var(--cv-fs-2);
   color: var(--cv-mute);
   background: transparent;
   border: 1px solid var(--cv-line);
@@ -4929,7 +5059,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 11px;
+  font-size: var(--cv-fs-2);
   color: var(--cv-dim);
   background: transparent;
   border: 1px solid var(--cv-line);
@@ -4943,7 +5073,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   border-color: var(--cv-accent-line);
   background: var(--cv-accent-soft);
 }
-.cv-skill-cat-n { flex: none; font-size: 10px; color: var(--cv-mute); }
+.cv-skill-cat-n { flex: none; font-size: var(--cv-fs-1); color: var(--cv-mute); }
 .cv-skill-cat.on .cv-skill-cat-n { color: var(--cv-accent); }
 .cv-skill-cat.add { color: var(--cv-mute); border-style: dashed; }
 .cv-skill-cat.editing { padding: 0 4px; border-color: var(--cv-accent-line); }
@@ -4951,7 +5081,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   width: 120px;
   height: 22px;
   padding: 0 6px;
-  font-size: 11px;
+  font-size: var(--cv-fs-2);
   color: var(--cv-text);
   background: var(--cv-field);
   border: 1px solid var(--cv-line);
@@ -4980,7 +5110,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 /* 卡片上的标签：不展开也能看出它属于哪几类 */
 .cv-skill-tags { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .cv-skill-tag {
-  font-size: 10px;
+  font-size: var(--cv-fs-1);
   color: var(--cv-dim);
   background: var(--cv-panel-2);
   border: 1px solid var(--cv-line);
@@ -5042,7 +5172,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   min-width: 120px;
   height: 22px;
   padding: 0 6px;
-  font-size: 11px;
+  font-size: var(--cv-fs-2);
   color: var(--cv-text);
   background: var(--cv-field);
   border: 1px solid var(--cv-line);
@@ -5058,7 +5188,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   align-items: center;
   gap: 6px;
   padding: 5px 10px;
-  font-size: 11px;
+  font-size: var(--cv-fs-2);
   color: var(--cv-accent);
   background: var(--cv-panel-2);
   border-top: 1px solid var(--cv-line);
@@ -5092,7 +5222,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   gap: 6px;
   flex: none;
   padding: 3px 8px;
-  font-size: 12px;
+  font-size: var(--cv-fs-3);
   color: var(--cv-mute);
   background: var(--cv-panel-2);
   border: 1px solid var(--cv-line);
@@ -5138,7 +5268,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   padding: 1px 5px;
   border: 1px solid var(--cv-line);
   border-radius: 999px;
-  font-size: 10px;
+  font-size: var(--cv-fs-1);
   line-height: 1.5;
   color: var(--cv-dim);
   background: var(--cv-accent-soft);
@@ -5158,7 +5288,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   flex: none;
   height: 18px;
   padding: 0 7px;
-  font-size: 10px;
+  font-size: var(--cv-fs-1);
   font-weight: 600;
   line-height: 1;
   color: var(--cv-accent-ink);
@@ -5195,7 +5325,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   align-items: center;
   height: 22px;
   padding: 0 8px;
-  font-size: 11px;
+  font-size: var(--cv-fs-2);
   color: var(--cv-dim);
   background: var(--cv-field);
   border: 1px dashed var(--cv-line-strong);
@@ -5222,14 +5352,14 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   padding: 3px 8px;
   /* button 的默认字体跟周围不一样，不拉回来会突然变成另一种字 */
   font: inherit;
-  font-size: 11px;
+  font-size: var(--cv-fs-2);
   color: var(--cv-dim);
   cursor: pointer;
   transition: border-color 0.15s, color 0.15s, background 0.15s;
 }
 .cv-dock-readout-action em {
   font-style: normal;
-  font-size: 11px;
+  font-size: var(--cv-fs-2);
   color: var(--cv-accent);
   white-space: nowrap;
 }
@@ -5256,4 +5386,656 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 @keyframes cv-dock-flash {
   0% { box-shadow: 0 0 0 3px var(--cv-accent-soft); }
   100% { box-shadow: 0 0 0 3px transparent; }
+}
+
+/* ---------- 创作预设面板（2026-10-06，从 AIFISHER 迁移） ---------- */
+/* 与挑字段弹层同一套做法：居中一层遮罩 + 一块面板，z-index 70。
+   差别在**内容形状** —— 这里是「看图挑」，所以中间是两列卡片网格而不是文字列表。 */
+/*
+ * 🔴 遮罩的底**必须是不透明色**，不能写 `rgba(0,0,0,.55)`（2026-10-06，查了一整轮）。
+ *
+ * 半透明的祖先会让 Chromium 把里面那几百张**被缩放的 webp** 画成一条条横纹 ——
+ * 图是好的（`naturalWidth` 正常）、尺寸也是对的，就是每一行都在重复几个像素。
+ * 隔离实验（每一步都截图对过）：
+ *   · 同一张卡片搬出这个面板 → 完全正常；
+ *   · 把网格整块克隆到面板外（同样 60 张图）→ 完全正常；
+ *   · 只把这一行的 `rgba(.55)` 去掉 → 正常；
+ *   · `will-change` / `decoding` / `loading` / `content-visibility` 全都**没用**。
+ * 顺带一提：用不透明底还更对 —— 原来那层半透明底下，画布是透出来的，
+ * 一屏几百张图压在上面本来也看不清。
+ */
+.cv-cpk-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #000;
+}
+.cv-cpk {
+  display: grid;
+  /* 头部 / 搜索 / 分类 / 网格 / 页脚 —— 只有网格那一行伸缩，其余都是定高。 */
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  width: min(640px, 100%);
+  max-height: min(78vh, 680px);
+  background: var(--cv-elev);
+  border: 1px solid var(--cv-line-strong);
+  border-radius: var(--cv-radius);
+  box-shadow: var(--cv-shadow-3);
+  overflow: hidden;
+}
+.cv-cpk-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px 8px; }
+.cv-cpk-tabs { display: flex; align-items: center; gap: 2px; flex: 1; min-width: 0; }
+.cv-cpk-tab {
+  height: 26px;
+  padding: 0 11px;
+  font-family: inherit;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+}
+.cv-cpk-tab:hover { color: var(--cv-text); }
+/* 选中那一档用「填色胶囊」而不是下划线：一排里只有一颗是实心的，扫一眼就知道在看哪一档。 */
+.cv-cpk-tab.on {
+  color: var(--cv-accent-ink);
+  background: var(--cv-accent-fill);
+  border-color: var(--cv-accent-fill);
+  font-weight: 600;
+}
+.cv-cpk-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  color: var(--cv-mute);
+  background: transparent;
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+}
+.cv-cpk-x:hover { color: var(--cv-text); border-color: var(--cv-line-strong); }
+.cv-cpk-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 12px 8px;
+  padding: 0 8px;
+  height: 30px;
+  color: var(--cv-mute);
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+}
+.cv-cpk-search input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  color: var(--cv-text);
+  background: transparent;
+  border: 0;
+  outline: none;
+  font-family: inherit;
+  font-size: var(--cv-fs-3);
+}
+.cv-cpk-search input::placeholder { color: var(--cv-placeholder); }
+/* 分类胶囊：可能有好几个，装不下就让它自己横向滚 —— 换行会把网格挤下去。 */
+.cv-cpk-cats {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 12px 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.cv-cpk-cats::-webkit-scrollbar { display: none; }
+.cv-cpk-cat {
+  height: 24px;
+  padding: 0 9px;
+  flex: none;
+  font-family: inherit;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-dim);
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cv-cpk-cat:hover { color: var(--cv-text); border-color: var(--cv-line-strong); }
+.cv-cpk-cat.on {
+  color: var(--cv-text);
+  background: var(--cv-panel-2);
+  border-color: var(--cv-accent-line);
+}
+.cv-cpk-grid {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 12px 10px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  align-content: start;
+  /*
+   * 🔴 `contain` / `content-visibility` 一概**不要**加在这个网格上（2026-10-06，踩过）。
+   * 217 张图的网格在 Electron 里会被裁成一条条横纹（Chromium 的滚动合成层 bug），
+   * 而同一张卡片搬出网格就恢复正常 —— 详见下面 `.cv-cpk-card` 那段。
+   * 加任何会影响合成的属性都只会让它更容易触发。
+   */
+}
+/* 卡片：图占满，名字压在图上（参考产品就是这个形状 —— 名字占一行会把网格拉得很高，
+   而这里一屏要看十几条）。 */
+/*
+ * 卡片：**不裁剪、不半透明**。
+ *
+ * 🔴 这两条都是为了躲开同一个渲染坑（2026-10-06，与上面 `.cv-cpk-mask` 是同一个毛病）：
+ * `overflow: hidden` 或半透明的父子层，碰上几百张**被缩放的 webp**，
+ * Chromium 会把每张图画成一条条横纹。图本身没问题 ——
+ * 同一张卡片放到面板外就清清楚楚。
+ *
+ * 代价：缩略图不再按圆角裁齐（`border-radius` 只有 5px，肉眼几乎看不出），
+ * 换来的是几百张预览真的能看。已实测：去掉这两条之后整屏恢复正常。
+ */
+.cv-cpk-card {
+  position: relative;
+  /* 🔴 网格项默认会拉伸到行高 —— 卡片高度必须是**内容撑出来的**。 */
+  align-self: start;
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  background: var(--cv-panel-2);
+}
+.cv-cpk-card:hover { border-color: var(--cv-line-strong); }
+.cv-cpk-card.on { border-color: var(--cv-accent-line); box-shadow: 0 0 0 1px var(--cv-accent-line); }
+/*
+ * 🔴 `height: auto` **必须显式写**（2026-10-06，查了一整轮）。
+ *
+ * `globals.css:678` 那条 `button, .button { height: calc(36px * var(--ui)) }` 是全库
+ * 每个 `<button>` 都吃的 —— 记忆里那条「组件里要显式写 height」就是它。
+ * 这里忘了写，于是这张卡片的按钮被钉死在 32px（36 × 0.9），
+ * 里面 185px 的缩略图 + 23px 的名字整个被压扁、相互盖住。
+ *
+ * 另外还得是 `flex-direction: column`：按钮默认 `inline-flex` + `align-items: center`，
+ * 纵向排列 + 拉伸才是「图上、名字在下」的正常堆叠。
+ */
+.cv-cpk-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  gap: 0;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 400;
+  line-height: normal;
+  text-align: left;
+  white-space: normal;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  cursor: pointer;
+}
+/*
+ * 缩略图**不能用 `aspect-ratio`**（2026-10-06，踩了）。
+ * 同一份 CSS 在 dev（Chromium 的 Next 页面）里好好的，到了 `app://` 协议下
+ * `aspect-ratio` 算出来是 0：`getComputedStyle` 读得到 `16 / 10`，
+ * 但 `getBoundingClientRect()` 的高度是 0 —— 图片全都加载完了（naturalWidth 正常）
+ * 却一个像素都不显示。改成**宽度 + `padding-top` 撑高**（老办法，哪儿都认）。
+ */
+/*
+ * 🔴 `aspect-ratio` 在 `app://` 协议下的合成层里**会算出 0 高**（2026-10-06，踩了两次）。
+ * 同一个浏览器跑 dev（Next 页面）一切正常，进了 Electron 就变样：
+ * `getComputedStyle` 读得到 `16 / 10`，`getBoundingClientRect()` 却是 0 ——
+ * 图全都加载完了（`naturalWidth` 正常）却一个像素都不显示，或者被压成一条条横纹。
+ * 所以这里**一律用 `padding-top` 撑高**（老办法，不依赖合成层）。
+ */
+/*
+ * 缩略图容器**不裁剪** —— 同样是为了躲开「半透明 / 裁剪层 + 大量缩放 webp = 横纹」
+ * 那个合成坑（凶手主要是祖先那层，但这一层能少一个就少一个）。
+ * 撑高还是用 `padding-top`：`aspect-ratio` 在 `app://` 下有时算不出高度。
+ */
+.cv-cpk-thumb {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 0;
+  padding-top: 62.5%; /* 16 : 10 */
+  background: var(--cv-panel-2);
+}
+.cv-cpk-thumb img,
+.cv-cpk-thumb video {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+/* 预览图缺了（打包漏了 / 用户手删）时留一块带斜纹的底，别留纯黑 ——
+   纯黑看起来像「这条预设本来就是黑的」。 */
+.cv-cpk-noimg {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(45deg, var(--cv-panel-2) 0 8px, var(--cv-field) 8px 16px);
+}
+.cv-cpk-name {
+  display: block;
+  padding: 5px 7px 6px;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-cpk-card.on .cv-cpk-name { color: var(--cv-accent); font-weight: 600; }
+/* 收藏星标压在缩略图右上角（与参考产品一致）：单独占一行会把卡片拉高。 */
+.cv-cpk-star {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  color: var(--cv-dim);
+  background: rgba(0, 0, 0, 0.45);
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.cv-cpk-star:hover { color: var(--cv-text); }
+.cv-cpk-star.on { color: var(--cv-warn); }
+.cv-cpk-empty {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 26px 12px;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-mute);
+  text-align: center;
+}
+.cv-cpk-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-mute);
+  border-top: 1px solid var(--cv-line);
+}
+.cv-cpk-clear {
+  height: 22px;
+  padding: 0 8px;
+  font-family: inherit;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-dim);
+  background: transparent;
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+}
+.cv-cpk-clear:hover { color: var(--cv-danger); border-color: var(--cv-danger-line); }
+/* 页脚右侧那一小撮动作（导入 / 清除）—— 别让它俩挤成一坨。 */
+.cv-cpk-foot-acts {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+.cv-cpk-import-btn {
+  height: 22px;
+  padding: 0 8px;
+  font-family: inherit;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-dim);
+  background: transparent;
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+}
+.cv-cpk-import-btn:hover { color: var(--cv-text); background: var(--cv-panel-2); }
+
+/* ---------- 导入预设（2026-10-07，ComfyUI-Easy-Use 那批 styles） ---------- */
+/*
+ * 它盖掉面板里「tab / 搜索 / 分类 / 网格」那一整块，头部与遮罩仍是外面那套 ——
+ * 所以高度由内容撑（跟着 `.cv-cpk` 自己那条 `align-self: start`），
+ * 不能写死，否则分类列表一长就被裁掉。
+ */
+.cv-cpk-import {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.cv-cpk-import-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-text);
+  border-bottom: 1px solid var(--cv-line);
+}
+.cv-cpk-import-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  /*
+   * 🔴 `height: auto` 必须显式写（2026-10-06 踩过一整轮）：
+   * `globals.css` 那条 `button,.button{height:calc(36px*var(--ui))}` 是全库每个 button 都吃的，
+   * 不写的话这颗钮会被钉死在 32px，里面的图标和文字互相盖住。
+   */
+  height: auto;
+  padding: 2px 6px;
+  font-family: inherit;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-dim);
+  background: transparent;
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+}
+.cv-cpk-import-back:hover { color: var(--cv-text); background: var(--cv-panel-2); }
+.cv-cpk-import-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  overflow-y: auto;
+}
+.cv-cpk-import-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-dim);
+}
+.cv-cpk-import-row > span { flex: none; min-width: 56px; }
+.cv-cpk-import-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  font-family: inherit;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-text);
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+}
+.cv-cpk-import-src {
+  display: inline-flex;
+  gap: 6px;
+  flex: 0 1 auto;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.cv-cpk-import-src button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 9px;
+  font-family: inherit;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-text);
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+}
+.cv-cpk-import-src button:hover { background: var(--cv-panel-2); }
+.cv-cpk-import-hint,
+.cv-cpk-import-path {
+  margin: 0;
+  font-size: var(--cv-fs-2);
+  line-height: 1.6;
+  color: var(--cv-mute);
+}
+/* 长路径一行放不下就截断 —— 不能让它把面板撑宽。 */
+.cv-cpk-import-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-cpk-import-go {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 12px;
+  font-family: inherit;
+  font-size: var(--cv-fs-3);
+  /* 与「发送」那一颗同一对令牌（`--cv-run-*`）—— 导入也是个主动作，配色跟着走。 */
+  color: var(--cv-run-ink);
+  background: var(--cv-run-bg);
+  border: 0;
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+}
+.cv-cpk-import-go:disabled { opacity: 0.5; cursor: default; }
+.cv-cpk-import-msg {
+  margin: 0;
+  font-size: var(--cv-fs-2);
+  line-height: 1.6;
+  color: var(--cv-dim);
+}
+.cv-cpk-import-msg.bad { color: var(--cv-danger); }
+.cv-cpk-import-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--cv-line);
+  font-size: var(--cv-fs-3);
+  color: var(--cv-dim);
+}
+.cv-cpk-import-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cv-cpk-import-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cv-text);
+}
+.cv-cpk-import-count { flex: none; font-size: var(--cv-fs-2); color: var(--cv-mute); }
+.cv-cpk-import-del {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-left: auto;
+  padding: 0;
+  color: var(--cv-mute);
+  background: transparent;
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+}
+.cv-cpk-import-del:hover { color: var(--cv-danger); border-color: var(--cv-danger-line); }
+/* 导入那一趟可能几十秒，转个圈表示还活着。 */
+.cv-spin { animation: cv-spin 0.9s linear infinite; }
+@keyframes cv-spin { to { transform: rotate(360deg); } }
+
+/* ---------- 对话框里那一排预设按钮 ---------- */
+.cv-dock-presets {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+/* 已选那一档显示成「风格 · 暖阳赛璐璐CG」—— 光一个「风格」看不出选没选。 */
+.cv-dock-preset {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  max-width: 190px;
+  padding: 0 8px;
+  flex: 0 1 auto;
+  min-width: 0;
+  font-family: inherit;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-dim);
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cv-dock-preset:hover { color: var(--cv-text); border-color: var(--cv-line-strong); }
+.cv-dock-preset.on {
+  color: var(--cv-text);
+  background: var(--cv-panel-2);
+  border-color: var(--cv-accent-line);
+}
+/* 名字长了要截断，但**按钮本身不能塌成 0 宽** —— 一排里只有它可压缩时必须给 min-width。 */
+.cv-dock-preset > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.cv-dock-preset > svg { flex: none; }
+
+/* ---------- 提示词框里的「已选预设」标签（2026-10-07） ---------- */
+/*
+  徐先要的是「选了之后在提示词里以标签的形式出现」—— 所以标签和正文装在**同一个框**里：
+  上面一排标签、下面一个无框 textarea，看上去就是「这句提示词 = 这几个标签 + 这段话」。
+
+  🔴 框的边框画在**外层容器**上，里面的 textarea 仍然是 `border: 0; background: transparent`
+  （它一直如此）。画两层边会出现「框中框」，画在 textarea 上则标签跑到框外面去。
+  聚焦高亮用 `:focus-within`（点在标签上不算聚焦，点进正文才亮）——
+  只给 textarea 加 `:focus` 的话，用户点进框里打字，框的边框纹丝不动，看着像没点上。
+*/
+.cv-dock-promptbox {
+  display: flex;
+  flex-direction: column;
+  gap: calc(4px * var(--ui));
+  padding: calc(5px * var(--ui)) calc(6px * var(--ui));
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  transition: border-color 0.14s ease, box-shadow 0.14s ease;
+}
+.cv-dock-promptbox:focus-within {
+  border-color: var(--cv-accent);
+  box-shadow: 0 0 0 3px var(--cv-accent-ring);
+}
+.cv-dock-ptags {
+  display: flex;
+  align-items: center;
+  gap: calc(4px * var(--ui));
+  flex-wrap: wrap;
+  /* 标签与正文之间那条线：**只画在标签这一排的下沿**，没选预设时整排不存在、也不留空行。 */
+  padding-bottom: calc(4px * var(--ui));
+  border-bottom: 1px solid var(--cv-line);
+}
+/*
+  标签本体是 `<span>` 不是 `<button>`：里面要装两个按钮（换一条 / 清除），
+  按钮套按钮是非法 DOM。所以边框画在 span 上，两个按钮都不带边框。
+*/
+.cv-dock-ptag {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(2px * var(--ui));
+  height: calc(22px * var(--ui));
+  max-width: calc(210px * var(--ui));
+  padding: 0 calc(3px * var(--ui)) 0 calc(4px * var(--ui));
+  min-width: 0;
+  background: var(--cv-panel-2);
+  border: 1px solid var(--cv-accent-line);
+  border-radius: var(--cv-radius-sm);
+  white-space: nowrap;
+}
+/*
+  🔴 两个按钮都得**显式写 height**：`globals.css` 有一条 `button { height: calc(36px * var(--ui)) }`
+  是全库每个 `<button>` 都吃的，不写就会被钉成 36px、把整排撑成一条。
+*/
+.cv-dock-ptag-main {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(4px * var(--ui));
+  height: calc(20px * var(--ui));
+  min-width: 0;
+  padding: 0;
+  font-family: inherit;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-text);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.cv-dock-ptag-thumb {
+  width: calc(14px * var(--ui));
+  height: calc(14px * var(--ui));
+  flex: none;
+  object-fit: cover;
+  border-radius: calc(2px * var(--ui));
+  /* 预览图原先是几百张被缩放的 webp，只有它自己被裁剪 —— 不会触发那种全屏横纹。 */
+  background: var(--cv-panel);
+}
+.cv-dock-ptag-kind {
+  flex: none;
+  font-size: var(--cv-fs-1);
+  color: var(--cv-dim);
+}
+.cv-dock-ptag-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.cv-dock-ptag-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(16px * var(--ui));
+  height: calc(16px * var(--ui));
+  flex: none;
+  padding: 0;
+  color: var(--cv-dim);
+  background: none;
+  border: 0;
+  border-radius: calc(2px * var(--ui));
+  cursor: pointer;
+}
+.cv-dock-ptag-x:hover { color: var(--cv-text); background: var(--cv-elev); }
+
+/* 卡片上的「已选创作预设」角标（2026-10-06）：一行几颗小胶囊，形如「风格 · 暖阳赛璐璐CG」。 */
+.cv-node-status.preset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 6px;
+}
+.cv-node-status.preset > em {
+  font-style: normal;
+  font-size: var(--cv-fs-1);
+  color: var(--cv-dim);
+  padding: 1px 6px;
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: 4px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

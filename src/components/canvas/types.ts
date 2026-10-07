@@ -325,6 +325,18 @@ export type NodeData = {
    * 但第三方插件的字段名五花八门（`手动上传` 之类），所以必须能改。
    */
   uploadFieldName?: string;
+  /**
+   * 创作预设：这个生成节点上挑中的**视觉风格 / 影像处理 / 运镜**（2026-10-06，从 AIFISHER 迁移）。
+   *
+   * 每档最多一条（`style` / `filter` / `motion`），运镜只有视频生成节点能选。
+   * 挑中的预设**不写进 `text`** —— 那样会把用户自己写的那句覆盖掉，而且换一个预设
+   * 就找不回原来的提示词了。它们单独存着，提交时由 `composeCreativePrompt()` 拼出来。
+   *
+   * 🔴 存的是**整条预设快照**（不只是 id）：预设库是随版本走的常量，老画布上选的那条
+   * 在新版本里可能被改名、改内容甚至删掉。存 id 的话，升级之后用户会看到「已选：风格A」
+   * 而提交上去的是新版本的另一样东西 —— 或者什么都没有。存快照则至少「他选的那句字」还在。
+   */
+  creativePresets?: import('./creativePresets').CreativePresetPick;
   /** 图片生成的参数（负向提示词 / 采样 / 出图张数）。视频生成节点不用这些。 */
   negativePrompt?: string;
   steps?: string;
@@ -659,6 +671,19 @@ export type NodeData = {
    * 空串 = 这一槽自动（跟随上游那一组归档的粗 / 精配对），`LATENT_PICK_OFF` = 明确不要。
    */
   onLatentPicks?: (picks: string[]) => void;
+  /**
+   * 生成节点上改**某一档**的创作预设（2026-10-06，从 AIFISHER 迁移；2026-10-07 起可多条）。
+   *
+   * 一次改**一档**：`kind` 说明改的是哪一档（风格 / 滤镜 / 运镜），
+   * `list` 是这一档改完之后**完整的那几条**（空数组 = 把这一档清掉，
+   * 对应面板底部的「清除」和标签上的 ×）。
+   *
+   * 为什么传整档而不是「加一条 / 删一条」两个动作：加 / 删 / 清是三件事，
+   * 但它们在节点上落的是同一处（`creativePresets[kind]`）—— 让调用方算好最终那一档，
+   * 这一层就只有一个写口，不会出现「先加后删之间存了一份中间状态」。
+   * 各档各改各的，不像 `onLatentPicks` 那样整体替换 —— 挑风格不该把已选的滤镜冲掉。
+   */
+  onCreativePresets?: (kind: import('./creativePresets').CreativePresetKind, list: import('./creativePresets').CreativePreset[]) => void;
   onPreview?: (url: string) => void;
   /** 关掉预览灯箱。Esc 要能用 —— 关不掉的全屏浮层等于把画布锁住。 */
   onPreviewClose?: () => void;

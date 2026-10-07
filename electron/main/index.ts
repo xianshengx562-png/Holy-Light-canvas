@@ -20,6 +20,10 @@ import { inspectExtensions, inspectLegacyExtensions, installExtension, removeLeg
 import { createCodexService } from './codex-service';
 import { readWallpaper, removeWallpaper, saveWallpaper } from './wallpaper';
 import {
+  importPresets, readManifest, removePresetGroup, resolvePresetAsset,
+  type PresetImportManifest,
+} from './preset-import';
+import {
   checkForUpdate, downloadUpdate, initUpdater, installDownloadedOnQuit, installUpdate,
   setUpdaterSource, updaterState,
 } from './updater';
@@ -496,6 +500,27 @@ void app.whenReady().then(() => {
         return new Response('读不到这个文件', { status: 404 });
       }
     }
+    /*
+     * 导入的预设预览图（2026-10-07）。与 `/wallpaper` 同一个路子：
+     * 图在**数据目录**里（`creative-presets/assets/`），不在产物目录里，
+     * 所以由主进程读出来喂回去 —— 路径不进 DOM，也不必为读几张图给渲染进程放开文件系统。
+     *
+     * 白名单在 `resolvePresetAsset()` 里：组名与文件名都过了正则，又挡了一次路径穿越。
+     */
+    if (url.pathname.startsWith('/ipassets/')) {
+      const target = resolvePresetAsset(url.pathname.slice('/ipassets/'.length));
+      if (!target) return new Response('not found', { status: 404 });
+      try {
+        const data = await fs.promises.readFile(target);
+        const type = MIME[path.extname(target).toLowerCase()] || 'application/octet-stream';
+        return new Response(new Uint8Array(data), {
+          status: 200,
+          headers: { 'content-type': type, 'cache-control': 'max-age=86400' },
+        });
+      } catch {
+        return new Response('not found', { status: 404 });
+      }
+    }
     if (!url.pathname.startsWith('/api/')) return serveStatic(url);
     /*
      * 后端还在**首次启动**时，这一趟请求**等它 ready** 而不是立刻回 503（2026-09-29）。
@@ -656,6 +681,57 @@ ipcMain.handle('pick-folder', async (_event, options: { title?: string; defaultP
     : await dialog.showOpenDialog(dialogOptions);
   return result.canceled ? null : (result.filePaths[0] ?? null);
 });
+
+/*
+ * 选**多个**文件（2026-10-07，导入预设用）。
+ *
+ * 与 `pick-file` 的差别只有 `multiSelections`：ComfyUI-Easy-Use 那批 styles 是 47 个
+ * 分开的 json，让人一个一个选不现实。单文件那条路不动 —— 别的地方要的都是一个路径。
+ */
+ipcMain.handle('pick-files', async (_event, options: { title?: string; filters?: { name: string; extensions: string[] }[] }) => {
+  const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+  const dialogOptions = {
+    title: options?.title || '选择文件',
+    properties: ['openFile' as const, 'multiSelections' as const],
+    filters: options?.filters?.length ? options.filters : [{ name: '所有文件', extensions: ['*'] }],
+  };
+  const result = win
+    ? await dialog.showOpenDialog(win, dialogOptions)
+    : await dialog.showOpenDialog(dialogOptions);
+  return result.canceled ? [] : result.filePaths;
+});
+
+/*
+ * 创作预设的导入（2026-10-07）。
+ *
+ * 走 IPC 而不是 `/api/*` 的理由和 ComfyUI 扩展那两条一样：**要往数据目录里写文件**。
+ * 后端 utilityProcess 会被监督器重启打断，搬 88 MB 预览图搬到一半被重启 = 留下半份坏清单；
+ * 而主进程的生命周期跟窗口一致，搬完再回话。
+ *
+ * 三个通道都是「用户点了才发生」，没有后台自动调用 —— 尤其是 `remove`，删的是用户自己的图。
+ */
+ipcMain.handle(
+  'preset-import:run',
+  async (_event, payload: { dir?: string; files?: string[]; category?: string }) => {
+    try {
+      return await importPresets({
+        dir: payload?.dir,
+        files: payload?.files,
+        category: payload?.category || 'krea2',
+      });
+    } catch (e) {
+      return {
+        ok: false,
+        message: '导入失败：' + String((e as Error)?.message || e),
+        group: null, scanned: 0, imported: 0, images: 0, skipped: [],
+      };
+    }
+  },
+);
+
+ipcMain.handle('preset-import:list', (): PresetImportManifest => readManifest());
+
+ipcMain.handle('preset-import:remove', (_event, groupId: string) => removePresetGroup(groupId));
 
 /*
  * 在系统文件管理器里打开一个目录。

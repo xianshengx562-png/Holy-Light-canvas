@@ -249,6 +249,17 @@ export type NodeKind = 'text' | 'image' | 'latent' | 'latent-relay' | 'pinned-up
   | 'video-generate' | 'image-generate' | 'video' | 'video-input' | 'audio-input' | 'image-out' | 'frame-extract'
   | 'director' | 'app-generate' | 'prompt-optimize';
 
+/**
+ * 🔴 2026-10-07 整套 `color` 换过一次（徐先：「高级灰渐变色」，方向 D · 玻璃工坊）。
+ *
+ * 原来是 `#6c8cff / #22d3ee / #4ade80` 那一批 —— 高饱和的荧光色，一屏十几个节点时
+ * 彩色比内容抢眼，而且跟「界面 chrome 无色」这条规则打架。现在全部换成**低饱和带灰**
+ * 的高级灰：**同语义族共享色相，靠明度分档** ——
+ *   蓝 = 文本与提示词 · 粉 = 图片 · 绿 = 视频 · 黄 = 音频 · 紫 = latent 接续。
+ *
+ * ⚠️ 改这里的颜色要**同时**改 `src/app/canvas.css` 里 `.cv-node[data-kind='…']` 那份
+ * （卡片顶上那条 2px 类型条读的是 CSS 变量，不读这张表）—— 两处必须一一对上。
+ */
 export const NODE_META: Record<NodeKind, {
   label: string;
   tag: string;
@@ -257,12 +268,12 @@ export const NODE_META: Record<NodeKind, {
   output?: string;
 }> = {
   /* 2026-09-29 改名「文本」，并且**能接上游**了：文本 → 优化提示词 → 文本 这条路要走通。 */
-  text: { label: '文本', tag: 'TEXT', color: '#6c8cff', input: 'text', output: 'prompt' },
-  image: { label: '图片输入', tag: 'IMAGE', color: '#22d3ee', output: 'image' },
+  text: { label: '文本', tag: 'TEXT', color: '#8fa3c4', input: 'text', output: 'prompt' },
+  image: { label: '图片输入', tag: 'IMAGE', color: '#c78ea6', output: 'image' },
   /** 视频输入：把一段本地视频拖进画布，预览播放；连到生成节点时取它的首帧当参考图 / 首帧。 */
-  'video-input': { label: '视频输入', tag: 'VIDEO', color: '#fb7185', output: 'video' },
+  'video-input': { label: '视频输入', tag: 'VIDEO', color: '#8fbca4', output: 'video' },
   /** 音频输入：把一段本地音频拖进画布直接播；连到视频生成节点后，可在工作流里绑到 LoadAudio 那类节点。 */
-  'audio-input': { label: '音频输入', tag: 'AUDIO', color: '#f0abfc', output: 'audio' },
+  'audio-input': { label: '音频输入', tag: 'AUDIO', color: '#cbb083', output: 'audio' },
   /**
    * 首尾帧：从一段视频里取出**第一帧与最后一帧**两张图。
    *
@@ -272,10 +283,10 @@ export const NODE_META: Record<NodeKind, {
    * 不做两个输出口：画布里存的连线只有 source/target，没有 handle 编号，
    * 分两个口存下来再读回来就分不清连的是哪一张了。
    */
-  'frame-extract': { label: '首尾帧', tag: '帧', color: '#0ea5e9', input: 'video', output: '首帧 / 尾帧' },
-  latent: { label: '接续上一段', tag: 'LATENT', color: '#a78bfa', output: 'latent' },
+  'frame-extract': { label: '首尾帧', tag: '帧', color: '#7fa2ad', input: 'video', output: '首帧 / 尾帧' },
+  latent: { label: '接续上一段', tag: 'LATENT', color: '#a893c6', output: 'latent' },
   /** latent 中转：接住上游的 latent 再转给下一个生成节点，编号决定它写进哪个参数位。 */
-  'latent-relay': { label: 'Latent 中转', tag: 'RELAY', color: '#c084fc', input: 'latent', output: 'latent' },
+  'latent-relay': { label: 'Latent 中转', tag: 'RELAY', color: '#b0a2c4', input: 'latent', output: 'latent' },
   /**
    * 指定节点上传（2026-10-05 徐先）：与 Latent 中转同构 —— 接住上游那份媒体、原样交给下游；
    * 差别在于**它还能点名这份媒体写进工作流的哪个节点**。
@@ -286,14 +297,14 @@ export const NODE_META: Record<NodeKind, {
    *
    * 不填节点号时它就是一根管子（与没有这个节点时画布的行为一致），所以老画布不受影响。
    */
-  'pinned-upload': { label: '指定节点上传', tag: 'PINNED', color: '#f59e0b', input: '图 / 视频', output: '图 / 视频' },
+  'pinned-upload': { label: '指定节点上传', tag: 'PINNED', color: '#b8937a', input: '图 / 视频', output: '图 / 视频' },
   // 工作流选择已并入视频生成节点的参数条；这个类型只为老画布保留（`LEGACY_KINDS`）。
-  workflow: { label: '工作流配置', tag: 'WORKFLOW', color: '#f472b6', output: 'workflow' },
+  workflow: { label: '工作流配置', tag: 'WORKFLOW', color: '#bd8f95', output: 'workflow' },
   /** 自定义参数块：直接写工作流节点 id + 字段名，像搭积木一样往生成里叠参数。 */
-  params: { label: '自定义参数', tag: 'PARAMS', color: '#fb923c', input: '自定义参数', output: 'params' },
-  'video-generate': { label: '视频/音频生成', tag: 'GENERATE', color: '#4ade80', input: 'prompt / 图 / 视频 / 音频 / latent / 工作流 / 自定义参数', output: 'video / audio / image' },
+  params: { label: '自定义参数', tag: 'PARAMS', color: '#c2a184', input: '自定义参数', output: 'params' },
+  'video-generate': { label: '视频/音频生成', tag: 'GENERATE', color: '#86b79c', input: 'prompt / 图 / 视频 / 音频 / latent / 工作流 / 自定义参数', output: 'video / audio / image' },
   /** 图片生成：结构与视频生成一致，但不吃 latent、不提交时长与接续，参数换成出图那一套。 */
-  'image-generate': { label: '图片生成', tag: 'IMG-GEN', color: '#a3e635', input: '提示词 / 参考图 / 工作流 / 自定义参数', output: 'image' },
+  'image-generate': { label: '图片生成', tag: 'IMG-GEN', color: '#cf98a4', input: '提示词 / 参考图 / 工作流 / 自定义参数', output: 'image' },
   /**
    * RunningHub **应用**：跑的是一个打包好的 AI 应用（`ai-detail/<id>`），不是一份 ComfyUI 图。
    *
@@ -301,20 +312,20 @@ export const NODE_META: Record<NodeKind, {
    * 这也是它必须单独成一种节点的原因：套在「图片生成」里的话，一个出片的应用会跑出
    * 一段视频却挂在出图节点上，而用途那一栏还写着「图片」。
    */
-  'app-generate': { label: 'RunningHub 应用', tag: 'APP', color: '#38bdf8', input: '提示词 / 参考图 / 自定义参数', output: 'image / video' },
+  'app-generate': { label: 'RunningHub 应用', tag: 'APP', color: '#8fb0bd', input: '提示词 / 参考图 / 自定义参数', output: 'image / video' },
   // 老画布里可能还留着独立的视频输出节点；新建节点里已经不再提供，输出直接落在视频生成节点上。
-  video: { label: '视频输出', tag: 'OUTPUT', color: '#fbbf24', input: 'video' },
+  video: { label: '视频输出', tag: 'OUTPUT', color: '#9fbdb0', input: 'video' },
   /*
    * 2026-10-01：补上 `output` —— 把手是照 `input` / `output` 画的（`NodeCard`），
    * 没有它就没有右侧那个输出点，从「图片输出」出发的线根本拉不出来。
    * 有了它，这一张图才能再往下连一个图片生成 / 视频生成节点（徐先要的就是这条）。
    */
-  'image-out': { label: '图片输出', tag: 'OUTPUT', color: '#2dd4bf', input: 'image', output: 'image' },
+  'image-out': { label: '图片输出', tag: 'OUTPUT', color: '#bf9aa8', input: 'image', output: 'image' },
   /**
    * 3D 导演台：摆灰模的站位、调机位，存一张**构图参考图**给下游当参考图用。
    * 它自己不跑模型（`output` 是那张参考图，不是生成结果）。
    */
-  director: { label: '3D 导演台', tag: 'DIRECTOR', color: '#94a3b8', output: '构图参考图' },
+  director: { label: '3D 导演台', tag: 'DIRECTOR', color: '#9aa0aa', output: '构图参考图' },
   /**
    * 优化提示词（2026-09-29）：把上游那句大白话，扩写成能直接喂给生成模型的提示词。
    *
@@ -322,7 +333,7 @@ export const NODE_META: Record<NodeKind, {
    * 跟图片工作室里那个 ✦ 是同一个接口。所以它必须能被「启动」串进去跑：
    * 一键运行时它排在下游生成节点之前，否则下游拿到的还是优化前的那句。
    */
-  'prompt-optimize': { label: '优化提示词', tag: 'OPTIMIZE', color: '#f59e0b', input: 'text', output: '优化后的提示词' },
+  'prompt-optimize': { label: '优化提示词', tag: 'OPTIMIZE', color: '#a6b3c9', input: 'text', output: '优化后的提示词' },
 };
 
 /** Kinds offered by the toolbar and the right-click menu (legacy kinds are excluded). */

@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import ThemeProvider from '@/components/theme/ThemeProvider';
 import SiteBackground from '@/components/theme/SiteBackground';
-import AnnouncementModal from '@/components/AnnouncementModal';
 import BackendStatusBanner from '@/components/BackendStatusBanner';
 import UpdateBanner from '@/components/UpdateBanner';
 import CloseConfirmDialog from '@/components/CloseConfirmDialog';
@@ -210,10 +209,8 @@ export default function App() {
       {/* 兜底拖拽条：见 globals.css 末尾那段说明 —— 给没有页头的页面留一个能拖窗口的地方。 */}
       {showDragbar && <div className="app-dragbar" aria-hidden />}
       {Page ? <Page key={pathname} /> : <NotFound path={pathname} />}
-      {/* 进站公告挂在根上，落在哪个路由都会弹 */}
       {/* 全站背景图（用户自己传的那张）：与路由无关，挂根上。没有图时它自己不渲染。 */}
       <SiteBackground />
-      <AnnouncementModal />
       {/* 后端（独立进程）重连提示，同样与路由无关；web 版里它自己不渲染 */}
       <BackendStatusBanner />
       {/* 有新版时的提示条：与路由无关，挂根上 —— 用户不该只有逛到设置页才知道有新版本。 */}
