@@ -1,0 +1,182 @@
+/* ---------- 外壳 ---------- */
+.canvas-studio .flow-shell {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--cv-bg);
+}
+
+/* ---------- 顶栏 ---------- */
+.flow-shell .cv-topbar {
+  /* 顶栏这三项跟着「界面大小」走（见 globals.css `:root` 上 `--ui` 那段说明）。
+     下面 `.cv-brand` / `.cv-divider` / `.cv-run-*` / `.cv-save` 同理。 */
+  height: calc(48px * var(--ui));
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: calc(10px * var(--ui));
+  padding: 0 calc(12px * var(--ui));
+  /* 2026-10-07：顶栏是**界面 chrome**，不是画布 —— 它站四级明度的最高层
+     （地板 #131417 < 卡片 #1e2026 < 面板 #2a2c34 < 顶栏/浮层 #31333c）。
+     原来它跟画布同色（--cv-bg），于是「哪块是工具、哪块是工作区」全靠底下那根 1px 线分。 */
+  background: var(--cv-float);
+  border-bottom: 1px solid var(--cv-line-soft);
+  z-index: 20;
+}
+.cv-topbar .cv-brand {
+  display: flex;
+  align-items: center;
+  gap: calc(8px * var(--ui));
+  max-width: calc(320px * var(--ui));
+  padding: calc(5px * var(--ui)) calc(8px * var(--ui));
+  font-size: var(--cv-fs-4);
+  font-weight: 600;
+  color: var(--cv-text);
+  border-radius: var(--cv-radius-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-topbar .cv-brand:hover { background: var(--cv-panel-2); }
+.cv-topbar .cv-brand span { color: var(--cv-mute); }
+.cv-topbar .cv-divider { width: 1px; height: calc(20px * var(--ui)); background: var(--cv-line); flex: none; }
+.cv-topbar .cv-group { display: flex; align-items: center; gap: calc(4px * var(--ui)); }
+.cv-topbar .cv-spacer { flex: 1; }
+/* 站点余额的卡槽：`display:contents` 让余额**自己**参与顶栏的 flex —— 不然
+   它成了卡槽的唯一孩子，顶栏那 10px 的 gap 会算在卡槽外面，
+   跟「已保存」之间的间距就多出一格（或者干脆对不上）。 */
+.cv-topbar .cv-balance-slot { display: contents; }
+/* 一键运行的次数（2026-09-27）：只钉宽度 —— 数字框的默认宽度会把这一排撑开。 */
+.cv-topbar .cv-run-times { display: flex; align-items: center; gap: calc(4px * var(--ui)); flex: none; }
+.cv-topbar .cv-run-times .cv-input { width: calc(56px * var(--ui)); }
+/* 数字框自带的原生上下箭头会和我们那两颗打双份（Chromium 只在 hover/focus 时才画，
+   所以症状是「鼠标一移上去多出一对」）→ 关掉。 */
+.cv-topbar .cv-run-times .cv-input::-webkit-outer-spin-button,
+.cv-topbar .cv-run-times .cv-input::-webkit-inner-spin-button {
+  -webkit-appearance: none; appearance: none; margin: 0;
+}
+/* 上调 / 下调（步长 1）。`align-self: stretch` 让这摞箭头**跟数字框一样高**，
+   不用去猜输入框现在是多少 px（它随字体/缩放变）。 */
+.cv-topbar .cv-run-times .cv-run-steps {
+  display: flex; flex-direction: column; gap: calc(2px * var(--ui)); align-self: stretch; flex: none;
+}
+.cv-topbar .cv-run-times .cv-run-step {
+  /* 全局 button 是「36px 高的实心主按钮」，这里要的是 20px 宽的小箭头 → 逐个抵消。 */
+  flex: 1 1 0; min-height: 0; height: auto; width: calc(20px * var(--ui)); padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  line-height: 1; white-space: nowrap;
+  color: var(--cv-mute); background: var(--cv-panel-2);
+  border: 1px solid var(--cv-line); border-radius: 5px;
+}
+/* `:not(:disabled)` 是为了不跟 `button:disabled:hover` 抢 —— 那条是 (0,2,1)，
+   光写 `.cv-run-step:hover` 在禁用时会把底色刷回去。 */
+.cv-topbar .cv-run-times .cv-run-step:hover:not(:disabled) {
+  color: var(--cv-text); background: var(--cv-panel);
+}
+.cv-topbar .cv-run-times .cv-run-step:disabled { opacity: 0.45; cursor: default; }
+.cv-topbar .cv-save { display: flex; align-items: center; gap: calc(6px * var(--ui)); font-size: var(--cv-fs-3); color: var(--cv-mute); }
+.cv-topbar .cv-save i {
+  display: block;
+  width: calc(6px * var(--ui));
+  height: calc(6px * var(--ui));
+  border-radius: 50%;
+  background: var(--cv-accent);
+}
+.cv-topbar .cv-save.saving i { background: var(--cv-warn); }
+.cv-topbar .cv-save.failed i { background: var(--cv-danger); }
+.cv-topbar .cv-save.conflict { color: var(--cv-danger); }
+.cv-topbar .cv-save.conflict i { background: var(--cv-danger); }
+
+/* 保存冲突提示条：横在顶栏和画布之间，不挡画布操作，也不自动消失 */
+.flow-shell .cv-conflict {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-danger);
+  background: var(--cv-danger-soft);
+  border-bottom: 1px solid var(--cv-danger-line);
+  z-index: 19;
+}
+.flow-shell .cv-conflict-text { flex: 1; }
+
+/* ---------- 按钮 ---------- */
+.cv-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* 画布这一套按钮同样跟着「界面大小」走（globals.css 那条全局 `button` 管的是
+     全站，`.cv-btn` 是画布自己的一套，两边都得乘）。 */
+  gap: calc(6px * var(--ui));
+  height: calc(28px * var(--ui));
+  padding: 0 calc(10px * var(--ui));
+  font-size: var(--cv-fs-3);
+  color: var(--cv-text);
+  background: var(--cv-panel-2);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+.cv-btn:hover { background: var(--cv-elev); border-color: var(--cv-line-strong); }
+.cv-btn:active { transform: translateY(1px); }
+.cv-btn.ghost { background: transparent; }
+.cv-btn.ghost:hover { background: var(--cv-panel-2); }
+.cv-btn.primary {
+  color: var(--cv-accent-ink);
+  background: var(--cv-accent);
+  border-color: var(--cv-accent);
+  font-weight: 600;
+}
+.cv-btn.primary:hover { background: var(--cv-accent-hover); border-color: var(--cv-accent-hover); }
+/*
+ * 次要按钮（2026-10-02 N+96，为顶栏那颗「项目」加的）。
+ *
+ * 它原来用 `.ghost`（透明底 + `--cv-line` 那道 **7%** 的白描边）。7% 压在 #141414 的顶栏上，
+ * 描边跟地板几乎一个色 —— 三颗并排时它读起来不像一颗按钮，而像一句飘在那儿的文字。
+ * ⚠️ 「和旁边两颗没对齐」是错觉：实测三颗**几何完全一致**（同为 26 高、同一条基线、
+ *    间距都是 10px、宽也一样），差的只有"看不看得见"（底色 + 描边 + 字重）。
+ * 于是这一档：底色抬到 `--cv-panel-2`（比顶栏底亮一格 → 有"块"的存在感）、
+ * 描边用 `--cv-line-strong`（7% → 14%，两档主题各自跟着走，日间走 `--app-line-strong`）、
+ * 字重对齐成 600（和旁边两颗一样粗）。
+ * 🔴 **别把 `.ghost` 本身改亮**：全库 20 处 `.cv-btn.ghost` 都在面板 / 冲突条里，
+ *    那儿要的就是"没有块"的那一档（`grep -rn "cv-btn ghost" src/` 能数出来）。
+ * 主次仍然分明：它是"次要动作"，不跟「保存 / 启动」那两颗实心白抢。
+ */
+.cv-btn.secondary {
+  color: var(--cv-text);
+  background: var(--cv-panel-2);
+  border-color: var(--cv-line-strong);
+  font-weight: 600;
+}
+.cv-btn.secondary:hover { background: var(--cv-elev); border-color: var(--cv-accent-line); }
+.cv-btn.danger { color: var(--cv-danger); border-color: var(--cv-danger-line); }
+.cv-btn.icon { width: calc(28px * var(--ui)); padding: 0; }
+.cv-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.cv-btn.sm { height: calc(26px * var(--ui)); padding: 0 calc(9px * var(--ui)); }
+
+/* ------------------------------------------------------------------
+   顶栏控件统一高度（2026-10-07）
+
+   真机实测：顶栏一排里出现过 **5 种高度**（15 / 17 / 23 / 29 / 32 px）——
+   品牌名自己算 padding、按钮走 `.cv-btn.sm` 的 26px、运行次数那格被数字框撑到 32px。
+   同一排的东西高矮不一，视线会一直在跳，这也是「看着没对齐」的真因
+   （上一轮记过一笔：三颗按钮**几何其实完全一致**，错的是"看不看得见"——
+    这次是高矮真的不一样，两件事别混）。
+
+   做法：顶栏里所有**控件**（品牌 / 按钮 / 数字框那格）钉到同一个高度。
+   ⚠️ 不碰 `.cv-divider`（它就是一根 20px 的竖线）和 `.cv-save`（那是状态文字，
+      不是控件 —— 文字跟着基线走，硬拉成 28px 反而更歪）。
+   ⚠️ 选择器要比 `.cv-btn.sm` 高一级，否则被它那 26px 盖回来。
+   ------------------------------------------------------------------ */
+.flow-shell .cv-topbar { --cv-topbar-ctl: calc(28px * var(--ui)); }
+.cv-topbar .cv-brand,
+.cv-topbar .cv-btn.sm,
+.cv-topbar .cv-btn,
+.cv-topbar .cv-run-times { height: var(--cv-topbar-ctl); }
+/* 品牌名原来是「padding 撑高」，改成钉高之后 padding 只留左右。 */
+.cv-topbar .cv-brand { padding: 0 calc(8px * var(--ui)); }
+/* 数字框自己填满那一格（原来是 23px，比旁边的按钮矮一截）。 */
+.cv-topbar .cv-run-times .cv-input { height: 100%; }

@@ -1,0 +1,372 @@
+/* ---------- 输入槽（参数条里的「已连接输入」） ---------- */
+.cv-slots { display: flex; flex-wrap: wrap; gap: 8px; align-content: center; justify-content: center; width: 100%; }
+.cv-slots.bar {
+  justify-content: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+.cv-param-slots { display: grid; gap: 8px; }
+.cv-param-slots-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-mute);
+}
+.cv-param-slots-head span:last-child { color: var(--cv-dim); }
+
+.cv-slot {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  overflow: hidden;
+  background: var(--cv-panel-2);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+}
+.cv-slots.bar .cv-slot { width: 48px; height: 48px; }
+.cv-slot img { display: block; width: 100%; height: 100%; object-fit: cover; cursor: zoom-in; }
+.cv-slot-code { padding: 2px 4px; font-size: var(--cv-fs-1); line-height: 1.3; color: var(--cv-text); text-align: center; word-break: break-all; }
+.cv-slot.pending { border-color: var(--cv-warn-line); }
+.cv-slot.pending .cv-slot-code { color: var(--cv-warn); }
+.cv-slot.ready { border-color: var(--cv-accent-line); }
+/* 已连线但本轮不参与（例如接续关掉的 latent）：中性虚线，绝不能画成 pending 的黄色告警，
+   否则用户会以为"还得给它传文件才能生成"。 */
+.cv-slot.skipped { border-style: dashed; border-color: var(--cv-line-strong); }
+.cv-slot.skipped .cv-slot-code { color: var(--cv-mute); }
+.cv-slot.skipped .cv-slot-note { color: var(--cv-mute); background: transparent; }
+.cv-slot-note {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 2px 0;
+  font-size: 9px;
+  color: var(--cv-text);
+  text-align: center;
+  background: var(--cv-media-scrim);
+}
+/* 输入槽行末尾的「+」：截图里那个虚线添加框 */
+.cv-slot-add {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  color: var(--cv-mute);
+  background: transparent;
+  border: 1px dashed var(--cv-line-strong);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+  transition: color 0.14s ease, border-color 0.14s ease;
+}
+.cv-slot-add:hover { color: var(--cv-accent); border-color: var(--cv-accent); }
+.cv-slot-add input[type='file'] { display: none; }
+
+/* ---------- 节点参数区（选中后浮在卡片下方） ---------- */
+/*
+ * ⚠️ 2026-09-20 走过一段弯路，记在这里免得再走一次：
+ * 中途改成过「选中即将整个正面替换成参数区」，用户否掉了 —— 他要的只是
+ * **文本节点**点两下就能写字（见 `.cv-node-textbox`），其余节点全部保持原样。
+ * 于是这里恢复成浮层：选中节点后挂在卡片下方，宽度比卡片宽一档。
+ *
+ * 那版留下的两条经验仍然有效，改这块时别忘：
+ *   · `.cv-param-face`（`inset: 0`）那层已经不在了，宽度必须自己给（见下面的 `width`）；
+ *   · 浮层**会盖住正下方的邻居**（密排画布上尤其明显）。这是当前已知取舍
+ *     —— 之所以敢留着，是因为它只在选中时出现，点空白就收。
+ */
+.cv-param-bar {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: -14px;
+  z-index: 30;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 9px;
+  width: 520px;
+  max-width: calc(100vw - 32px);
+  padding: 12px;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-text);
+  text-align: left;
+  cursor: default;
+  background: var(--cv-panel);
+  border: 1px solid var(--cv-line-strong);
+  border-radius: var(--cv-radius);
+  box-shadow: var(--cv-shadow-2);
+}
+/* 靠画布右边界时翻到左边（`flip` 由 NodeParamBar 量节点位置决定，不量自己）。 */
+.cv-param-bar.flip { left: auto; right: -14px; }
+
+.cv-param-title { display: flex; align-items: center; gap: 8px; font-size: var(--cv-fs-3); color: var(--cv-dim); }
+.cv-param-title em { margin-left: auto; font-style: normal; font-size: var(--cv-fs-1); color: var(--cv-mute); }
+/*
+ * `flex-wrap` 是必须的：面板只有 ~326px 可用宽（节点 348 − 边框内边距 22），
+ * 而工作流引擎那一档有 7 个控件（比例 / 张数 / 步数 / CFG / 种子 / MP / 采样器）。
+ * 不换行就会被压成一条挤在一起的细缝 —— 每个控件都看得见、但一个都点不准。
+ */
+.cv-param-top { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.cv-param-desc { flex: 1; min-width: 0; display: grid; gap: 7px; align-content: start; }
+.cv-param-hint { font-size: var(--cv-fs-2); color: var(--cv-mute); }
+/* 与底栏那条 `.cv-dock-hint.warn` 同一个令牌：同一句警告在两处要长得一样。 */
+.cv-param-hint.warn { color: var(--cv-warn); }
+/*
+ * 「这么填不会生效」的警告（例如同步出图那档接了参考图）。
+ * 必须用警示色而不是普通灰：它和上面那串说明文字长得一样就没人在读了。
+ */
+.cv-param-warn { font-size: var(--cv-fs-2); line-height: 1.5; color: var(--cv-warn); }
+
+.cv-param-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 64px;
+  padding: 10px 2px;
+  font-family: inherit;
+  font-size: var(--cv-fs-3);
+  line-height: 1.55;
+  color: var(--cv-text);
+  resize: vertical;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+/* 负向提示词：跟正向提示词同款，但矮一截、用虚线隔开，别让人以为是两个并列的主输入框 */
+.cv-param-input.neg {
+  min-height: 38px;
+  padding-top: 8px;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-dim);
+  border-top: 1px dashed var(--cv-line-soft);
+}
+
+.cv-param-input::placeholder { color: var(--cv-placeholder); }
+.cv-param-input:focus { outline: none; }
+
+.cv-param-thumb {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 60px;
+  height: 60px;
+  overflow: hidden;
+  background: var(--cv-panel);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+}
+.cv-param-thumb:hover { border-color: var(--cv-accent); }
+.cv-param-thumb.static { cursor: default; }
+.cv-param-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.cv-param-thumb input[type='file'] { display: none; }
+.cv-param-plus { display: grid; place-items: center; color: var(--cv-mute); }
+
+/* 生成中的转圈 */
+.cv-spin { animation: cv-spin 0.9s linear infinite; }
+@keyframes cv-spin { to { transform: rotate(360deg); } }
+
+.cv-param-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-top: 10px;
+  border-top: 1px solid var(--cv-line-soft);
+}
+.cv-param-spacer { flex: 1; min-width: 8px; }
+.cv-param-mini { display: inline-flex; align-items: center; gap: 5px; font-size: var(--cv-fs-2); color: var(--cv-mute); }
+/*
+  「长宽」那一档的读数。它是**算出来的**不是填进去的，所以按数字等宽排、
+  颜色和普通输入框区分开 —— 否则会被当成又一个可以改的输入框。
+*/
+.cv-param-size {
+  min-width: 62px;
+  padding: 0 6px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-text);
+  background: var(--cv-panel-2);
+  border: 1px solid var(--cv-line);
+  border-radius: 5px;
+}
+
+/* 生成键：截图里是一个白色圆形按钮 */
+.cv-param-run {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  color: var(--cv-run-ink);
+  background: var(--cv-run-bg);
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 0.14s ease, transform 0.14s ease;
+}
+.cv-param-run:hover { background: var(--cv-run-bg-hover); transform: scale(1.05); }
+.cv-param-run:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+.cv-param-bar .cv-select.sm,
+.cv-param-bar .cv-input.sm { height: calc(28px * var(--ui)); padding: 0 calc(8px * var(--ui)); font-size: var(--cv-fs-3); }
+.cv-param-bar .cv-switch { font-size: var(--cv-fs-3); }
+.cv-param-bar .cv-btn.sm { height: calc(28px * var(--ui)); }
+.cv-param-bar .cv-btn.off { pointer-events: none; }
+
+/*
+ * ---------- 窄面板适配 ----------
+ * 参数区现在只有 ~326px 可用宽（节点 348 − 内边距 22），而旧的浮层有 520px。
+ * 下面这几条都是为这个收缩写的，别再按「浮层那么宽」去调这里的尺寸。
+ */
+/* 60px 的缩略方框缩到 44px：它现在是主输入区里的一个元素，不再是浮层角落。 */
+.cv-param-bar .cv-param-thumb { width: 44px; height: 44px; }
+/* 「步数 [__]」这类小控件要能换行，否则窄面板下一行塞不下两个、被压成细缝。 */
+.cv-param-bar .cv-param-mini { flex-wrap: nowrap; }
+/* 主输入框不再按浮层高度撑满，矮一截把空间让给下面的控件。 */
+.cv-param-bar .cv-param-input { min-height: 54px; }
+/* 动作按钮允许换行：生成节点那一排有下载 / 预览 / 粘贴 / 打开配置，窄面板下摆不满一行。 */
+.cv-param-bar .cv-param-tools { flex-wrap: wrap; }
+/* 槽位行贴在滚动区末尾，太宽就把自己撑成一条 —— 让它自己换行。 */
+.cv-param-bar .cv-slots.bar { flex-wrap: wrap; }
+
+/* ---------- 右键菜单 ---------- */
+.cv-menu-mask { position: fixed; inset: 0; z-index: 60; }
+.cv-menu {
+  position: fixed;
+  display: grid;
+  /* 行必须铺满面板：globals 的 button 样式给的是 fit-content + 内发光，
+     不显式 stretch 的话每行收缩成「贴内容的药丸」（实测一行只剩 104px 宽）。 */
+  justify-items: stretch;
+  gap: 2px;
+  width: 232px;
+  /* 条目多的时候（比如选节点类型）在菜单里滚，不要顶到屏幕外面去 */
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  padding: 8px;
+  background: var(--cv-elev);
+  border: 1px solid var(--cv-line);
+  border-radius: 12px;
+  /* 简约（2026-09-21 徐先）：一层近影就够 —— 原来那层 56px 大投影是
+     「悬浮卡片」的立体感，菜单只是块面板，不要那种浮起来 feel。 */
+  box-shadow: var(--cv-shadow-2);
+}
+/* 选节点类型这一份条目最多、每行都是图标 + 文案：照参考给足宽度与行高，
+   呼吸感靠行距，不靠投影和粗边。 */
+.cv-menu.add-nodes { width: 320px; }
+.cv-menu-title { padding: 8px 10px 6px; font-size: var(--cv-fs-3); color: var(--cv-mute); }
+.cv-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  height: 38px;
+  padding: 0 10px;
+  font-family: inherit;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-text);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+/* globals 的 `button:not(.secondary):not(.subtle):not(:disabled)` 给所有按钮一条
+   inset 内高光（specificity 0-3-1，比 .cv-menu-item 高）—— 就是它让每行看起来
+   像张凸起的小卡。这里照抄它的 :not 链再垫一层 .cv-menu，稳压一头。 */
+.cv-menu .cv-menu-item:not(.secondary):not(.subtle):not(:disabled) { box-shadow: none; }
+.cv-menu.add-nodes .cv-menu-item { height: 44px; font-size: var(--cv-fs-4); border-radius: 10px; }
+.cv-menu.add-nodes .cv-menu-item .cv-menu-text { font-size: var(--cv-fs-4); }
+.cv-menu-item:hover { background: var(--cv-panel-2); }
+.cv-menu-item .cv-menu-glyph { display: grid; place-items: center; width: 20px; color: var(--cv-mute); }
+.cv-menu-item:hover .cv-menu-glyph { color: var(--cv-accent); }
+.cv-menu-item em { margin-left: auto; font-style: normal; font-size: var(--cv-fs-1); color: var(--cv-mute); }
+.cv-menu-item.off { opacity: 0.38; cursor: not-allowed; }
+/* globals 的 `button:disabled:hover` 会给禁用行刷一层强调色底 —— 菜单里禁用行悬停就该是透明的。 */
+.cv-menu-item.off:hover { background: transparent; }
+.cv-menu-item.off em { color: var(--cv-warn); }
+/* 键盘上下键走到哪一项，就要有和鼠标悬停一样的反馈 ——
+   只看鼠标的话根本不知道 ↑↓ 到底选中了谁。 */
+.cv-menu-item.hot { background: var(--cv-panel-2); }
+.cv-menu-item.danger { color: var(--cv-danger); }
+.cv-menu-item.danger .cv-menu-glyph { color: var(--cv-danger); }
+.cv-menu:focus { outline: none; }
+.cv-menu-group + .cv-menu-group { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--cv-line); }
+/* 文案吃掉剩余宽度，后面的快捷键与说明自然靠右对齐 */
+.cv-menu-item .cv-menu-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-menu-item em { margin-left: 0; }
+.cv-menu-item kbd.cv-menu-key {
+  flex: none;
+  padding: 2px 5px;
+  font-family: inherit;
+  font-size: var(--cv-fs-1);
+  color: var(--cv-mute);
+  background: var(--cv-panel-2);
+  border: 1px solid var(--cv-line);
+  border-radius: 5px;
+}
+/*
+ * 只有图标的行（「添加节点」那一栏）。
+ * 没有文字之后，32px 的默认行高配 14px 的图标会松得不成样，
+ * 宽度也只剩两片内边距 —— 单独收窄。
+ */
+.cv-menu-item.icon-only {
+  height: 30px;
+  padding: 0 6px;
+}
+.cv-menu-item.icon-only .cv-menu-glyph { width: 18px; }
+
+/*
+ * 卡片颜色那一行的色块（2026-10-01）。
+ * 11 块（跟随主题 + 九支预设 + 自己挑）在 232px 的菜单里排一行放不下，
+ * 所以让它换行：一行排不下就排两行，别把色块压成 10px 的圆点（那样的点
+ * 在深色与浅色两档之间几乎看不出区别，等于没法挑）。
+ */
+.cv-menu-item.swatches {
+  height: auto;
+  min-height: 34px;
+  padding: 7px 10px;
+  flex-wrap: wrap;
+  gap: 6px;
+  cursor: default;
+}
+/* 这一行不是「点了就执行」的菜单项，悬停不该亮 —— 亮了像能点出什么。 */
+.cv-menu-item.swatches:hover { background: transparent; }
+.cv-menu-swatches { display: flex; flex-wrap: wrap; gap: 5px; }
+.cv-swatch {
+  flex: none;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--cv-line-strong);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: box-shadow 0.12s ease;
+}
+.cv-swatch:hover { box-shadow: 0 0 0 2px var(--cv-node-accent-ring); }
+/* 当前那一支：描边走强调色，平面效果（不加位移、不加粗）。 */
+.cv-swatch.on { box-shadow: 0 0 0 2px var(--cv-node-accent); }
+/* 「跟随主题」：画一道斜杠表示「这一支不指定」。 */
+.cv-swatch.none {
+  background:
+    linear-gradient(to top right, transparent 44%, var(--cv-mute) 44%, var(--cv-mute) 56%, transparent 56%);
+}
+/* 「自己挑」：浏览器自己的取色器。默认那圈厚边框要抹掉，否则它比别的色块大一圈。 */
+.cv-swatch.pick {
+  border-style: dashed;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.cv-swatch.pick::-webkit-color-swatch-wrapper { padding: 0; }
+.cv-swatch.pick::-webkit-color-swatch { border: 0; border-radius: 3px; }

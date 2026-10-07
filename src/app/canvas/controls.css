@@ -1,0 +1,114 @@
+/* ---------- 表单控件 ---------- */
+/*
+ * 🔴 `min-width: 0` 不能少（2026-10-03 徐先报「下拉框超出面板」）：
+ * 它是栅格子项，默认 `min-width: auto` = **不小于内容的固有最小宽度**，
+ * 而原生 `<select>` 的固有最小宽度就是**最宽那个 option** ——
+ * latent 中转那个下拉里放的是素材文件名，一条就能把整块面板顶破。
+ * 下面 `.cv-row2 > .cv-field` 早就为同一个原因写了一遍，这里漏的是**直接挂在
+ * `.cv-param-desc` 下的**那些字段。
+ */
+.cv-field { display: grid; gap: 5px; min-width: 0; }
+.cv-field > span { font-size: var(--cv-fs-2); color: var(--cv-mute); }
+
+/*
+ * 中转节点「取自哪次生成」：**一列两行**（2026-10-03，N-114）。
+ * 一个中转节点可以同时供两份 latent（粗 / 精），所以每一槽各占一行。
+ * 右侧用 `minmax(0, 1fr)` 而不是 `1fr` —— 同上，不写 0 的话原生下拉压不动。
+ */
+.cv-relay-picks { display: grid; gap: 6px; }
+.cv-relay-pick { display: grid; grid-template-columns: 58px minmax(0, 1fr); align-items: center; gap: 8px; }
+.cv-relay-pick em { font-style: normal; font-size: var(--cv-fs-2); color: var(--cv-mute); }
+/* 「一行两格」。2026-10-01 起真的有人在用了（`NodeParamBar` 的粗 / 精采节点 id）。
+   `min-width: 0` 不能少：栅格子项默认 `min-width: auto`，里面那个 `width: 100%` 的输入框
+   会把列撑破、两格挤成一大一小。 */
+.cv-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.cv-row2 > .cv-field { min-width: 0; }
+
+.cv-input,
+.cv-select,
+.cv-textarea {
+  width: 100%;
+  min-width: 0;
+  padding: calc(7px * var(--ui)) calc(9px * var(--ui));
+  font-family: inherit;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-text);
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  transition: border-color 0.14s ease, box-shadow 0.14s ease;
+}
+.cv-textarea { min-height: calc(66px * var(--ui)); resize: vertical; line-height: 1.5; }
+.cv-input:focus, .cv-select:focus, .cv-textarea:focus {
+  outline: none;
+  border-color: var(--cv-accent);
+  box-shadow: 0 0 0 3px var(--cv-accent-ring);
+}
+.cv-input::placeholder, .cv-textarea::placeholder { color: var(--cv-placeholder); }
+
+.cv-stat {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 9px;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-dim);
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+}
+.cv-stat b { font-weight: 500; color: var(--cv-accent); }
+
+.cv-switch { display: flex; align-items: center; gap: 8px; font-size: var(--cv-fs-3); color: var(--cv-dim); cursor: pointer; }
+.cv-switch input {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex: none;
+  width: 32px;
+  height: 18px;
+  margin: 0;
+  background: var(--cv-switch-off);
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.16s ease;
+}
+.cv-switch input::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  background: var(--cv-switch-knob);
+  border-radius: 50%;
+  transition: transform 0.16s ease, background 0.16s ease;
+}
+.cv-switch input:checked { background: var(--cv-accent); }
+.cv-switch input:checked::after { transform: translateX(14px); background: var(--cv-accent-ink); }
+
+.cv-note { font-size: var(--cv-fs-2); line-height: 1.6; color: var(--cv-mute); }
+.cv-msg {
+  padding: 6px 9px;
+  font-size: var(--cv-fs-3);
+  line-height: 1.5;
+  color: var(--cv-accent);
+  background: var(--cv-accent-soft);
+  border: 1px solid var(--cv-accent-line);
+  border-radius: var(--cv-radius-sm);
+}
+.cv-msg.error { color: var(--cv-danger); background: var(--cv-danger-soft); border-color: var(--cv-danger-line); }
+
+.cv-link {
+  display: block;
+  padding: 6px;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-text);
+  text-align: center;
+  background: var(--cv-panel-2);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+}
+.cv-link:hover { color: var(--cv-accent); border-color: var(--cv-accent-line); }

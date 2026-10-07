@@ -1,0 +1,3434 @@
+/* ---------- 画布上的浮层 ---------- */
+.flow-shell .cv-drop-hint {
+  position: absolute;
+  inset: 10px;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-accent);
+  pointer-events: none;
+  background: var(--cv-accent-veil);
+  border: 1px dashed var(--cv-accent-line);
+  border-radius: var(--cv-radius-lg);
+}
+.flow-shell .cv-hint {
+  position: absolute;
+  left: 14px;
+  bottom: 62px;
+  z-index: 11;
+  max-width: 340px;
+  padding: 6px 10px;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-mute);
+  background: var(--cv-float);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  backdrop-filter: blur(8px);
+  /* 提示只是说明文字：吃掉指针事件的话，它盖住的那一小块画布就点不到了 */
+  pointer-events: none;
+}
+.flow-shell .cv-notice {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  z-index: 40;
+  padding: 7px 12px;
+  /* 预检那段话会把好几个节点列在一起，不限宽它（`left:50%` 居中）会撑到屏幕外。 */
+  max-width: min(560px, calc(100% - 32px));
+  line-height: 1.5;
+  text-align: left;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-warn);
+  background: var(--cv-float-strong);
+  border: 1px solid var(--cv-warn-line);
+  border-radius: var(--cv-radius-sm);
+  box-shadow: var(--cv-shadow-2);
+  transform: translateX(-50%);
+}
+
+/* ---------- 背景图 ---------- */
+/* 画布背景层：铺满整个 stage，不参与任何命中测试，也不随画布平移缩放。 */
+.flow-shell .cv-wallpaper {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: cover;
+}
+
+/* ---------- 左下视口控制条 ---------- */
+.flow-shell .cv-vp {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  z-index: 12;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.flow-shell .cv-vp-bar {
+  display: flex;
+  align-items: center;
+  gap: calc(3px * var(--ui));
+  height: calc(38px * var(--ui));
+  padding: 0 calc(9px * var(--ui));
+  background: var(--cv-float-strong);
+  border: 1px solid var(--cv-line);
+  border-radius: 999px;
+  box-shadow: var(--cv-shadow-2);
+  backdrop-filter: blur(10px);
+}
+.cv-vp .cv-vp-sep { width: 1px; height: calc(18px * var(--ui)); flex: none; background: var(--cv-line); margin: 0 calc(3px * var(--ui)); }
+.cv-vp .cv-vp-btn {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: calc(26px * var(--ui));
+  height: calc(26px * var(--ui));
+  flex: none;
+  padding: 0;
+  color: var(--cv-dim);
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+.cv-vp .cv-vp-btn:hover { background: var(--cv-panel-2); color: var(--cv-text); }
+.cv-vp .cv-vp-btn:focus-visible { outline: 2px solid var(--cv-accent-ring); }
+.cv-vp .cv-vp-btn.on { color: var(--cv-accent); background: var(--cv-accent-soft); }
+.cv-vp .cv-vp-percent { min-width: calc(40px * var(--ui)); font-size: var(--cv-fs-2); color: var(--cv-mute); text-align: center; }
+.flow-shell .cv-vp-slider,
+.flow-shell .cv-ap-slider input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 92px;
+  height: 3px;
+  margin: 0 2px;
+  background: var(--cv-line-strong);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.flow-shell .cv-vp-slider::-webkit-slider-thumb,
+.flow-shell .cv-ap-slider input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--cv-text);
+  cursor: pointer;
+}
+.flow-shell .cv-vp-slider::-moz-range-thumb,
+.flow-shell .cv-ap-slider input[type='range']::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--cv-text);
+  cursor: pointer;
+}
+/*
+ * 「界面大小」那根滑杆**占满它那一栏**（2026-10-02 徐先："无极拉杆长一点"）。
+ *
+ * 上面那条 `width: 92px` 是给「背景图」那两根定的 —— 它们两张**并排各占一半**，
+ * 92 正好；而这一根是**独占一行**的单根滑杆，跟着 92 走就只占右栏四成，
+ * 130 档的滑块挤在中间一小段里，一格一格地跳，读不出"无级"。
+ *
+ * ⚠️ 必须带 `[data-ap-ui-scale]` 这个钩子：光写 `.cv-ap-slider input[type='range']`
+ *    会把背景图那两根也拉成整宽（两栏各自 100% → 撑爆右栏）。
+ * ⚠️ `margin: 0` 不能省：上面那条带着 `margin: 0 2px`，`width: 100%` 加左右各 2px
+ *    就会比右栏宽出 4px（`box-sizing: border-box` 管不到 margin）。
+ */
+.flow-shell .cv-ap-slider[data-ap-ui-scale] input[type='range'] { width: 100%; margin: 0; }
+
+/* 快捷键说明：悬停或聚焦就展开，点一下钉住（Theme 面板要来回对照的时候，
+   松开鼠标就消失的那种体验很烦）。 */
+.cv-vp-help-wrap { position: relative; display: flex; }
+.cv-vp .cv-vp-round {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  color: var(--cv-dim);
+  background: var(--cv-float-strong);
+  border: 1px solid var(--cv-line);
+  border-radius: 50%;
+  box-shadow: var(--cv-shadow-2);
+  backdrop-filter: blur(10px);
+  cursor: pointer;
+  transition: color 0.14s ease, border-color 0.14s ease;
+}
+.cv-vp .cv-vp-round:hover { color: var(--cv-text); border-color: var(--cv-line-strong); }
+.cv-vp .cv-vp-round.on { color: var(--cv-accent); border-color: var(--cv-accent-line); }
+.cv-vp-help-wrap .cv-vp-help {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 10px);
+  z-index: 30;
+  display: grid;
+  gap: 6px;
+  width: 244px;
+  padding: 11px 12px;
+  background: var(--cv-elev);
+  border: 1px solid var(--cv-line-strong);
+  border-radius: var(--cv-radius);
+  box-shadow: var(--cv-shadow-3);
+}
+.cv-vp-help-head { font-size: var(--cv-fs-2); color: var(--cv-mute); }
+.cv-vp-help-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; font-size: var(--cv-fs-2); color: var(--cv-dim); }
+.cv-vp-help-row span { color: var(--cv-text); }
+.cv-vp-help-row kbd {
+  justify-self: start;
+  padding: 2px 5px;
+  font-family: inherit;
+  font-size: var(--cv-fs-1);
+  color: var(--cv-mute);
+  background: var(--cv-panel-2);
+  border: 1px solid var(--cv-line);
+  border-radius: 5px;
+}
+
+/* ---------- 右下角「画布外观」入口 ---------- */
+.flow-shell .cv-ap-wrap {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+.cv-ap-open {
+  position: relative;
+  display: grid;
+  place-items: center;
+  /* 右下角那个「外观」圆钮 —— 它现在管着「界面大小」，自己也该跟着变大变小。 */
+  width: calc(38px * var(--ui));
+  height: calc(38px * var(--ui));
+  flex: none;
+  color: var(--cv-dim);
+  background: var(--cv-float-strong);
+  border: 1px solid var(--cv-line);
+  border-radius: 50%;
+  box-shadow: var(--cv-shadow-2);
+  backdrop-filter: blur(10px);
+  cursor: pointer;
+  transition: color 0.14s ease, border-color 0.14s ease;
+}
+.cv-ap-open:hover { color: var(--cv-text); border-color: var(--cv-line-strong); }
+.cv-ap-open.on { color: var(--cv-accent); border-color: var(--cv-accent-line); }
+/* 贴着右边缘的那几个，气泡一律往左弹，不然悬停瞬间又会把页面撑宽：
+   圆钮（右下）、右上角入口、抽屉头那个 X。 */
+.cv-ap-open[data-tip]::after,
+.flow-shell .cv-corner [data-tip]::after,
+.flow-shell .cv-drawer-close[data-tip]::after { left: auto; right: calc(100% + 9px); }
+
+.cv-appearance {
+  /* ⚠️ 从 grid 改 flex（2026-09-24 第十二次）：面板要"标题固定 + 正文滚动"，
+     flex 竖排里给滚动层一句 `min-height: 0; flex: 1 1 auto` 就能表达，
+     grid 还得额外摆轨道。面板自己的 gap 归零，间距交给滚动层，
+     免得"标题 → 滚动层"之间出现 12 + 12 的双份间隔。 */
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  /*
+   * ⚠️ 面板宽度 = 右栏宽 + 左栏宽 + 内边距，**改小之前先算右栏那笔账**：
+   *   右栏 = 面板宽 − 内边距 24 − 左栏 152（行内标签 42 + 卡串 96 + 间隔 14）。
+   *   368 时右栏 268，最大的那一支（地板 8 预设 + 取色器 = 9 块）要
+   *   9×20 + 8×4 = 212，再加名字 42 与间隔 8 = 262 —— 刚好一行，剩 6px 余量。
+   *   2026-09-24 从 348 加宽到 368，就是因为这一版把"名字 + 色块串"并到同一条横线上了
+   *   （上一版色块串独占一行，只需要 212px 就够）。
+   */
+  /*
+   * 宽度 = 右栏 + 左栏 + 内边距，三个数都在这一块里，改一个就要回头核另外两个。
+   *   右栏 228 = 名字 42 + 间隔 8 + 色块串 177（最大那一支 9 块 ×17 + 8×3）；
+   *   左栏 132 = 标签 34 + 卡串 66（两列各 30）+ 间隔 8，剩 24 给 padding/margin；
+   *   再加内边距 24 → 384。
+   */
+  /* 352 = 内边距 12×2 + 内容 328。单列之后每一块都吃满 328：
+       最挤的那一行是"名字 42 + 间隔 8 + 色块串 9×15+8×2 = 151" = 201，富余。 */
+  --cv-ap-w: 352px;
+  width: var(--cv-ap-w);
+  /*
+   * ⚠️ 高度上限**按可用空间算**，不要写 `76vh` 这种跟内容无关的常数（2026-09-24 第十二次）：
+   *   `.cv-ap-wrap` 是 `bottom: 14px` 的竖排 flex，面板底边被钉在视口底部往上
+   *   `14(外) + 38(圆钮) + 10(间隔)` = 62px 处，高度**往上长**。
+   *   左栏卡从 36px 抬到 50px 之后内容 ≈ 665px，而 `min(76vh,640px)` 在 768 高的视口里
+   *   取到 640 —— 顶上冲出视口：截图里「画布外观」标题贴在 y=0 之上、"关闭"只剩半个字。
+   *   真机 geo 佐证：box.t=198 / box.h=640 / contentBottom=864 > 视口底 838。
+   *   改成 `100vh − 14×2 − 38 − 10`（= 100vh − 86）之后，面板永远落在视口里，
+   *   换到更矮的窗口也不会切头切尾；下面 `max-height: 640px` 只是给超高的屏幕留个上限，
+   *   免得面板在 4K 屏上拉成一根长条。
+   */
+  max-height: min(calc(100vh - 86px), 640px);
+  /* ⚠️ 面板本身仍**不能** overflow-y: auto：`.cv-ap-tip` 是绝对定位、要浮到卡片外面去的，
+     面板一滚就成了它的裁剪容器，气泡会被切掉半截。
+     滚动交给里面那层 `.cv-ap-scroll`（见下）。 */
+  overflow: visible;
+  padding: 12px;
+  /* 平面：不透明底 + 一根描边。透明底 + 毛玻璃会在画布上糊出光边（见上「平面风」）。 */
+  background: var(--cv-elev);
+  border: 1px solid var(--cv-line-strong);
+  border-radius: var(--cv-radius);
+  box-shadow: var(--cv-shadow-3);
+}
+/*
+ * 面板 → 两栏：左边是"选"，右边是"调"。
+ *
+ * ⚠️ 第一列**必须显式写死** `var(--cv-ap-side)`，不能写 `auto`（2026-09-24 踩）：
+ *    `auto` 那一列的宽度 = 内容宽度，而 `.cv-ap-side` 的 `width: 152px` 之外还有
+ *    `padding-right: 10px` + `margin-right: 10px` + `border-right: 1px` ——
+ *    border-box 只管 padding/border，**margin 一定加在盒外**，于是轨道实占 172px，
+ *    右栏 = 348 − 24 − 172 = 152……实测 `gridCols` 是 `162px 180px`（老宽度下），
+ *    右栏永远比手算的少 70 多 px，四支颜色的色块串就一直在折行。
+ *    左边那一格改用 `minmax(0, 1fr)` 防右栏里 255px 的取色器把列顶宽。
+ * ⚠️ 左栏自己的 `width` 改成 100%（由轨道说了算），padding/margin 都算进轨道宽度。
+ */
+/* ⚠️ **单列**（2026-09-24 第四次）：两栏并排时右栏只剩 130px，
+   而颜色那一行光"名字 42 + 色块串 151"就要 199 —— 四支色块串全部溢出到面板外
+   （真机 dump：bodyR 1598 / 面板右边界 1416）。面板总共才 328px 可用，
+   装不下一列 188 的卡串再加一列 199 的色块串。
+   回到单列之后每一块都通宽 328，横向不再有溢出；代价是面板高一些（≈420px），
+   由 `max-height: 76vh` 兜着。 */
+/*
+ * 滚动层（2026-09-24 第十二次）：面板内容超过 `max-height` 时由这一层滚。
+ *   ⚠️ 为什么不是直接给 `.cv-appearance` 加 `overflow-y: auto`：面板里
+ *   `.cv-ap-tip` 那些气泡是**绝对定位**、要浮到面板外面去的，面板一旦成为滚动容器
+ *   就会顺手成为裁剪容器，气泡在面板边缘会被切半截。多包一层之后，
+ *   面板自己不滚（tip 的包含块还是面板），滚动发生在子层里。
+ *   `min-height: 0` 是必须的：放在 grid/flex 里时它默认 `min-height: auto`，
+ *   内容再高也不会收缩，滚动条永远不出现。
+ */
+.cv-ap-scroll {
+  display: grid;
+  gap: 12px;
+  /* ⚠️ `min-height: 0` 必须：flex 子项默认 `min-height: auto`，
+     内容再高也不收缩 → 滚动条永远不出现、面板照样顶出屏幕。 */
+  min-height: 0;
+  flex: 1 1 auto;
+  /* 上边距把滚动内容与标题分开（面板 gap 已归零）。 */
+  margin-top: 12px;
+  overflow-y: auto;
+  overflow-x: visible;
+  /* 滚动条细一点，别在浅色面板里横插一根粗灰条。 */
+  scrollbar-width: thin;
+}
+/* 内容撑不下时留一点右侧余量，免得色块串贴着滚动条。 */
+.cv-ap-scroll::-webkit-scrollbar { width: 8px; }
+.cv-ap-scroll::-webkit-scrollbar-thumb {
+  background: var(--cv-line-strong);
+  border: 2px solid var(--cv-elev);
+  border-radius: 999px;
+}
+.cv-ap-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 9px; }
+/* 面板最上面那两组（主题 / 背景）：跟底下几组同一个样子，只是归在一个容器里。
+   ⚠️ 它是单列网格里的一格，宽度就是内容宽 328，不写死任何数。 */
+.cv-ap-side {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  gap: 9px;
+  align-content: start;
+}
+/* 一组 = 「标签（在上）+ 一串控件（在下）」。四个标签（主题 / 背景 / 颜色 /
+   背景图）因此落在同一条竖线上，横跨左右两栏也对得齐。
+   ⚠️ 标签跟控件挤同一行不行：标签只有三四个字宽，左栏 188px 减去标签列，
+   卡串只剩 130px 出头，卡里的通宽小样会被压成一条。 */
+.cv-ap-group { display: grid; gap: 5px; }
+.cv-ap-group > .cv-ap-label { line-height: 1.3; }
+/* 颜色那一行（四支）与背景图那一行：都是「标签 + 一串控件」。 */
+.cv-ap-main { min-width: 0; display: grid; gap: 8px; align-content: start; }
+/* 右栏那一列：颜色那一行 + 背景图那一行 + 底栏。它跟左栏并排（网格第二列），
+   `align-content: start` 让底栏贴着内容走、不再被拉高撑出一片空。 */
+/* 底下那几组（颜色 / 背景图 / 底栏）：同一个单列网格里的下一格。 */
+.cv-ap-col-main { min-width: 0; display: grid; gap: 9px; align-content: start; }
+.cv-ap-main .cv-ap-item { min-height: 22px; }
+.cv-ap-row { display: grid; gap: 5px; }
+.cv-ap-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex: none; }
+.cv-ap-head strong { font-size: var(--cv-fs-3); font-weight: 600; color: var(--cv-text); }
+.cv-ap-x {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  padding: 0;
+  margin-left: 0;
+  color: var(--cv-mute);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.cv-ap-x:hover { color: var(--cv-text); background: var(--cv-panel-2); }
+.cv-ap-sect { display: grid; gap: 8px; }
+.cv-ap-label { font-size: var(--cv-fs-2); line-height: 1.3; color: var(--cv-mute); }
+/* 行内的控件串：`min-height: 24px` 让"只有一行说明"和"四支颜色"两行一样高，
+   不会因为内容多寡把行距撑得忽大忽小。 */
+.cv-ap-line { display: flex; align-items: center; gap: 8px; min-height: 22px; }
+.cv-ap-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cv-ap-hint { font-size: var(--cv-fs-1); line-height: 1.6; color: var(--cv-mute); }
+/* 右栏那一行说明：截图里它是 14px 正文、宽得能折出个孤零零的「。」，
+   还把右栏撑成一整块空白。压到 11px、单行高度。 */
+.cv-ap-main .cv-ap-hint { font-size: var(--cv-fs-2); line-height: 1.5; }
+
+.cv-ap-slider { display: grid; gap: 5px; }
+.cv-ap-slider > span { display: flex; justify-content: space-between; font-size: var(--cv-fs-2); color: var(--cv-mute); }
+.cv-ap-slider output { color: var(--cv-text); }
+/* （`.cv-ap-swatches` 原在这里：这一版色块串改名 `.cv-ap-item-body` 并入自定义那一档，
+   全项目已无引用，删掉 —— 留着只会让人以为还有第二种排法。） */
+/* 色块 15px（2026-09-24 第三次：20 → 18 → 17 → 15。这一版右栏只有 126px，
+ *   最挤的地板那支 9 块：9×15 + 8×2 = 151 —— 这笔账就是面板宽 352 的来源）。
+ * ⚠️ `padding: 0` **不是装饰、是必须的** —— 2026-09-23 查了两轮才找到的真因：
+   全局 `button { padding: 0 14px }` + `box-sizing: border-box` 下，**padding+border 比 width 大时
+   实际宽度取 padding+border**（border-box 只保证"不小于内容"，不保证"等于 width"）——
+   于是写了 20px 的色块量出来是 30px（14+14+2），一行必然折成两三段。
+   凡是在这个面板里给按钮写死小尺寸，都要顺手 `padding: 0`。
+   尺寸账（改宽度前先算）：右栏实宽 188（面板 320 − 内边距 24 − 左栏 106），
+   最大那一支（地板，8 个预设 + 取色器 = 9 个）要 9×20 + 8×4 = 212 —— 排不下，
+   所以面板加宽到 348（右栏 218）。别再往回收，收回去地板那一行就折行。 */
+.cv-ap-dot {
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  flex: none;
+  /* 15px：右栏 126 = 名字 42 + 间隔 6 + 色块串 9×15 + 8×2 = 151。 */
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  color: var(--cv-accent-ink);
+  border: 1px solid var(--cv-line-strong);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: outline-color 0.14s ease;
+}
+/* 平面：选中的圈贴着色块本身（负 offset），不再往外撑出一圈空隙把行撑高。 */
+/* ⚠️ 15px 的块上 `-4px` 那一圈会糊掉一半，收到 -3px。 */
+.cv-ap-dot.on { outline: 2px solid var(--cv-accent-ring); outline-offset: -3px; }
+.cv-ap-custom {
+  position: relative;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  flex: none;
+  /* 19px：比 15px 的色块大一点、留出"这颗是取色器"的识别缝。 */
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  overflow: hidden;
+  color: var(--cv-mute);
+  border: 1px dashed var(--cv-line-strong);
+  border-radius: 50%;
+  cursor: pointer;
+}
+.cv-ap-custom input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+/* 悬浮说明（"i"）：长解释从面板里搬进气泡 —— 原来那三行长说明把面板撑得很高，
+   而它们其实只在第一次看时有用。绝对定位浮到卡片外面，所以面板本体不能滚。 */
+.cv-ap-tip { position: relative; display: inline-flex; margin-left: auto; }
+.cv-ap-tip > button {
+  display: grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  color: var(--cv-mute);
+  background: transparent;
+  border: 1px solid var(--cv-line);
+  border-radius: 50%;
+  cursor: pointer;
+}
+.cv-ap-tip > button:hover { color: var(--cv-text); border-color: var(--cv-line-strong); }
+.cv-ap-tipbody {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  z-index: 5;
+  width: 210px;
+  padding: 8px 9px;
+  font-size: var(--cv-fs-1);
+  line-height: 1.65;
+  color: var(--cv-text);
+  text-align: left;
+  background: var(--cv-elev);
+  border: 1px solid var(--cv-line-strong);
+  border-radius: 6px;
+  box-shadow: var(--cv-shadow-2);
+  transform: translateX(-50%);
+}
+/* 底栏不用 `space-between` 了：截图里那两个被拉到面板两端、中间一整行空档，
+   看着不像一组。现在它们挨着（`.cv-ap-line` 的左端起排），状态字跟在后面。 */
+.cv-ap-foot-btn { border-color: var(--cv-line-strong); }
+.cv-ap-status { min-height: 15px; }
+/* 底下那两行「名字 + 一串控件」的间距（标签行由 `.cv-ap-row` 管）。 */
+.cv-ap-item + .cv-ap-item { margin-top: 0; }
+.cv-ap-seg { display: flex; flex: 1; gap: 4px; }
+.cv-ap-segbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex: 1;
+  height: 26px;
+  padding: 0 6px;
+  font-family: inherit;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-dim);
+  background: transparent;
+  border: 1px solid var(--cv-line);
+  border-radius: 7px;
+  cursor: pointer;
+  transition: color 0.14s ease, background 0.14s ease, border-color 0.14s ease;
+}
+.cv-ap-segbtn:hover { color: var(--cv-text); border-color: var(--cv-line-strong); }
+.cv-ap-segbtn.on { color: var(--cv-text); background: var(--cv-accent-veil); border-color: var(--cv-accent-line); }
+.cv-ap-segbtn:disabled { opacity: 0.45; cursor: not-allowed; }
+/* 淡化 / 模糊并排：竖着排会把面板拉到快一屏高。 */
+.cv-ap-sliders { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+/* ---------- 预设卡（主题 / 背景，2026-09-22） ----------
+   一排两格，每格是「小样 + 名字 + 一句说明」。做成卡而不是原来的窄分段钮：
+   面板只有 272px 宽，两格并排用宽卡才放得下说明文字，也才点得准。 */
+/*
+ * 卡串（2026-09-24 第七次定稿）：**flex + 固定卡宽**，不再用 grid 的 1fr。
+ *
+ * 三种写法都试过，都被"内容宽为 0"这条坑掉：
+ *   · `repeat(auto-fit, minmax(0,1fr))` —— auto-fit 会铺满列（实测 11 列），三张卡各 19.6px；
+ *   · `repeat(2, minmax(0,1fr))` —— 左栏的卡里没有任何固有宽度内容
+ *     （小样是 `width:100%`，循环依赖；文字已隐藏），`1fr` 于是算出一个很小的值，
+ *     实测每张卡 10px 宽 —— 卡宽不齐的毛病没了，但换成了"卡窄得看不见"。
+ * 结论：宽度**必须由外面给死**。卡宽 30px、高 26px，两列 = 30×2 + 6 = 66px，
+ * 加上标签 34 与间隔 8 = 108 < 左栏 132，留 24px 给 padding/margin。
+ * ⚠️ 改卡宽要跟 `--cv-ap-side` 一起算（见那儿的三笔账）。
+ */
+/* ⚠️ 一列、不是两列（2026-09-24 截图）：卡里只有小样时两列会变成
+   "第三张另起一行、右半列空着"，看起来就是"纯色比图片凸出来一截"。
+   一行一张、每张通宽（352 − 24 = 328px），五张卡摞起来也只有 120px。 */
+.cv-ap-presets { display: grid; grid-template-columns: minmax(0, 1fr); gap: 5px; }
+/*
+ * 2026-09-23 第五次：左栏改回**竖排紧凑卡**（小样在上、名字在下）。
+ *
+ * 上一版是横排宽卡（46px 小样 + 名字 + 一句说明），面板 296px 宽的时候左栏吃掉 148px，
+ * 右栏只剩 100 出头 —— 于是右栏被迫变成"名字一行、色块一行"的 8 行高塔，整块面板要滚。
+ *
+ * 竖排卡只占 1/3 宽，两栏之间终于有富余；代价是说明文字放不下了
+ * （em 那句"深色界面"缩到 9px 也读不清），所以左栏只留名字 ——
+ * 小样本身就是"这一档长什么样"，名字是"它叫什么"，两件事足够选。
+ * 说明改挂 title 属性（原生悬停），不占版面。
+ */
+.cv-ap-preset {
+  position: relative;
+  display: grid;
+  /* 同上：隐式列 auto + 子项 width:100% = 循环依赖 → 2px。
+     基础规则也补上，免得别的调用点再踩一次。 */
+  grid-template-columns: 100%;
+  gap: 5px;
+  justify-items: center;
+  padding: 6px 6px 7px;
+  font-family: inherit;
+  text-align: center;
+  color: var(--cv-dim);
+  background: var(--cv-panel-2);
+  border: 1px solid var(--cv-line);
+  border-radius: 8px;
+  cursor: pointer;
+  /* 平面：hover 不位移、不加阴影，只换描边（位移会让整排文字跟着抖）。 */
+  transition: color 0.14s ease, background 0.14s ease, border-color 0.14s ease;
+}
+.cv-ap-preset:hover { color: var(--cv-text); border-color: var(--cv-line-strong); }
+.cv-ap-preset.on { color: var(--cv-text); background: var(--cv-accent-veil); border-color: var(--cv-accent-line); }
+.cv-ap-preset:disabled { opacity: 0.45; cursor: not-allowed; }
+.cv-ap-preset-text { display: grid; gap: 0; min-width: 0; }
+.cv-ap-preset-text strong { font-size: var(--cv-fs-2); font-weight: 500; white-space: nowrap; }
+.cv-ap-preset-text em { font-style: normal; font-size: 9px; color: var(--cv-mute); white-space: nowrap; }
+/* 左栏那一列的说明隐掉：五张卡每张挂一行小字，摞起来比右栏高出一倍，面板整体被拉长。
+   卡片本来就有 `title`（原生悬停）和那枚勾，足够传达 —— 面板正文里不该出现说明书。 */
+.cv-ap-side .cv-ap-preset-text em { display: none; }
+/*
+ * 左栏的卡只留**小样**，名字进 title（2026-09-24 第七次）。
+ *   上一版卡里还带一行名字，45px 宽的卡放"自定义"三个字必然挤成两三行，
+ *   卡高被顶到 36px —— 那一列于是比右栏高出一截（截图里空尾巴的来源之一）。
+ *   现在卡 = 26px 见方的小方块：卡串两列 = 26×2 + 6 = 58px，
+ *   加上标签 34 与间隔 8 = 100px，左栏 132 有富余。
+ *   "这一档长什么样"靠小样（色块）本身，"叫什么"靠 title 悬停与那枚勾。
+ */
+.cv-ap-side .cv-ap-preset {
+  position: relative;
+  display: grid;
+  place-items: center;
+  gap: 0;
+  /* 通宽 × 36px：高度 = 小样 24 + 上下内边距 5×2 + 描边 1×2。
+     写死高度是为了让三张主题卡与两张背景卡**等高** ——
+     截图里「自定义」矮一截（15px vs 30px），就是高度跟着小样内容走。
+     ⚠️ 36px 不是随便定的：小样里的顶栏 + 内容面 + 那张节点卡片要有肉眼可辨的
+     层次，小样低于 ~20px 时三层会糊成一条。第一版写 24px（小样 12px），
+     实机截图里那五张卡看上去就是**五根空白长条**。 */
+  width: 100%;
+  height: 50px;
+  padding: 8px 9px;
+  border-radius: 7px;
+  overflow: hidden;
+  /* ⚠️⚠️ `grid-template-columns` 必须显式写（2026-09-24 第十次，真因）：
+     卡是 `display: grid` 却没写列，于是只有一个 **隐式列**，宽度 = `auto`；
+     列里的 `.cv-ap-mini` 又写着 `width: 100%` —— 列宽要看 item、item 要看列宽，
+     循环依赖。浏览器对"百分比 vs auto 轨道"的判定是**不可解析**，
+     直接退化成极小值 2px（真机 dump：`cardGridCols: "2px"`、`miniWidthProp: "2px"`）。
+     外面那圈 5px/7px 内边距照画，所以看上去就是**一根空白长条**。
+     ⚠️ 上一版我加了 `justify-items: stretch` 以为能修 —— **无效**：
+     它管的是"item 在轨道**内**怎么对齐"，轨道自己多宽它管不着。
+     真机试算 `trial.stretch` 仍然 `miniW: 2`，而 `trial.cols100` 立刻回到 310。
+     结论：给轨道一个**确定宽度**才是修法，对齐属性在这里是靶子打偏。 */
+  /* ⚠️ 横排：小样在左、名字在右（2026-09-24 第十一次）。
+     用 flex 而不是 grid —— grid 那一列 auto + 子项百分比宽会死循环（见上），
+     而这里小样是固定 96px、名字吃 1fr，flex 表达最干净、没有隐式轨道。
+     ⚠️ 名字**必须显示**：五张卡只留小样时长得一模一样，用户认不出哪张是
+     夜间哪张是日间 —— 一个"选档位"的控件不能要求悬停才知道。 */
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+}
+/* 名字列：从 `display: none` 改回显示，跟小样同一基线居中。 */
+.cv-ap-side .cv-ap-preset-text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  text-align: left;
+}
+.cv-ap-side .cv-ap-preset-text strong {
+  font-size: var(--cv-fs-3);
+  font-weight: 500;
+  white-space: nowrap;
+}
+/* 说明那一行留在左栏是有用的（"深色界面" / "浅色界面" 一眼分清那两张主题卡），
+   9px 太糊，抬到 10px。 */
+.cv-ap-side .cv-ap-preset-text em {
+  display: block;
+  font-size: var(--cv-fs-1);
+  white-space: nowrap;
+}
+.cv-ap-side .cv-ap-mini {
+  /* ⚠️ 固定宽、不参与伸缩 —— 小样不再是"通宽"，名字才有地方站。 */
+  flex: none;
+  width: 96px;
+  height: 26px;
+  aspect-ratio: auto;
+  /* 行：顶栏 5px + 内容面 1fr。列：**必须显式**，理由同上面的卡 ——
+     小样自己也是 grid，隐式列 auto + 内部块级面吃 100% 宽同样是循环依赖。 */
+  grid-template-columns: 100%;
+  grid-template-rows: 6px 1fr;
+  border-radius: 4px;
+  justify-items: stretch;
+}
+/* 勾钉在**右上角**：卡正中是名字，居中放会压在字上。 */
+.cv-ap-check { position: absolute; top: 4px; right: 4px; color: var(--cv-accent); }
+/* 左栏的卡是通宽 × 50px（横排：左边 96px 小样 + 右边名字），勾 13px 钉右上角。 */
+.cv-ap-side .cv-ap-check { top: 7px; right: 9px; width: 14px; height: 14px; }
+
+/* 卡里那张小样。和设置页的 theme-swatch 是同一个思路（要展示"这一档长什么样"，
+   所以色值必须写死，不能吃主题令牌 —— 否则两档在同一个主题下会画成同一种颜色），
+   只是尺寸小到 1:1 缩不进文字，所以只留色块。 */
+.cv-ap-mini {
+  display: grid;
+  /* 一路演进：横排小条 → 贴在卡左侧的扁预览图 → 通宽卡里横着铺满当"这块面长什么样"。
+     基础尺寸 22px 高，左栏那份覆写成 24px（见 `.cv-ap-side .cv-ap-mini`）。 */
+  grid-template-columns: 100%;
+  grid-template-rows: 4px 1fr;
+  width: 100%;
+  height: 22px;
+  overflow: hidden;
+  border: 1px solid var(--cv-line);
+  border-radius: 5px;
+}
+.cv-ap-mini-bar, .cv-ap-mini-body { display: block; }
+.cv-ap-mini.dark .cv-ap-mini-bar { background: #1c1f23; }
+.cv-ap-mini.dark .cv-ap-mini-body { background: #14171a; }
+.cv-ap-mini.light .cv-ap-mini-bar { background: #ffffff; }
+.cv-ap-mini.light .cv-ap-mini-body { background: #f4f5f6; }
+/* 背景那两档：纯色只有一个面，图片画成三个错开的小方块（"垫了一张图"）。 */
+.cv-ap-mini.plain { grid-template-rows: 1fr; }
+.cv-ap-mini.plain .cv-ap-mini-body { background: linear-gradient(135deg, #17191d, #0e0f12); }
+.cv-ap-mini.image { grid-template-rows: 1fr; }
+.cv-ap-mini.image .cv-ap-mini-body {
+  background:
+    linear-gradient(135deg, rgba(120, 170, 255, 0.55), rgba(255, 190, 120, 0.45)),
+    repeating-linear-gradient(45deg, #1b1e23 0 4px, #23272d 4px 8px);
+}
+
+/* 那张「自定义」卡现在跟"夜间 / 日间"同形同宽（原来要 grid-column: 1/-1 才不至于半宽，
+   排成单列之后这条没了）。它跟背景那两张的差别只有一处：底下一行小字写"已钉住 N 支"。 */
+/* 自定义卡里的小样：**地板 + 一张节点卡片**，用的是当前实际在用的两支色
+   （内联样式传进来），所以它同时也能当"现在这一档长什么样"的缩略图看。 */
+.cv-ap-mini.custom { position: relative; }
+.cv-ap-mini-card {
+  position: absolute;
+  left: 22%;
+  right: 22%;
+  top: 30%;
+  bottom: 18%;
+  border: 1px solid var(--cv-line-strong);
+  border-radius: 2px;
+}
+
+/* ---------- 自定义那一档（2026-09-24 第六次：一色一行，名字在左、色块在右）----------
+   第五次把一支颜色排成两行（名字在上一行、色块串在下一行且拉满整列）。
+   截图里那样排的毛病：四支摞起来是"一层名字一层色块"交替的八段，色块行的起点
+   还比名字靠左（`grid-column: 1 / -1` 让色块串从面板左沿起），整块看着就是歪的、
+   也不像一张表。
+
+   这一版一支颜色 = **一行**：`[名字] [跟随主题] …… [色块串]`，名字与色块同一基线，
+   四支读下来是一张四行的表。代价是右栏要有 262px（名字 42 + 间隔 8 + 9 块色块 212），
+   所以面板宽度同步加到 368 —— 这笔账写在 `--cv-ap-w` 那儿。
+
+   ⚠️ 色块数一个没砍：每支 6~8 个预设色是挑色的主要入口，砍了就得每次开取色器。
+      压的是行高和留白，不是色块宽度。
+   ⚠️ 行间**不画分隔线**：四支本来就靠名字分得开，再画四道横杠只会更乱（平面风靠留白分组）。 */
+.cv-ap-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+/* 名字列固定 42px：四支的名字长短不一（地板 / 卡片底色 / 卡片描边 / 强调色），
+   不固定的话色块串的起点会一行一个位置。 */
+.cv-ap-item-name { flex: none; width: 42px; font-size: var(--cv-fs-2); color: var(--cv-mute); white-space: nowrap; }
+/* 被钉住的支：名字转强调色 —— 满面板只有这一处用色，一眼就看得出改过哪支。 */
+.cv-ap-item.on .cv-ap-item-name { color: var(--cv-accent); }
+/* 色块串紧挨着名字列（**不是**推到右边）：这一列就是"名字 + 色块串"，
+   四支的名字长短不一（地板 / 卡片底色 / 卡片描边 / 强调色），
+   左右推的话色块串的起点会一行一个位置 —— 读起来是"两头撑开"的行。 */
+.cv-ap-item-body {
+  display: flex;
+  /* **不折行**（2026-09-24）：这一行要么一次排开、要么就是"右栏不够宽"这个配置错误，
+     折成三行只会让面板悄悄变高、把真实原因藏起来。右栏不够宽时宁可横向溢出 ——
+     探针的 L-5b 会当场报出来，而不是等用户看出图不对。
+     （原来写 `flex-wrap: wrap` 时，右栏 234px 下四支各折成 3 行、每行 75px 高。） */
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  margin-left: 0;
+}
+/* 「跟随」不当按钮：它不是一个动作，是"这一支已经脱离主题了，点一下拉回来"的**状态**。
+   做成实心 pill 会让它跟色块抢视线，做成描边小字才像状态。 */
+.cv-ap-follow {
+  height: 20px;
+  flex: none;
+  margin-left: 0;
+  padding: 0 7px;
+  font-family: inherit;
+  font-size: var(--cv-fs-1);
+  color: var(--cv-dim);
+  background: transparent;
+  border: 1px solid var(--cv-line);
+  border-radius: 5px;
+  cursor: pointer;
+  transition: color 0.14s ease, border-color 0.14s ease;
+}
+.cv-ap-follow:hover { color: var(--cv-text); border-color: var(--cv-accent-line); }
+
+/* ---------- 大图预览 ---------- */
+.cv-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  gap: 12px;
+  background: var(--cv-lightbox);
+  backdrop-filter: blur(6px);
+  cursor: zoom-out;
+}
+.cv-lightbox img { max-width: 92vw; max-height: 86vh; border-radius: var(--cv-radius); box-shadow: var(--cv-shadow-3); }
+.cv-lightbox span { font-size: var(--cv-fs-3); color: var(--cv-dim); }
+/* 视频 / 音频也走这一层：原来这里只画 `<img>`，视频结果点「预览」是一张打不开的坏图。
+   `cursor: auto` + 自己不关（`onClick` 里 stopPropagation）—— 不然调进度条的动作会被当成「点遮罩关闭」。 */
+.cv-lightbox video { max-width: 92vw; max-height: 86vh; border-radius: var(--cv-radius); box-shadow: var(--cv-shadow-3); cursor: auto; }
+.cv-lightbox .cv-lightbox-audio { width: min(560px, 86vw); padding: 14px 12px; background: var(--cv-media-solid); border-radius: var(--cv-radius); box-shadow: var(--cv-shadow-3); cursor: auto; }
+.cv-lightbox .cv-lightbox-audio audio { display: block; width: 100%; }
+
+/* ---------- 自定义参数块 ---------- */
+/* 一行参数 = 名字 + 节点 id + 字段名 + 值。参数条和右侧栏共用，宽度都得吃得住。 */
+.cv-prows { display: grid; gap: 8px; }
+.cv-prow {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+}
+.cv-prow.off { opacity: 0.45; }
+.cv-prow-head { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 7px; }
+/* 全局 input 规则会把 checkbox 拉成整宽，这里必须写回去。 */
+.cv-prow-head input.cv-prow-on { width: 14px; height: 14px; padding: 0; margin: 0; flex: none; accent-color: var(--cv-accent); }
+.cv-prow-head .cv-input.sm { min-width: 0; }
+.cv-prow-grid { display: grid; grid-template-columns: 76px 1fr 1.3fr; gap: 6px; }
+.cv-prow-cell { display: grid; gap: 3px; min-width: 0; }
+.cv-prow-cell > span { font-size: var(--cv-fs-1); color: var(--cv-mute); }
+.cv-prow-cell .cv-input.sm { min-width: 0; }
+.cv-prow-del {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: var(--cv-mute);
+  background: transparent;
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+}
+.cv-prow-del:hover { color: var(--cv-danger); border-color: var(--cv-danger-line); }
+/* 「从工作流里挑」与「手填一行」并排：挑不出来的时候手填必须还在，不能被禁用了就没路走。 */
+.cv-prows-add { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cv-prows-add .cv-note { max-width: 100%; }
+/* 值那个框底下的类型提示：图 / 视频 / latent 这些填的不是随手一个字符串，不写会一直填错。 */
+.cv-prow-kind { font-style: normal; font-size: var(--cv-fs-1); color: var(--cv-mute); }
+
+/* ---------- 挑字段弹层 ---------- */
+/* 居中弹一层而不是贴着按钮：`select` 装不下一百多个字段，而且要带搜索框。
+   z-index 70：压住右键菜单（60），让位给预览灯箱（80）。 */
+.cv-fpk-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.55);
+}
+.cv-fpk {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  width: min(560px, 100%);
+  max-height: min(72vh, 640px);
+  background: var(--cv-elev);
+  border: 1px solid var(--cv-line-strong);
+  border-radius: var(--cv-radius);
+  box-shadow: var(--cv-shadow-3);
+  overflow: hidden;
+}
+.cv-fpk-head { display: flex; align-items: flex-start; gap: 8px; padding: 12px 12px 8px; }
+.cv-fpk-title { display: grid; gap: 2px; min-width: 0; flex: 1; }
+.cv-fpk-title > span { font-size: var(--cv-fs-3); font-weight: 600; color: var(--cv-text); }
+.cv-fpk-title > em { font-style: normal; font-size: var(--cv-fs-2); color: var(--cv-mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-fpk-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  color: var(--cv-mute);
+  background: transparent;
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+}
+.cv-fpk-x:hover { color: var(--cv-text); border-color: var(--cv-line-strong); }
+.cv-fpk-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 12px 8px;
+  padding: 0 8px;
+  height: 30px;
+  color: var(--cv-mute);
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+}
+.cv-fpk-search input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  color: var(--cv-text);
+  background: transparent;
+  border: 0;
+  outline: none;
+  font-family: inherit;
+  font-size: var(--cv-fs-3);
+}
+.cv-fpk-search input::placeholder { color: var(--cv-placeholder); }
+.cv-fpk-list { min-height: 0; overflow-y: auto; padding: 0 6px 6px; display: grid; gap: 2px; align-content: start; }
+.cv-fpk-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 22px 12px;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-mute);
+  text-align: center;
+}
+.cv-fpk-state.bad { color: var(--cv-danger); }
+.cv-fpk-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 8px;
+  font-family: inherit;
+  color: var(--cv-text);
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+}
+.cv-fpk-item:hover { background: var(--cv-panel-2); }
+.cv-fpk-item.on { background: var(--cv-panel-2); border-color: var(--cv-accent-line); }
+.cv-fpk-item.taken { opacity: 0.5; }
+.cv-fpk-main { display: grid; gap: 1px; min-width: 0; flex: 1; }
+.cv-fpk-label { font-size: var(--cv-fs-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-fpk-sub { font-size: var(--cv-fs-1); color: var(--cv-mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-fpk-tags { display: flex; align-items: center; gap: 4px; flex: none; }
+.cv-fpk-tag {
+  font-style: normal;
+  font-size: var(--cv-fs-1);
+  color: var(--cv-dim);
+  padding: 1px 5px;
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.cv-fpk-tag.live { color: var(--cv-accent); border-color: var(--cv-accent-line); background: var(--cv-accent-soft); }
+.cv-fpk-tag.kind { color: var(--cv-mute); }
+.cv-fpk-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-mute);
+  border-top: 1px solid var(--cv-line);
+}
+.cv-fpk-keys { color: var(--cv-dim); }
+
+/* 卡片上的参数块预览：几行生效 + 前几行的名字 */
+.cv-node-params {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  padding: 10px;
+  text-align: left;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-dim);
+}
+.cv-node-params b { font-size: var(--cv-fs-3); color: var(--cv-text); }
+.cv-chip {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 7px;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-text);
+  background: var(--cv-panel-2);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.cv-chip em { flex: none; font-style: normal; font-size: var(--cv-fs-1); color: var(--cv-mute); }
+.cv-chip.off { color: var(--cv-mute); text-decoration: line-through; }
+
+/* ---------- latent 参数位编号 ---------- */
+.cv-slot-pick { display: grid; gap: 6px; }
+.cv-slot-pick > span { font-size: var(--cv-fs-2); color: var(--cv-mute); }
+.cv-slot-pick.off { opacity: 0.45; pointer-events: none; }
+.cv-slot-pick-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.cv-slot-chip {
+  display: grid;
+  gap: 1px;
+  padding: 5px 9px;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-dim);
+  text-align: left;
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+}
+.cv-slot-chip em { font-style: normal; font-size: var(--cv-fs-1); color: var(--cv-mute); }
+.cv-slot-chip:hover { border-color: var(--cv-line-hi); color: var(--cv-text); }
+.cv-slot-chip.on {
+  color: var(--cv-accent);
+  background: var(--cv-accent-soft);
+  border-color: var(--cv-accent-line);
+}
+.cv-slot-chip.on em { color: var(--cv-accent); }
+
+/* ---------- 每一次生成的记录 ---------- */
+.cv-run {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+}
+.cv-run-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 6px;
+  font-size: var(--cv-fs-3);
+  border-bottom: 1px dashed var(--cv-line);
+}
+.cv-run-head b { color: var(--cv-text); }
+.cv-run-head span { font-size: var(--cv-fs-2); color: var(--cv-mute); }
+
+/* ---------- 左轨五项共用的「大浮层」（2026-09-21 照参考图） ----------
+   形态：一张居中偏上的大卡片，顶栏一个 ✕，左列 200px 分类，右边是内容。
+   尺寸是照参考图量出来的：那张卡 x 64..1143 / y 63..821（1080 × 759），
+   左列宽 200、分隔线在 264，左列六项行距 54。
+
+   ⚠️ 两件事别搞混：
+   1. **外面那层灰不能省**。参考图那张卡压在一片灰上（163,167,172）；画布底下是点阵和节点，
+      不加这层的话「卡片到哪儿为止」只能靠猜 —— 顺带它也让「点灰 = 关」这件事看得见。
+   2. **尺寸一律 min() 封顶**：窗口比参考图小时整张卡跟着缩，而不是把内容顶出屏幕。 */
+.cv-ov {
+  position: fixed;
+  inset: 0;
+  /* 比抽屉（40）高、比灯箱（90）低：抽屉从右边滑出来，浮层开着时不该被它压在下面 */
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  background: rgba(8, 9, 12, 0.55);
+  animation: cv-ov-in 0.12s ease;
+}
+/* 日间：遮罩轻一档 —— 白卡片压上去本来就比深色卡片跳，再压一层重黑会显得闷。 */
+html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
+@keyframes cv-ov-in { from { opacity: 0; } to { opacity: 1; } }
+
+.cv-ov-card {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  grid-template-rows: 52px minmax(0, 1fr);
+  width: min(1080px, 100%);
+  height: min(760px, 100%);
+  overflow: hidden;
+  /* 跟着主题，缺值才落回画布面板色。
+     ⚠️ 这里原先写死 `--cv-panel`，于是浮层里「内容跟主题、粉底不跟」——
+        卡片底色和内容色来自两套令牌，怎么看都像只改了一半（2026-09-22 徐先截图的）。 */
+  background: var(--app-surface, var(--cv-panel));
+  border: 1px solid var(--ov-line, var(--cv-line-strong));
+  border-radius: var(--cv-radius-lg);
+  box-shadow: var(--cv-shadow-3);
+  animation: cv-ov-card-in 0.16s ease;
+}
+/* 没有左列时（历史 / skill）内容区占满整张卡 —— 一列孤零零的一项不如不给 */
+.cv-ov-card.solo { grid-template-columns: minmax(0, 1fr); }
+@keyframes cv-ov-card-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* 顶栏：左边一串小字，右边是内容自己给的按钮，最右永远是 ✕（只关浮层，不跳页） */
+.cv-ov-bar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px 0 20px;
+  background: var(--app-surface-2, var(--cv-panel-2));
+  border-bottom: 1px solid var(--ov-line, var(--cv-line));
+}
+.cv-ov-kicker {
+  font-size: var(--cv-fs-1);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--cv-mute);
+}
+.cv-ov-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.cv-ov-link { font-size: var(--cv-fs-2); color: var(--cv-dim); text-decoration: none; }
+.cv-ov-link:hover { color: var(--cv-accent); }
+/* 全局 `button { height: 36px; display: inline-flex; justify-content: center }` 会把 ✕ 拉成横条 */
+.cv-ov-x {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  color: var(--cv-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+}
+.cv-ov-x:hover { color: var(--cv-text); background: var(--cv-elev); border-color: var(--cv-line); }
+
+/* 左列 */
+.cv-ov-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 8px;
+  overflow-y: auto;
+  /* 左列用「页面底」那支、靠一条分隔线分块 —— 和设置页侧栏同一个读法。
+     拿 --surface-2 的话它会和顶栏同色，两块的界线就糊了。 */
+  background: var(--app-bg, var(--cv-bg));
+  border-right: 1px solid var(--ov-line, var(--cv-line));
+}
+.cv-ov-nav-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  height: 38px;
+  padding: 0 14px;
+  font-size: var(--cv-fs-3);
+  font-weight: 500;
+  color: var(--cv-dim);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+}
+.cv-ov-nav-item:hover { color: var(--cv-text); background: var(--cv-elev); }
+/* 浮层内部（含左列）统一成一支强调色 --ov-accent，卡片区和左列都读它。
+   左列选中项读的是 --cv-accent / --cv-accent-soft（画布配色那一支），
+   卡片区那一批设置页组件读的是 --accent —— 两支不并起来，一个浮层里会出现
+   两种强调色。
+   ⚠️ --ov-accent 必须声明在 .cv-ov-card 上：.cv-ov-body 是它的子节点，
+      声明在 body 上左列继承不到。 */
+.cv-ov-card {
+  --ov-accent: var(--cv-node-accent);
+  --ov-accent-ink: var(--cv-node-accent-ink);
+  --cv-accent: var(--ov-accent);
+  --cv-accent-soft: color-mix(in srgb, var(--ov-accent) 12%, transparent);
+  /* 浮层自己那几条分隔线。左列/顶栏都是浮层的壳，不是全站组件 ——
+     全站那条 --line 在深色档只有 0.1 的白，压在卡片底色上几乎看不见。 */
+  --ov-line: var(--app-line, var(--cv-line));
+  --ov-line-strong: var(--app-line-strong, var(--cv-line-strong));
+  /* 预设色板统一 9px 圆角的小方。放这里是因为它要在「内容区」和设置页两处共用，
+     而设置页那份是 --r-* 的档位、浮层里不该跟着画布那档缩。 */
+  --ov-swatch-radius: 9px;
+}
+/* 自定义了全站强调色、且没单独改过节点强调色时，浮层跟着全站那一支走 ——
+   不然自定义强调色在画布里一点痕迹都没有。
+   ⚠️ 节点强调色是更局部的选择，改过就以它为准，所以这里 :not 掉。
+   ⚠️ dataset 在 CSS 里一律小写：[data-nodeAccent] 写成 [data-nodeaccent]。 */
+:root[data-theme][data-site-accent='custom']:not([data-nodeaccent='custom']) .cv-ov-card {
+  --ov-accent: var(--app-accent, var(--cv-node-accent));
+  --ov-accent-ink: var(--app-accent-ink, var(--cv-node-accent-ink));
+}
+/* 浮层内部（含左列）统一成一支强调色。
+   左列选中项读的是 --cv-accent / --cv-accent-soft，那是「画布配色」那一支；
+   而 .cv-ov-body 里的按钮、强调字走的是 --accent（= --cv-node-accent）。
+   在卡片根节点上并一下：节点强调色没改时它落回 --cv-accent（配色照旧生效），
+   改了就跟卡片区一起变 —— 不然一个浮层里会同时出现两种强调色。 */
+.cv-ov-nav-item.on {
+  color: var(--cv-text);
+  background: var(--cv-accent-soft);
+  box-shadow: inset 2px 0 0 var(--cv-accent);
+}
+.cv-ov-nav-item em { font-style: normal; font-size: var(--cv-fs-2); color: var(--cv-mute); }
+
+/* 内容区：标题 + 可滚动的正文。滚动放在 body 上，标题才不会跟着一起滚走 */
+.cv-ov-main { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 0; }
+.cv-ov-head { padding: 18px 24px 10px; }
+.cv-ov-head h2 { margin: 0; font-size: 19px; font-weight: 600; color: var(--app-text, var(--cv-text)); }
+.cv-ov-note { margin: 5px 0 0; font-size: var(--cv-fs-3); color: var(--app-text-mute, var(--cv-mute)); }
+.cv-ov-body { min-height: 0; padding: 0 24px 24px; overflow: auto; }
+/*
+ * 抽屉内容区里跑着一批**用全站令牌写的**组件（「外观」挂的就是设置页那个
+ * `AppearanceForm`、「模型服务」也是同一类），而抽屉自己是画布这套深色 `--cv-*`。
+ * 全站默认改成浅色之后，它们会在深色抽屉里排出一叠白卡（2026-09-22 截图一眼看到）。
+ *
+ * 修法是在抽屉范围内把那几个令牌**重映射**到画布值 —— 一处 CSS 修掉一整类
+ * 「抽屉里冒白块」，不用逐个组件写覆盖（那样每加一个设置页就得再补一次）。
+ * ⚠️ 只映射颜色，**不映射圆角**：`--r-*` 一改，抽屉里所有按钮和卡片都会缩成画布那档，
+ *    和抽屉外面同一批控件对不上，反而更乱。
+ * ⚠️ 只作用于 `.cv-ov-body`：设置页那份照旧走全站令牌。
+ */
+.cv-ov-body {
+  /*
+   * 画布自己的底色（`--cv-bg`）在画布页永远是黑的，所以这一批不能直接映射过去 ——
+   * 那样接出来的卡片是死灰的，在外面把配色换成琥珀、或自定义了全站底色，浮层里
+   * 一叠卡还是同一副脸（2026-09-22 徐先截了图指出来的就是这个）。
+   *
+   * 浮层里的卡片是**设置页那一批组件**，它们在设置页里本来就跟着主题走。所以这里
+   * 不该拿画布的固定色去覆盖，而要「跟着主题，缺值才落回画布」—— `--surface` 在
+   * :root 上一直是有值的，于是浮层和外面的设置页长得一模一样；万一将来某个令牌
+   * 没定义，才退回画布那个深色值，不至于变成透明或初始黑。
+   *
+   * ⚠️ 别把 --surface 这些名字直接写掉（`--surface: var(--surface)` 是自引用，
+   *    会让整条声明失效）—— 这正是当初写成死映射的原因。
+   * ⚠️ `--accent` 那一支不在这里改（下面单独一段，走画布节点强调色）。
+   */
+  --bg: var(--app-bg, var(--cv-bg));
+  --surface: var(--app-surface, var(--cv-panel-2));
+  --surface-2: var(--app-surface-2, var(--cv-elev));
+  --surface-3: var(--app-surface-3, var(--cv-elev));
+  --field: var(--cv-field);
+  --well: var(--cv-bg);
+  --line: var(--cv-line);
+  --line-strong: var(--cv-line-strong);
+  --text: var(--cv-text);
+  --text-dim: var(--cv-dim);
+  --text-mute: var(--cv-mute);
+  /* 强调色走**画布节点**那一支：这个浮层是画布的一部分，"节点强调色"改的东西就应该
+     在这里看得见 —— 不然改完还得关掉浮层去看节点上到底变成什么色。缺值时落回画布
+     配色（七套 palette 已经同步到 --cv-accent 上了）。 */
+  --accent: var(--ov-accent);
+  --accent-hover: color-mix(in oklab, var(--ov-accent) 76%, var(--ov-accent-ink));
+  --accent-ink: var(--ov-accent-ink);
+  --accent-soft: color-mix(in srgb, var(--ov-accent) 12%, transparent);
+  --accent-line: color-mix(in srgb, var(--ov-accent) 38%, transparent);
+  --accent-fill: var(--ov-accent);
+  --bracket: color-mix(in srgb, var(--ov-accent) 75%, transparent);
+}
+.cv-ov-empty { margin: 0; padding: 28px 0; font-size: var(--cv-fs-3); line-height: 1.8; color: var(--app-text-mute, var(--cv-mute)); }
+
+/* 资产：大卡片里排多列（340px 那版只能一列一行） */
+.cv-assets-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }
+
+/* 历史：一次生成一张卡 */
+.cv-hist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+.cv-hist {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: auto;
+  padding: 8px;
+  color: var(--cv-dim);
+  text-align: left;
+  background: var(--cv-panel-2);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius);
+}
+.cv-hist:hover { color: var(--cv-text); border-color: var(--cv-line-strong); }
+.cv-hist[data-run-status='failed'] { border-color: var(--cv-danger-line); }
+.cv-hist-thumb {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 56px;
+  height: 56px;
+  overflow: hidden;
+  background: var(--cv-media-bg);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+}
+.cv-hist-thumb img,
+.cv-hist-thumb video { width: 100%; height: 100%; object-fit: cover; }
+.cv-hist-glyph { display: grid; place-items: center; color: var(--cv-mute); }
+.cv-hist-meta { display: grid; gap: 4px; min-width: 0; }
+.cv-hist-meta b,
+.cv-hist-meta small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-hist-meta b { font-size: var(--cv-fs-3); font-weight: 600; color: var(--cv-text); }
+.cv-hist-meta small { font-size: var(--cv-fs-2); color: var(--cv-mute); }
+/* 记录还在、生成它的节点已经删了 —— 这一条要点出来，否则点了没反应会以为坏了。 */
+.cv-hist-gone { margin-left: 6px; font-size: var(--cv-fs-2); font-style: normal; font-weight: 400; color: var(--cv-mute); }
+
+/* 工作流那一屏：`.workflow-page` 在整页里是「铺满 + 自带底色」，在浮层里两样都得去掉，
+   否则卡片里会再垫一层地板色，滚动条也跟着跑到里面去。 */
+.cv-ov-body .cv-ov-wf.workflow-page { min-height: 0; background: transparent; }
+.cv-ov-body .workflow-content { max-width: none; margin: 0; padding: 0; }
+.cv-ov-body .workflow-layout { min-height: 380px; }
+.cv-ov-body .workflow-rows { max-height: 360px; }
+
+@media (max-width: 900px) {
+  .cv-ov { padding: 16px; }
+  .cv-ov-card { grid-template-columns: 150px minmax(0, 1fr); }
+  .cv-ov-head { padding: 14px 16px 8px; }
+  .cv-ov-body { padding: 0 16px 16px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cv-ov, .cv-ov-card { animation: none; }
+}
+
+/* ---------- 响应式 ---------- */
+/*
+ * ⚠️ 这里原来有三条 `.cv-param-bar { width: ... }` 和两条 `.cv-node.editing { width: ... }`。
+ * 参数区先是从「独立调宽的浮层」改成「占据卡片正面」，现在又收回到「只有文本节点把正面
+ * 做成文本框」，那几条规则早就没有作用了 —— 留着只会让下一个人以为节点宽度还随选中变。
+ */
+@media (max-width: 900px) {
+  .cv-param-bar { font-size: var(--cv-fs-3); }
+}
+@media (max-width: 640px) {
+.flow-shell .cv-rail { left: 8px; }
+.flow-shell .cv-vp-slider, .flow-shell .cv-ap-slider input[type='range'] { width: 64px; }
+/* 窄屏：两栏并排放不下（左栏 188 + 右栏最小 126），退回单列。
+   ⚠️ 宽度读 `--cv-ap-w`，别再写字面量：2026-09-24 面板加宽时这里漏改过一次，
+   窄屏下把宽度压回旧值 —— 右栏变窄，四支颜色的色块串全部折行。
+   改宽度只需要动 `--cv-ap-w` 那一处。 */
+.cv-appearance { width: min(var(--cv-ap-w), calc(100vw - 32px)); }
+  .cv-node { width: 210px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* 抽屉那条也要停：它一进场就是终点位置，animation:none 只是「不滑」，不会跑偏。
+     少了这一条的话，减弱动效下每次开抽屉还会硬滑 220ms。 */
+  .cv-node-pulse, .cv-node-placeholder.waiting, .cv-spin,
+  .flow-shell .cv-drawer, .flow-shell .cv-drawer.closing { animation: none; }
+  .flow-shell .react-flow__edge.animated path { animation: none; }
+}
+
+/* ============================================================================
+ * 3D 导演台（DirectorPanel）
+ *
+ * 面板本身复用「居中大浮层」那个壳（.cv-ov-*），这里只写它内容区的排版：
+ * 左边是视口、右边是控制条 —— 与参考应用同一个布局，用户换过来不用重新学。
+ * ========================================================================== */
+
+.cv-dir {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 296px;
+  gap: 16px;
+  height: 100%;
+  min-height: 0;
+}
+
+.cv-dir-left { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; }
+
+/*
+ * 视口区只负责**给一块可用区域**，画布真正的尺寸由 `DirectorStage` 按画幅算。
+ * 不在这里写 aspect-ratio：9:16 竖构图按 CSS 比例算会撑出容器，被裁掉一截，
+ * 看着像相机坏了。
+ */
+.cv-dir-stage {
+  flex: 1 1 auto;
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  overflow: hidden;
+}
+.cv-dir-canvas {
+  display: block;
+  background: #1c1c1c;
+  border: 1px solid var(--cv-line-strong);
+  border-radius: var(--cv-radius);
+  cursor: grab;
+  /* 拖机位 / 拖灰模时不能顺带把面板滚了 */
+  touch-action: none;
+}
+.cv-dir-canvas:active { cursor: grabbing; }
+
+.cv-dir-shot {
+  font-size: var(--cv-fs-3);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--cv-text);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.cv-dir-hint { margin: 0; font-size: var(--cv-fs-2); line-height: 1.7; color: var(--cv-mute); }
+
+.cv-dir-right {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  padding-right: 2px;
+  overflow-y: auto;
+}
+.cv-dir-right section { display: flex; flex-direction: column; gap: 7px; flex: none; }
+.cv-dir-right h4 {
+  margin: 0;
+  font-size: var(--cv-fs-2);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--cv-mute);
+}
+
+.cv-dir-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.cv-dir-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 10px;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-dim);
+  background: var(--cv-panel-2);
+  border: 1px solid var(--cv-line);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.cv-dir-chip:hover { color: var(--cv-text); border-color: var(--cv-line-strong); }
+.cv-dir-chip.on {
+  color: var(--cv-accent-ink);
+  background: var(--cv-accent);
+  border-color: var(--cv-accent);
+}
+/* 「添加人物 / 道具」用虚线边：它是个动作，不是从这个里挑一个。 */
+.cv-dir-chip.add { border-style: dashed; }
+.cv-dir-chip:disabled { opacity: 0.45; cursor: not-allowed; }
+/* 多选里「不是主选」的那几个：勾出来，但不抢主选的强调色底。 */
+.cv-dir-chip.pick {
+  color: var(--cv-text);
+  background: transparent;
+  border-color: var(--cv-accent);
+  box-shadow: inset 0 0 0 1px var(--cv-accent);
+}
+/* 批量删除：红色只给「删除」这一件事（跟 .cv-dir-del 的语义一致）。 */
+.cv-dir-chip.danger { color: var(--cv-danger); border-color: var(--cv-danger-line); }
+.cv-dir-chip.danger:hover {
+  color: var(--cv-danger);
+  background: var(--cv-danger-soft);
+  border-color: var(--cv-danger);
+}
+
+/*
+ * 批量条：多选两个以上才浮出来（选一个还叫「批量」是自找麻烦）。
+ *
+ * ⚠️ 里面的按钮一律复用 `.cv-dir-chip` 的壳 —— 全局 button 的
+ *    `height: 36 / padding: 0 14px / width: 100%` 只在那一处收过一遍，
+ *    这里重写一遍按钮样式，又是「少收一条就撑成一整行」的老坑。
+ */
+.cv-dir-bulk {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 8px;
+  background: var(--cv-panel-2);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+}
+.cv-dir-bulkhead { display: flex; align-items: center; gap: 6px; font-size: var(--cv-fs-3); color: var(--cv-dim); }
+.cv-dir-bulkhead > span { margin-right: auto; }
+.cv-dir-bulkrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.cv-dir-bulkrow .cv-dir-chip { height: 24px; padding: 0 9px; font-size: var(--cv-fs-2); }
+/* 四个方向键：等宽，别跟着箭头字符的字宽变。 */
+.cv-dir-bulkrow [data-dir-bulk-nudge] { justify-content: center; min-width: 32px; padding: 0 6px; font-size: var(--cv-fs-3); }
+
+/*
+ * 「我的预设」一条 = 一颗胶囊里两个按钮：点名字套用、点 × 删掉。
+ *
+ * ⚠️ 全局 button 自带 `height: 36 / padding: 0 14px / 强调色底 / width: 100%`，
+ *    这里要**逐条收回**（这个坑在 `.nav-toggle`、`.ms-fold` 上都踩过）——
+ *    少收一条的表现就是胶囊被撑成一整行、或者名字是白字压在强调色上。
+ */
+.cv-dir-preset {
+  display: inline-flex;
+  align-items: stretch;
+  height: 26px;
+  background: var(--cv-panel-2);
+  border: 1px solid var(--cv-line);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.cv-dir-preset > button {
+  display: inline-flex;
+  align-items: center;
+  width: auto;
+  height: 26px;
+  padding: 0 10px;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-dim);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  cursor: pointer;
+}
+.cv-dir-preset > button:hover { color: var(--cv-text); }
+.cv-dir-preset > button.del {
+  width: 22px;
+  padding: 0;
+  justify-content: center;
+  color: var(--cv-mute);
+  border-left: 1px solid var(--cv-line);
+}
+.cv-dir-preset > button.del:hover { color: var(--cv-danger); }
+.cv-dir-preset > button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* 「我的预设 / 还没有自己的预设」这类小字。 */
+.cv-dir-sub { font-size: var(--cv-fs-2); line-height: 1.6; color: var(--cv-mute); }
+
+/* 存预设那一行：名字输入 + 存按钮。 */
+.cv-dir-saverow { display: flex; align-items: center; gap: 6px; }
+.cv-dir-saverow input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-text);
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+}
+.cv-dir-saverow button { flex: none; }
+
+.cv-dir-slider {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) 52px;
+  align-items: center;
+  gap: 8px;
+}
+.cv-dir-slider > span { font-size: var(--cv-fs-3); color: var(--cv-dim); }
+.cv-dir-slider > input[type='range'] { width: 100%; accent-color: var(--cv-accent); }
+.cv-dir-slider > b {
+  font-size: var(--cv-fs-2);
+  font-weight: 500;
+  color: var(--cv-text);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.cv-dir-actor {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--cv-line);
+}
+.cv-dir-name { display: flex; align-items: center; gap: 6px; }
+.cv-dir-name input {
+  flex: 1 1 auto;
+  height: 28px;
+  padding: 0 8px;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-text);
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+}
+.cv-dir-del {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--cv-mute);
+  background: transparent;
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+}
+.cv-dir-del:hover { color: var(--cv-danger); border-color: var(--cv-danger-line); }
+/* 同一排的聚焦 / 复制按钮：悬停不该泛红色（那是「删除」的语义），走中性高亮。 */
+.cv-dir-del.plain:hover { color: var(--cv-text); border-color: var(--cv-line-strong); }
+
+.cv-dir-note { margin: 10px 0 0; font-size: var(--cv-fs-3); color: var(--cv-warn); }
+
+/*
+ * 卡片右上角那个「打开舞台」的按钮。
+ *
+ * 与「超清」相反，它**常驻**（不靠悬停显形）：这个节点存在的唯一理由就是打开那块舞台，
+ * 平时藏起来的话，新建出来的导演台节点看上去就是一个空框。
+ */
+.cv-node-director {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  height: 18px;
+  padding: 0 7px;
+  font-size: var(--cv-fs-1);
+  font-weight: 600;
+  line-height: 1;
+  color: var(--cv-dim);
+  background: transparent;
+  border: 1px solid var(--cv-line-strong);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.cv-node-director:hover { color: var(--cv-text); background: var(--cv-elev); border-color: var(--cv-line-strong); }
+
+
+/* ============================================================
+   生成对话框（`GenerateDock`，2026-09-21 二改：参考即梦式布局）
+
+   选中图片 / 视频生成节点时出现，**挂在那个节点的正下方**（不是固定在界面底部）。
+   面板 = 参考图 + 提示词 + 操作排（引擎 / 参数摘要 / 自定义参数 / 发送）；
+   比例 / 分辨率 / 长宽 / 时长收在**摘要点开的弹层**里（`.cv-dock-pop`，窄卡往上浮）。
+
+   ⚠️ 四条规矩：
+     1. 背景 alpha=1、**不许 backdrop-filter**。半透明会和底下的节点连成一片，
+        看着像凭空多出来一块（工具条那次栽的就是这个）。
+     2. 高度要有上限：展开「自定义参数」之后内容很长，没上限会把画布整个吃掉。
+        **滚动只发生在 `.cv-dock-scroll` 里** —— 面板本体 overflow 必须可见，
+        否则往上浮的参数弹层会被裁掉。
+     3. **位置由 JS 算**（`CanvasEditor` 里按节点 flow 坐标 × 当前视口变换换算），
+        所以这里的 `left/top/width/max-height` 都只是**兜底值**，运行时一律被
+        行内 style 覆盖。跟着节点走的那几条规则写在 `dockAnchorFor` 的注释里 ——
+        ⚠️ 其中「翻到节点上方」和「压矮」两条 **2026-10-02 已删**
+        （徐先：「节点移到下面时参数框不用移到上方」+「不是压矮」），
+        现在只有「贴在下方 / 高度不变、装不下就伸出画布 / 左右收边」。
+     4. ~~底边要留出左下的视口控制条~~ —— 这条**作废了**（它是跟着「不许伸出画布」
+        那版一起来的）。徐先选的是「保持高度、往下伸出画布」，所以面板**会**压住
+        左下的视口控制条 `.cv-vp`（left:14 / bottom:14、高 38px）、底部的操作排和
+        发送键也会被裁掉一截。这是他自己选的代价，换来的是位置永不跳动。
+   ============================================================ */
+.flow-shell .cv-dock {
+  /*
+    `--cv-dock-ctl`：底栏里**所有并排小控件**的高度（胶囊 / 下拉 / 图标钮 / 小号按钮）。
+
+    🔴 为什么必须是一个变量：这套控件会被全局 `button { height: 36px }` 顶住，
+    每一处都得**自己写死 height** 才盖得住 —— 一旦各处写死各自的数，改一次就是翻五处、
+    漏一处就错层（26 那一版就是这么漏的）。徐先 2026-10-02 连提三次「改小一点」，
+    36 → 26 → 24 → 20 → 22，有这个变量后面再调就是改一行。
+    ⚠️ **图标尺寸不在这个变量里**：它们是写死在 TSX 里的（`Sparkles size={14}` 这种），
+    控件再缩小时图标也得跟着缩，不然 16px 的图标塞进 20px 的圆钮就顶到边了。
+    ⚠️ 别拿它去对齐别处的 `.cv-btn.sm`：那是全库共用的（30 处在用），只有**底栏里**
+    那几颗才跟着这个变量（见下面 `.cv-dock .cv-btn.sm`）。
+  */
+  /* 22 × `--ui`：底栏这一排也跟着「界面大小」走。挂在这一个变量上就够了 ——
+     下面那十来处（胶囊 / 下拉 / 图标钮 / 发送钮）全读它，不用各改一遍。
+     ⚠️ 发送钮写的是 `calc(var(--cv-dock-ctl) + 4px)`：22×1.3 + 4 = 32.6，
+        比同一排大一点点的那个比例保住了（不是跟着一起乘成 33.8）。 */
+  --cv-dock-ctl: calc(22px * var(--ui));
+  position: absolute;
+  left: 14px;
+  top: 14px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px;
+  /* 2026-10-07 方向 D：底栏读 `--cv-float`（比面板再亮一档）—— 四级明度的最高层，
+     配合下面那道 --cv-shadow-3，它是"架在台面上方的一块"。
+     🔴 **刻意不加 backdrop-filter**：底栏里装的是参考图缩略图，而
+     「半透明祖先 + 几百张被缩放的图」在 Electron 合成层上会被画成横纹
+     （2026-10-06 在 CreativePresetPicker 上踩过一次，见 DESIGN.md §6）。
+     软分层靠阴影 + 明度差表达，不靠玻璃。 */
+  background: var(--cv-float);
+  border: 1px solid var(--cv-line-strong);
+  border-radius: var(--cv-radius-lg);
+  box-shadow: var(--cv-shadow-3), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  max-height: min(50%, 460px);
+  /* ⚠️ 面板本体**不滚**（overflow 可见）：参数弹层要绝对定位、往上浮出面板，
+     待在滚动容器里会被裁掉。滚动全交给下面的 `.cv-dock-scroll`。 */
+  overflow: visible;
+}
+/* 滚动区：参考图 + 提示词 + 自定义参数展开区。操作排是它的兄弟，常驻底部。 */
+.cv-dock-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cv-dock-slots { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+/*
+  面板里的缩略图比节点卡片上小一号（44 而不是 56/48）—— 参考图里那两颗
+  小方块就是这个尺寸。缩略图是**看**的，44px 够认出来，再多就是在挤提示词。
+*/
+.flow-shell .cv-dock-slots .cv-slot,
+.flow-shell .cv-dock-slots .cv-slot-add { width: 44px; height: 44px; }
+/*
+  提示词：参考图的样式是「直接写在面板上」，没有自己的框。
+  初始高度给到 4 行多（2026-10-02 徐先：「初始的提示词输入的文本框提高一点」，72 → 96）——
+  72 只有三行半，写完第一句就得拖右下角，而那个角根本不容易看见。
+  仍然留 `resize: vertical`：想再高自己拖。
+*/
+.cv-dock-input {
+  min-height: calc(96px * var(--ui));
+  resize: vertical;
+  padding: calc(4px * var(--ui)) calc(2px * var(--ui));
+  background: transparent;
+  border: 0;
+  border-radius: var(--cv-radius-sm);
+  color: var(--cv-text);
+  font: inherit;
+  font-size: var(--cv-fs-3);
+  line-height: 1.55;
+}
+.cv-dock-input:focus { outline: none; }
+.cv-dock-input::placeholder { color: var(--cv-placeholder); }
+
+/*
+  提示词下面那一小排：现在**只剩**选了「自定义接口」才出现的模型下拉。
+  「优化提示词」不在这里了 —— 它是一次动作，2026-09-22 挪去了操作排最右那一簇
+  （.cv-dock-optbtn）。如果以后还要往这排加东西，先问一句「它是描述这次生成的参数，
+  还是对生成下命令」，后者进操作排。
+*/
+.flow-shell .cv-dock-promptbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex: none;
+}
+.flow-shell .cv-dock-custom-model { max-width: 190px; }
+
+/*
+  「优化提示词」图标钮（2026-09-22 移位）：坐在发送钮左边那一簇里。
+
+  做成**幽灵圆钮**（无底色无边框）而不是胶囊 chip：操作排左边那几颗胶囊都在描述
+  「用什么出」（引擎 / 参数摘要 / 自定义参数），它们需要有边界才读得出是一组；
+  右边这一簇是「做什么」，靠图标本身表态就够了，再给边框会多出一颗看起来像
+  参数的按钮，读序就串了。
+*/
+.flow-shell .cv-dock-optbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--cv-dock-ctl);
+  height: var(--cv-dock-ctl);
+  flex: none;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  color: var(--cv-dim);
+  cursor: pointer;
+}
+.flow-shell .cv-dock-optbtn:hover:not(:disabled) { background: var(--cv-elev); color: var(--cv-text); }
+.flow-shell .cv-dock-optbtn:focus-visible { outline: 2px solid var(--cv-accent-ring); outline-offset: 1px; }
+/* 跑的时候染成主题色：一眼看得出「它在动」，不需要再占宽度写字。 */
+.flow-shell .cv-dock-optbtn.on { color: var(--cv-accent); background: var(--cv-accent-soft); }
+.flow-shell .cv-dock-optbtn:disabled { cursor: default; }
+
+/*
+  「放弃」钮（2026-09-29）：只在运行中出现，坐在发送钮左边。
+
+  写成**带字的小按钮**而不是那一排图标钮：图标钮那排全是「对提示词做点什么」，
+  而放弃是**结束这一次运行** —— 图标猜不出来，写清楚才不会误点。
+  悬停才染红：它是个破坏性动作，但也不是天天点的东西，别一上来就扎眼。
+*/
+.flow-shell .cv-dock-abandon {
+  display: inline-flex;
+  align-items: center;
+  height: var(--cv-dock-ctl);
+  padding: 0 10px;
+  flex: none;
+  background: transparent;
+  border: 1px solid var(--cv-line);
+  border-radius: 999px;
+  color: var(--cv-dim);
+  font-size: var(--cv-fs-3);
+  cursor: pointer;
+}
+.flow-shell .cv-dock-abandon:hover { background: var(--cv-elev); color: var(--cv-danger); border-color: var(--cv-danger); }
+.flow-shell .cv-dock-abandon:focus-visible { outline: 2px solid var(--cv-accent-ring); outline-offset: 1px; }
+
+/*
+  操作排（引擎 / 参数摘要 / 自定义参数 / 发送）常驻面板底部。
+  以前是「整块滚 + 操作排 sticky」，现在滚动区独立了，这一排天然一直在可视区 ——
+  「发送按钮被卷走」那类毛病从结构上就不可能再发生。
+*/
+.flow-shell .cv-dock-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex: none;
+  padding-top: 6px;
+}
+
+/*
+  引擎 chip：原生 select 调成胶囊形（参考图左下第一颗就是它）。
+
+  ⚠️ `height` 必须写死、竖 padding 必须是 0：全局 `button { height: 36px }` 管不到 select，
+  它是靠 padding 撑高的 —— 两个控件各撑各的，右边那排胶囊（被全局钉在 36）就比它高 5px，
+  一整排看着是错层的。两边都写死同一个 `--cv-dock-ctl` 才齐
+  （2026-10-02 徐先：「这一行太密了」，36 → 26 → 24 → 20 → 22）。
+*/
+.cv-dock-eng {
+  width: auto;
+  height: var(--cv-dock-ctl);
+  max-width: 200px;
+  padding: 0 22px 0 9px;
+  background: var(--cv-elev);
+  border-color: transparent;
+  border-radius: 999px;
+  color: var(--cv-text);
+  font-size: var(--cv-fs-2);
+  cursor: pointer;
+}
+.cv-dock-eng:hover { border-color: var(--cv-accent-line); }
+/*
+  引擎 chip 上存着的值已经用不了了（那条自定义接口被删了）。
+  染成警示色：这颗胶囊此刻**不是在描述这一发会怎么跑**，而是在报一个卡住的状态，
+  用户得先处理它才能生成 —— 看起来跟正常值一样是最坏的结果。
+*/
+.cv-dock-eng.stale {
+  color: var(--cv-danger);
+  border-color: var(--cv-danger);
+  border-style: dashed;
+}
+/*
+  运行规格（2026-09-30）：选了 48G / 84G 时染成提示色。
+
+  48G / 84G 比 STANDARD 贵，而「这一发多花了钱」不该只藏在没展开的下拉里。
+  用 warn 橙而不是 danger 红 —— 它不是错，是一个价格档位；
+  连续粗体也不加：规格是个**持续存在的状态**，闪得越厉害越像出了故障。
+*/
+.cv-dock-instance.on {
+  color: var(--cv-warn);
+  border-color: var(--cv-warn-line);
+}
+
+/* 参数摘要 chip：点开分组弹层的那颗。文字超长省略，档位一看即知。
+   ⚠️ padding 只写横的 —— 高度由 `.cv-dock-chip` 统一给，这里再写竖 padding 就把它顶回去了。 */
+.cv-dock-summary { max-width: 220px; padding: 0 9px; }
+.cv-dock-summary-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+/* 「自定义参数」图标钮：只留图标，说明搬进 title。
+   ⚠️ 同上，只写横 padding（它是 `.cv-dock-chip`，高度归 chip 管）。 */
+.cv-dock-morebtn { padding: 0 7px; }
+
+.cv-dock-field { display: flex; align-items: center; gap: 6px; }
+.cv-dock-field > span { font-size: var(--cv-fs-2); color: var(--cv-dim); white-space: nowrap; }
+.cv-dock-field.grow { flex: 1 1 auto; }
+.cv-dock-field.wide { flex: 1 1 100%; align-items: flex-start; }
+.cv-dock-field.wide .cv-select,
+.cv-dock-field.wide textarea,
+.cv-dock-field.wide .cv-input { width: 100%; }
+/*
+  「工作流 / 超清工作流」并排时各占一半（2026-10-02 徐先：「工作流和超清工作流两个并排」）。
+  只在**两个都在**的时候才加 `.half`（见 `GenerateDock` 的 `pairWorkflows`）——
+  只在一个的时候仍然 `.wide` 占满整行，不然会凭空空出半行。
+
+  `min-width: 0` 不能少：flex 子项默认 `min-width: auto`，里面那个 `width: 100%` 的下拉
+  会按**最长的那条选项**算最小宽度（「★ 2099453228814528513 · 17 项启用」这种），
+  两格会被挤成一大一小。
+  `> span` 那一行是让两个下拉**左边对齐** —— 「工作流」3 个字、「超清工作流」5 个字，
+  不钉一个共同宽度的话，两个下拉会差两个字（看着像没对齐的表格）。
+*/
+/*
+  🔴 `flex-basis` 必须是「半行」而不是 0 —— 这条是被实测打回来的。
+  写成 `flex: 1 1 0`（basis 0）时，`.cv-dock-row` 的**换行判定**会把 basis=0 的两个 label
+  当成「几乎不占地方」，于是后面那句长说明（「还没有保存过本机 ComfyUI 的图片工作流 —— …」
+  有四五百像素）也一起挤上**同一行**；等真分剩余空间时 `flex-grow` 只剩零头 ——
+  实测两个 label 各 **75px**、里面的下拉被压到 **19px**，比并排前还难看。
+  给一个真正的半行（`calc(50% - 8px)`，8 = 半个 gap 再留 3px 余量）之后：
+  两个 label 先占满整行 → 说明与按钮自然折到第二行 → 它俩各分到一半。
+*/
+.cv-dock-field.half { flex: 1 1 calc(50% - 8px); min-width: 0; }
+.cv-dock-field.half > span { min-width: 5em; }
+/*
+  可输入的搜索框（`DockCombo`，2026-10-02 徐先：「工作流可以输入文本或者字符串，
+  自动索引对应的工作流」）。122 条工作流全是 19 位编号，原生下拉里翻找等于靠记忆力认人，
+  所以框里能直接打字、列表边打边筛。
+*/
+/*
+  ⚠️ 这里**不能有** `position: relative`：那会把列表的包含块从 `.cv-dock` 换成 `.cv-combo`，
+  列表就重新落回 `.cv-dock-scroll` 那个 `overflow-y: auto` 里、只能看见上面一截。
+  要给箭头定位就用下面那层 `.cv-combo-box`。
+*/
+.cv-combo { flex: 1 1 auto; min-width: 0; }
+.cv-combo-box { position: relative; display: flex; align-items: center; min-width: 0; }
+.cv-combo-input {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  /* 右边让出箭头那一格 —— 名字很长时省略号不会顶到箭头底下。 */
+  padding: calc(7px * var(--ui)) calc(22px * var(--ui)) calc(7px * var(--ui)) calc(9px * var(--ui));
+  font: inherit;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-text);
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  /* 名字很长，超出的部分省略掉 —— 点开之后框里才是可以打字的关键词。 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-combo-input:focus {
+  outline: none;
+  border-color: var(--cv-accent);
+  box-shadow: 0 0 0 3px var(--cv-accent-ring);
+}
+.cv-combo-input::placeholder { color: var(--cv-mute); }
+/*
+  下拉箭头（「下拉的也保留啊」）。
+  🔴 `padding: 0` 与 `height` **都必须写**：全局那条 `button { height: 36px; padding: 0 14px }`
+  会把一颗 18px 的小箭头撑成 36px、还把内容盒挤成 0（图标只能靠溢出显示）。
+*/
+.cv-combo-caret {
+  position: absolute;
+  right: 3px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(18px * var(--ui));
+  height: calc(18px * var(--ui));
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--cv-mute);
+  cursor: pointer;
+}
+.cv-combo-caret:hover { background: var(--cv-panel-2); color: var(--cv-text); }
+.cv-combo-caret.on { color: var(--cv-accent); }
+.cv-combo-caret .flip { transform: rotate(180deg); }
+/*
+  列表 `position: absolute`、以 `.cv-dock` 为包含块 —— 这样才不会被 `.cv-dock-scroll`
+  那个 `overflow-y: auto` 裁掉（坐标由 JS 量，见 `DockCombo.tsx` 文件头第 1 条）。
+  ⚠️ 别给 `.cv-combo` 或它的祖先加 `position: relative` —— 那会把它重新收进滚动盒里，
+  长列表只能看见上面一截。
+  ⚠️ 这里的 `left/top/width` 只是首帧兜底，运行时被行内 style 覆盖。
+*/
+.cv-combo-list {
+  position: absolute;
+  left: 0;
+  top: 100%;
+  z-index: 60;
+  width: 240px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 6px;
+  background: var(--cv-elev);
+  border: 1px solid var(--cv-line-strong);
+  border-radius: var(--cv-radius-sm);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cv-combo-group { display: flex; flex-direction: column; gap: 2px; }
+.cv-combo-head { padding: 4px 8px; font-size: var(--cv-fs-1); color: var(--cv-mute); }
+/*
+  🔴 全局 `button { height: 36px; padding: 0 14px }` 会把它钉成一颗 36 高的方钮 ——
+  这里必须自己写 `height: auto` 才盖得住（写 padding / 字号是盖不掉那 36px 的）。
+  另外全局给 button 的是 `display: inline-flex`，那会让 `text-overflow: ellipsis` 失效，
+  所以也要改回 `block`。
+*/
+.cv-combo-row {
+  display: block;
+  width: 100%;
+  height: auto;
+  padding: 6px 8px;
+  font-size: var(--cv-fs-3);
+  line-height: 1.4;
+  color: var(--cv-dim);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-combo-row:hover, .cv-combo-row.active { background: var(--cv-panel-2); color: var(--cv-text); }
+.cv-combo-row.on { color: var(--cv-accent); }
+.cv-combo-row.action, .cv-combo-row.current { color: var(--cv-text); }
+.cv-combo-empty { padding: 8px; font-size: var(--cv-fs-2); line-height: 1.5; color: var(--cv-mute); white-space: normal; }
+.cv-dock-size-inputs { display: flex; align-items: center; gap: 4px; }
+.cv-dock-size-inputs > span { color: var(--cv-mute); font-size: var(--cv-fs-3); }
+.cv-dock-size-inputs .cv-input { width: 78px; }
+.cv-dock-size-read {
+  font-size: var(--cv-fs-3);
+  font-weight: 600;
+  color: var(--cv-text);
+  /* 数字按等宽排：位数变化时读数不会左右抖，看起来才像「算出来的」，不像在跳。 */
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+  底栏 / 面板里那一批胶囊（2026-10-02 徐先：「下面参数这一行太密了，胶囊改小一点」）。
+
+  ⚠️ `height` 必须写死：全局 `button { height: 36px; padding: 0 14px }`（globals.css）对所有
+  button 生效，只改 padding / font-size 盖不掉那 36px —— 胶囊一直是 36 高，跟旁边 31 高的
+  select 差 5px，一整排是错层的；九个控件（运行中多一颗「放弃」）挤不下，**发送钮掉到第二行**。
+  两边都写死同一个 `--cv-dock-ctl`（36 → 26 → 24 → 20 → 22）之后才回到一行、且一行内所有控件同高。
+  ⚠️ 竖 padding 一律写 0：高度由 height 定，再给竖 padding 只会把字挤到一边。
+*/
+.cv-dock-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: var(--cv-dock-ctl);
+  padding: 0 9px;
+  background: var(--cv-elev);
+  border: 1px solid var(--cv-line-strong);
+  border-radius: 999px;
+  color: var(--cv-dim);
+  font-size: var(--cv-fs-2);
+  cursor: pointer;
+}
+.cv-dock-chip:hover { color: var(--cv-text); border-color: var(--cv-accent-line); }
+.cv-dock-chip.on {
+  background: var(--cv-accent-soft);
+  border-color: var(--cv-accent-line);
+  color: var(--cv-text);
+}
+.cv-dock-chip svg { transition: transform 0.15s ease; }
+.cv-dock-chip svg.flip { transform: rotate(180deg); }
+
+/*
+  底栏里那几颗 `.cv-btn.sm`（「打开工作流配置」「粘贴图片」「预览」）跟胶囊同高。
+
+  ⚠️ 只改**底栏这一棵子树**里的 —— `.cv-btn.sm` 是全库共用的（30 处在用，Codex / 导演台 /
+  外观面板都在里头），动它会把别人的界面一起改了。而这几颗是和胶囊**并排在同一行**的
+  （「接续」胶囊旁边就是「打开工作流配置」），不齐就会被看出来。
+*/
+.cv-dock .cv-btn.sm { height: var(--cv-dock-ctl); }
+
+.cv-dock-spacer { flex: 1 1 auto; }
+
+/* 本地模型装卸两档（2026-09-26）：两颗互斥 chip，选中态复用 `.cv-dock-chip.on`。 */
+.cv-dock-local-modes { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+/* 超清弹层里那两行 chips（触发 / 来源）：跟「本地模型」那两档一个排法，只是名字不同。 */
+.cv-dock-upscale-modes { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cv-dock-local-state { font-size: var(--cv-fs-2); color: var(--cv-mute); white-space: nowrap; }
+.cv-dock-local-state[data-dock-local-state="on"] { color: var(--cv-accent); }
+
+/*
+  `.cv-dock-status`（操作排里那条状态文字）**2026-10-02 删掉了**，别照着老版式加回来：
+  它跟节点卡片上那条 `.cv-node-status` 说的是同一件事，而且 `max-width: 160px`
+  是这一排里唯一会变的宽度 —— 放弃那句话说满的时候会把「优化 / 发送」挤到第二行。
+*/
+
+/*
+  发送钮：比同一排的胶囊**高 4px**（`calc(var(--cv-dock-ctl) + 4px)`）。
+  它是这一排里唯一的主操作，全排同高会让它读起来只是「又一颗胶囊」；
+  差 4px 是为了让它还是那一排里最大的一颗 —— 但仍然是**按比例**跟着 `--cv-dock-ctl` 走，
+  不会像以前那样各自写死、改一次漏一次（36 → 30 → 28）。
+*/
+.cv-dock-send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(var(--cv-dock-ctl) + 4px);
+  height: calc(var(--cv-dock-ctl) + 4px);
+  flex: none;
+  /* ⚠️ `padding: 0` 不能省：全局 `button { padding: 0 14px }` 会留 28px 横内边距，
+     而这颗钮一共就 28px 宽（`box-sizing: border-box`）→ **内容盒被挤成 0**，
+     里面那个箭头是靠溢出显示出来的。现在没出问题只是因为没设 `overflow: hidden`，
+     谁哪天加一句裁剪，箭头就整颗不见了。 */
+  padding: 0;
+  background: var(--cv-run-bg);
+  color: var(--cv-run-ink);
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.cv-dock-send:hover:not(:disabled) { background: var(--cv-run-bg-hover); }
+.cv-dock-send:disabled { opacity: 0.55; cursor: default; }
+
+/*
+  参数弹层：摘要 chip 点开的那张窄卡（参考图第二张的样子）。
+
+  绝对定位在操作排上沿、**往上浮**，可以高出面板本体 —— 面板本体 overflow 可见，
+  所以不会被裁。它盖住的是提示词区，不遮操作排本身；关掉它的手段就是再点一下摘要。
+*/
+/*
+  超清那颗胶囊的弹层比其他弹层宽一点：来源那一行的三档（跟随节点 / RunningHub / 本地 ComfyUI）
+  按 300px 排会掉一行 —— 「本地 ComfyUI」正好差几十像素，看着像少了一项。
+*/
+.cv-dock-pop[data-dock-upscale-pop] { width: 352px; }
+.cv-dock-pop {
+  position: absolute;
+  left: 10px;
+  bottom: 52px;
+  z-index: 5;
+  width: 300px;
+  max-height: 430px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  background: var(--cv-elev);
+  border: 1px solid var(--cv-line-strong);
+  border-radius: 14px;
+  box-shadow: var(--cv-shadow-3);
+}
+.cv-dock-group { display: flex; flex-direction: column; gap: 6px; }
+.cv-dock-grouplabel { font-size: var(--cv-fs-2); color: var(--cv-mute); }
+.cv-dock-groupbody { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cv-dock-grouphint { font-size: var(--cv-fs-2); color: var(--cv-mute); }
+
+/* 比例可视化格子：一颗 = 小方框（按真实比例画）+ 档位名。 */
+.cv-dock-ratios {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.cv-dock-ratio {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 4px 6px;
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: 8px;
+  color: var(--cv-dim);
+  font-size: var(--cv-fs-2);
+  cursor: pointer;
+}
+.cv-dock-ratio i { display: block; border: 1.5px solid currentColor; border-radius: 3px; }
+.cv-dock-ratio:hover { color: var(--cv-text); border-color: var(--cv-accent-line); }
+.cv-dock-ratio.on {
+  background: var(--cv-accent-soft);
+  border-color: var(--cv-accent-line);
+  color: var(--cv-text);
+}
+
+/* 生成时长：滑杆 + 数字框。accent-color 一行就把滑杆染成主题色（Chromium）。 */
+.cv-dock-duration { display: flex; align-items: center; gap: 8px; flex: 1 1 auto; }
+.cv-dock-range { flex: 1 1 auto; accent-color: var(--cv-run-bg); min-width: 0; }
+.cv-dock-duration .cv-input { width: 60px; }
+
+/* 「按分辨率 / 自定义长宽」两档 chip（弹层里）。 */
+.flow-shell .cv-dock-sizemode { display: flex; align-items: center; gap: 6px; flex: none; }
+
+.cv-dock-more {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--cv-line);
+}
+.cv-dock-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cv-dock-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 8px; }
+.cv-dock-hint { font-size: var(--cv-fs-2); line-height: 1.5; color: var(--cv-mute); }
+.cv-dock-hint.warn { color: var(--cv-warn); }
+/*
+ * 接续胶囊（2026-10-01）：从复选框改成 `.cv-dock-chip`，靠右站在工作流那一行末尾。
+ * 用 `margin-left: auto` 而不是塞一个 `.cv-dock-spacer` —— 行里就它一个弹性项，
+ * 多一个 spacer 只会在换行时多出个空盒子。`nowrap` 是防「接续」两个字被拆成竖排
+ * （这是当年那颗复选框留下的教训，见 2026-09-21 那次截图）。
+ */
+.cv-dock-cont { margin-left: auto; flex: none; white-space: nowrap; }
+
+/*
+  应用参数（`GenerateDock` 的 `[data-dock-appparams]`）：一列「名字 + 控件」+ 一句跟画布的说明。
+  装在摘要弹层里（`.cv-dock-pop` 自己就是 300px 宽的 flex 列），所以这里**不排版宽度**，
+  只把每一项竖着堆起来 —— 名字和输入框并排的话，「时长（支持30秒）」这种长名字会把输入框挤没。
+*/
+.cv-dock-appparams { display: flex; flex-direction: column; gap: 10px; }
+.cv-dock-appfield { display: flex; flex-direction: column; gap: 5px; }
+.cv-dock-applabel { font-size: var(--cv-fs-2); line-height: 1.4; color: var(--cv-dim); }
+.cv-dock-appfield .cv-select,
+.cv-dock-appfield .cv-input { width: 100%; }
+
+@media (max-width: 860px) {
+  /* 窄窗口下左轨那条 56px 让不起了：面板铺满，宁可盖住轨道也不要挤成一条竖缝。 */
+  .flow-shell .cv-dock { left: 14px; right: 14px; bottom: 56px; }
+}
+
+/* ===================== 平面风 · 收尾（2026-09-23）=====================
+ *
+ * 徐先要的「平面效果」= 界面不要立体感。三条：
+ *
+ * 1. **毛玻璃全下掉**。backdrop-filter 是这版画布最"立体"的一件东西：它把底下的节点和
+ *    连线糊成一片色斑露在控件边上 —— 看着像半透明玻璃浮在画布上；而且它还挺费，画布上
+ *    同时开着几处模糊（.cv-ap-open 就在视口里）每帧都要重算。
+ *    下掉之后底不受影响（--cv-float / --cv-float-strong 本来就是不透明色），
+ *    以前靠"背后模糊"分层的几处改靠**实底 + 一根描边**分。
+ * 2. **阴影收细**（`--cv-shadow-*`，见文件头那三支）；浮层不再"浮在空中"。
+ * 3. **不再默认圆到发胖**：浮层卡从 999px 圆回来 —— 胶囊读起来是"悬浮的药丸"，
+ *    方块读起来是"贴在画布上的一块面"，后者才是平面。
+ *
+ * ⚠️ 这一段**必须留在文件最后**：下面这些选择器跟元素自己的规则特异性一样（都是 0,2,0），
+ *    只能靠顺序赢。往前面挪一下，`.cv-hint` / `.cv-vp-bar` / `.cv-vp-round` 的毛玻璃就全回来了。
+ * ⚠️ 刻意**不**在这份名单里：`--cv-media-*` 的角标与 `.cv-lightbox` —— 那两块垫在图片 / 大图
+ *    上面，底下是照片，糊一点反而让上面的字读不清（见 canvas.css 开头那段说明）。
+ ❌ 别顺手把 `--cv-radius` 改小：节点卡片、按钮、输入框全指着它，动了整个画布的比例会变。
+    "看起来不够平"的元凶是阴影和模糊，不是圆角。 */
+.flow-shell .cv-topbar,
+.flow-shell .cv-hint,
+.flow-shell .cv-vp-bar,
+.flow-shell .cv-vp .cv-vp-round,
+.flow-shell .cv-vp-help-wrap .cv-vp-help,
+.flow-shell .cv-ap-open,
+.flow-shell .cv-appearance,
+.flow-shell .cv-notice,
+.flow-shell .cv-drawer,
+.flow-shell .cv-drawer-head {
+  backdrop-filter: none;
+}
+
+/* ---------- 画布顶栏也当标题栏用（2026-09-23）----------
+ * 窗口没有原生标题栏之后，`.cv-topbar` 是画布页唯一贴在最上面的那条：
+ * 拖拽区 + 右侧给系统按钮让位都补在这里（原理见 globals.css 末尾那一段）。
+ *
+ * ⚠️ 必须排在自己的 `.flow-shell .cv-topbar { padding: 0 12px }` **之后**
+ *    （同特异性、靠顺序赢）：写前面的话，那条简写会把 `padding-right` 抹掉。
+ */
+.flow-shell .cv-topbar {
+  -webkit-app-region: drag;
+  padding-right: calc(var(--window-controls-inset, 138px) + 12px);
+}
+.flow-shell .cv-topbar button,
+.flow-shell .cv-topbar a,
+.flow-shell .cv-topbar input,
+.flow-shell .cv-topbar select,
+.flow-shell .cv-topbar [role='button'] {
+  -webkit-app-region: no-drag;
+}
+
+/* ---------- 无遮挡模式（2026-10-02 N+97，徐先）----------
+ * 「这些全部收起，只保留画布的功能和右上角那三个选项，切换快捷键为 Tab，按钮在画面右上角。」
+ *
+ * 收掉的是**界面外壳**：左上项目名、顶栏那一整排（余额 / 已保存 / 保存 / 项目 / 启动 /
+ * 运行次数）、左侧工具轨、左下视口控制条、右下小地图、右下那颗「画布外观」圆钮。
+ * 留着的是**画布自己**（节点 / 连线 / 参数底栏 / 右键菜单 / 浮层）+ 右上角那排圆钮
+ * （它在 `.cv-corner` 里，不在下面这份清单里）+ 那颗切换钮本身。
+ *
+ * 🔴 **`.cv-topbar` 本身不能收**，只清里面的东西，两个理由缺一不可：
+ *   ① 它是画布页**唯一**的窗口拖拽区（`-webkit-app-region: drag`，见本文件末尾那段），
+ *      连它一起 display:none 就拖不动窗口了；
+ *   ② 它那条 `padding-right: var(--window-controls-inset…)` 是给系统那三个按钮让位的 ——
+ *      没有它，`.cv-stage` 会顶到窗口最上面，右上角那排圆钮正好钻到系统按钮底下。
+ *   底色换成画布地板色（不是透明）：顶栏底下是 `.flow-shell` 那一层（`--cv-bg`），
+ *   换过画布底色的人会看到一条黑带，改成地板色才是「画布一直顶到最上面」的样子。
+ *
+ * ⚠️ 不要用 `visibility` / `opacity` 收 —— 那些元素仍然**占位、仍然能被 Tab 聚焦到**，
+ *    而无遮挡模式下 Tab 已经改成切换键了，焦点停在一个看不见的按钮上最糟。
+ * `display: none` 的另一个好处：`.cv-balance-slot` 里的账号卡只是不画，不会重新挂载。
+ */
+.flow-shell.cv-zen .cv-topbar > * { display: none; }
+.flow-shell.cv-zen .cv-topbar {
+  background: var(--cv-floor);
+  border-bottom-color: transparent;
+}
+.flow-shell.cv-zen .cv-rail,
+.flow-shell.cv-zen .cv-vp,
+.flow-shell.cv-zen .cv-ap-wrap,
+.flow-shell.cv-zen .react-flow__minimap { display: none; }
+
+/* ---------- SKILL 社区（2026-09-25，从 AIFISHER 迁过来） ---------- */
+/*
+ * 一个盖在画布上的居中弹层。
+ *
+ * ⚠️ 高度按可用空间算（`min(calc(100vh - 72px), 720px)`），别写死 `80vh`：
+ * 面板是从中心往上长的，写死的话小窗口下顶部会冲出视口，关都关不掉。
+ * 滚动交给 `.cv-skill-scroll` 那一层，别给 `.cv-skill` 自己加 `overflow-y`
+ * —— 那样会把头部的标题和按钮一起滚走。
+ */
+.cv-skill-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+}
+.cv-skill {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  width: min(960px, calc(100vw - 64px));
+  max-height: min(calc(100vh - 72px), 720px);
+  background: var(--cv-panel);
+  border: 1px solid var(--cv-line);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.cv-skill-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  font-size: var(--cv-fs-3);
+  border-bottom: 1px solid var(--cv-line);
+}
+.cv-skill-head .cv-spacer { flex: 1; }
+.cv-skill-sub { font-size: var(--cv-fs-2); color: var(--cv-mute); }
+.cv-skill-path {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--cv-fs-1);
+  color: var(--cv-dim);
+}
+.cv-skill-x {
+  flex: none;
+  /* 全局 `button` 那条 `padding:0 14px;height:36px` 会把这个叉子撑成大方块 —— 写死尺寸时顺手清 padding。 */
+  padding: 0;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--cv-mute);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+}
+.cv-skill-x:hover { color: var(--cv-text); background: var(--cv-panel-2); }
+
+/* 文件选择框：真正的控件藏起来，点的是上面那两个按钮。 */
+.cv-skill-file { display: none; }
+
+.cv-skill-new {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--cv-line);
+}
+.cv-skill-name {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 9px;
+  font-family: inherit;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-text);
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: 8px;
+}
+.cv-skill-name:focus {
+  outline: none;
+  border-color: var(--cv-accent);
+  box-shadow: 0 0 0 3px var(--cv-accent-ring);
+}
+
+.cv-skill-notice {
+  flex: none;
+  padding: 7px 12px;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-warn);
+  background: var(--cv-panel-2);
+  border-bottom: 1px solid var(--cv-line);
+}
+
+.cv-skill-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px;
+}
+.cv-skill-empty {
+  padding: 30px 16px;
+  font-size: var(--cv-fs-3);
+  line-height: 1.7;
+  color: var(--cv-mute);
+  text-align: center;
+}
+/*
+ * 卡片网格：轨道宽度是**确定的**（`minmax(280px, 1fr)`），
+ * 不能写成 `grid-auto-flow` + 隐式 auto 轨道 —— 那样卡片一撑就退化成 2px。
+ */
+.cv-skill-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
+}
+.cv-skill-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  background: var(--cv-panel-2);
+  border: 1px solid var(--cv-line);
+  border-radius: 10px;
+}
+.cv-skill-card.on { border-color: var(--cv-accent); }
+.cv-skill-card-top { display: flex; align-items: center; gap: 6px; }
+.cv-skill-title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--cv-fs-3);
+  font-weight: 600;
+  color: var(--cv-text);
+}
+/* 双击标题改名时那一格输入框（跟分类改名那个一个尺寸，省得卡片跳一下）。 */
+.cv-skill-title-input {
+  flex: 1;
+  min-width: 0;
+  height: 22px;
+  padding: 0 6px;
+  font-size: var(--cv-fs-3);
+  font-weight: 600;
+  color: var(--cv-text);
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: 6px;
+}
+.cv-skill-title-input:focus { outline: none; border-color: var(--cv-accent-line); }
+.cv-skill-usage {
+  flex: none;
+  padding: 1px 6px;
+  font-size: var(--cv-fs-1);
+  color: var(--cv-dim);
+  border: 1px solid var(--cv-line);
+  border-radius: 999px;
+}
+.cv-skill-usage.edit { color: var(--cv-warn); border-color: var(--cv-warn); }
+.cv-skill-desc {
+  margin: 0;
+  font-size: var(--cv-fs-2);
+  line-height: 1.6;
+  color: var(--cv-mute);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* meta 行右侧放两个小按钮（改为使用/改、删除）—— 主按钮因此不再乱折行。 */
+.cv-skill-meta { display: flex; align-items: center; gap: 10px; font-size: var(--cv-fs-1); color: var(--cv-dim); }
+.cv-skill-meta .cv-spacer { flex: 1; }
+/* 点开卡片：完整说明 + 文件清单（2026-09-25 徐先要的「点击展开」）。 */
+.cv-skill-card { cursor: pointer; }
+.cv-skill-card:focus-visible { outline: 2px solid var(--cv-accent); outline-offset: 1px; }
+.cv-skill-card.expanded .cv-skill-desc {
+  display: block;
+  overflow: visible;
+  -webkit-line-clamp: none;
+}
+.cv-skill-files { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 0 1px; }
+.cv-skill-chip {
+  max-width: 100%;
+  padding: 1px 6px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: var(--cv-fs-1);
+  color: var(--cv-dim);
+  background: var(--cv-panel);
+  border: 1px solid var(--cv-line);
+  border-radius: 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-skill-chip.empty { border-style: dashed; }
+.cv-skill-chip.more { border-style: dashed; color: var(--cv-mute); }
+.cv-skill-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cv-skill-actions .cv-spacer { flex: 1; }
+.cv-skill-use,
+.cv-skill-toggle,
+.cv-skill-mini {
+  padding: 0 9px;
+  height: 26px;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-mute);
+  background: transparent;
+  border: 1px solid var(--cv-line);
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.cv-skill-use:hover,
+.cv-skill-toggle:hover,
+.cv-skill-mini:hover { color: var(--cv-text); background: var(--cv-panel); }
+.cv-skill-use.on,
+.cv-skill-toggle.on {
+  color: var(--cv-accent);
+  border-color: var(--cv-accent);
+}
+.cv-skill-mini.danger:hover { color: var(--cv-danger); border-color: var(--cv-danger); }
+
+/* ---------- 分类条 / 标签（2026-09-25 徐先：技能要能自己归类、自己建分类） ---------- */
+.cv-skill-cats {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--cv-line);
+}
+.cv-skill-cat-wrap { display: inline-flex; align-items: center; gap: 2px; }
+/* 全局 button 带 padding / height —— 这里要小尺寸，两个都得写死（padding 顺手归零）。 */
+.cv-skill-cat {
+  padding: 0 8px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-dim);
+  background: transparent;
+  border: 1px solid var(--cv-line);
+  border-radius: 7px;
+  cursor: pointer;
+  max-width: 220px;
+}
+.cv-skill-cat:hover { color: var(--cv-text); background: var(--cv-panel-2); }
+.cv-skill-cat.on {
+  color: var(--cv-accent);
+  border-color: var(--cv-accent-line);
+  background: var(--cv-accent-soft);
+}
+.cv-skill-cat-n { flex: none; font-size: var(--cv-fs-1); color: var(--cv-mute); }
+.cv-skill-cat.on .cv-skill-cat-n { color: var(--cv-accent); }
+.cv-skill-cat.add { color: var(--cv-mute); border-style: dashed; }
+.cv-skill-cat.editing { padding: 0 4px; border-color: var(--cv-accent-line); }
+.cv-skill-cat-input {
+  width: 120px;
+  height: 22px;
+  padding: 0 6px;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-text);
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: 6px;
+}
+.cv-skill-cat-input:focus { outline: none; border-color: var(--cv-accent-line); }
+/* 删分类那个 ×：平时不显形，鼠标移到这一格才出来（跟端口那套一个路子）。 */
+.cv-skill-cat-x {
+  padding: 0;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--cv-mute);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+}
+.cv-skill-cat-wrap:hover .cv-skill-cat-x { opacity: 1; }
+.cv-skill-cat-x:hover { color: var(--cv-danger); background: var(--cv-panel-2); }
+.cv-skill-cat-x:focus-visible { opacity: 1; }
+
+/* 卡片上的标签：不展开也能看出它属于哪几类 */
+.cv-skill-tags { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.cv-skill-tag {
+  font-size: var(--cv-fs-1);
+  color: var(--cv-dim);
+  background: var(--cv-panel-2);
+  border: 1px solid var(--cv-line);
+  border-radius: 5px;
+  padding: 1px 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-skill-tag.empty { color: var(--cv-mute); border-style: dashed; background: transparent; }
+.cv-skill-tag.more { color: var(--cv-mute); background: transparent; }
+.cv-skill-tag.pick { padding: 0 7px; height: 20px; cursor: pointer; }
+.cv-skill-tag.pick:hover { color: var(--cv-text); border-color: var(--cv-accent-line); }
+.cv-skill-tag-add {
+  padding: 0;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--cv-mute);
+  background: transparent;
+  border: 1px dashed var(--cv-line);
+  border-radius: 5px;
+  cursor: pointer;
+}
+.cv-skill-tag-add:hover { color: var(--cv-accent); border-color: var(--cv-accent-line); }
+.cv-skill-tag-x {
+  padding: 0;
+  width: 12px;
+  height: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--cv-mute);
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.cv-skill-tag-x:hover { color: var(--cv-danger); }
+.cv-skill-tagedit {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+  padding: 6px;
+  background: var(--cv-panel-2);
+  border: 1px solid var(--cv-line);
+  border-radius: 7px;
+}
+.cv-skill-tagedit .cv-skill-tag-input {
+  flex: 1 1 160px;
+  min-width: 120px;
+  height: 22px;
+  padding: 0 6px;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-text);
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: 6px;
+}
+.cv-skill-tagedit .cv-skill-tag-input:focus { outline: none; border-color: var(--cv-accent-line); }
+.cv-skill-tag-quick { flex: 1 1 100%; display: flex; gap: 4px; flex-wrap: wrap; }
+
+/* Codex 面板里「当前技能」那条 —— 让用户知道这一句发出去是带着技能的。 */
+.cv-codex-skill {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-accent);
+  background: var(--cv-panel-2);
+  border-top: 1px solid var(--cv-line);
+}
+.cv-codex-skill .cv-spacer { flex: 1; }
+.cv-codex-skill-x {
+  padding: 0;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--cv-mute);
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+}
+.cv-codex-skill-x:hover { color: var(--cv-text); background: var(--cv-panel); }
+
+/* ---------- 运行计时（2026-09-28） ---------- */
+/*
+ * 画布顶栏最右那颗。位置安全：`.flow-shell .cv-topbar` 的
+ * `padding-right: calc(var(--window-controls-inset) + 12px)` 已经把系统按钮那一块让出来了。
+ *
+ * `font-variant-numeric: tabular-nums` 不是装饰 —— 数字每秒都在变，不用等宽字形的话
+ * `01:09 → 01:10` 这种进位会让整排按钮跟着左右抖一下。
+ */
+.cv-topbar .cv-run-clock {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 3px 8px;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-mute);
+  background: var(--cv-panel-2);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  font-variant-numeric: tabular-nums;
+}
+.cv-topbar .cv-run-clock strong { color: var(--cv-text); font-weight: 600; }
+/* 跑着的时候吃主色、跑完落回中性色 —— 一眼分得出「还在跑」和「刚跑完」。 */
+.cv-topbar .cv-run-clock.running { color: var(--cv-accent); border-color: var(--cv-accent-line); }
+.cv-topbar .cv-run-clock.running strong { color: var(--cv-accent); }
+
+/* ==========================================================================
+   优化提示词 · 四项参数（2026-09-29）
+   参数条是浮在节点下方的一条，横向很窄 → 摆两列，长的那两项占满整行。
+   ========================================================================== */
+.cv-param-opts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 8px;
+  margin-bottom: 6px;
+}
+/* 下拉里的选项文字可能很长，不写 `min-width: 0` 会把整条参数条撑破。 */
+.cv-param-opts .cv-field { min-width: 0; }
+.cv-param-opts .cv-field.wide { grid-column: 1 / -1; }
+.cv-param-opts .cv-field > span { display: block; }
+/* 说明行也占满：它写的是当前那一档「改写幅度」的解释，短了会读不通。 */
+.cv-param-opts > .cv-param-hint { grid-column: 1 / -1; line-height: 1.45; }
+
+/* ==========================================================================
+   绕过节点（2026-09-29）
+   灰化只能表达「它不活跃」，而「不活跃」还有没选中 / 跑完了这些状态 ——
+   所以必须再挂一个角标，把「这个节点不干活」这件事单独说一遍。
+   ========================================================================== */
+.cv-node.bypassed { opacity: 0.5; }
+/* 虚线边：跟「灰」区分开 —— 灰会被误读成禁用 / 没选中，虚线一眼是「连通但绕过去了」。 */
+.cv-node.bypassed .cv-node-frame { border-style: dashed; }
+.cv-node.bypassed:hover { opacity: 0.72; }
+/* 选中时不要因为半透明看不清自己在改哪一个。 */
+.cv-node.bypassed.selected { opacity: 0.78; }
+
+.cv-node-bypass {
+  flex: none;
+  padding: 1px 5px;
+  border: 1px solid var(--cv-line);
+  border-radius: 999px;
+  font-size: var(--cv-fs-1);
+  line-height: 1.5;
+  color: var(--cv-dim);
+  background: var(--cv-accent-soft);
+  border-color: var(--cv-line-strong);
+  letter-spacing: 0.02em;
+}
+
+/* ---------- 优化提示词节点：卡片上的「运行」按钮（2026-09-29） ---------- */
+/*
+ * 🔴 常驻，不像「超清」那样悬停才显形：这个节点存在的唯一理由就是跑一次改写，
+ *    藏起来等于把节点变空。
+ */
+.cv-node-run {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  height: 18px;
+  padding: 0 7px;
+  font-size: var(--cv-fs-1);
+  font-weight: 600;
+  line-height: 1;
+  color: var(--cv-accent-ink);
+  background: var(--cv-accent);
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.cv-node-run:hover:not(:disabled) { background: var(--cv-accent-hover); }
+/* 跑不了的时候留着它（让人看见有这个功能），但不给按。 */
+.cv-node-run:disabled { opacity: 0.45; cursor: default; }
+.cv-node-run:focus-visible { outline: 2px solid var(--cv-accent-ring); outline-offset: 1px; }
+
+/* ---------- 优化提示词 · 补充要求：不限字数之后换成多行框（2026-09-29） ---------- */
+/*
+ * 类名仍然用 `cv-input`（聚焦描边、占位色跟别的输入框共用一套），
+ * 这里只把「单行高度」这条按掉：两行起步，用户还能自己往下拉。
+ */
+.cv-param-opts textarea.cv-input {
+  height: auto;
+  min-height: 48px;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+/* ---------- 自定义接口：比例=自适应时分辨率那一行改成读数（2026-09-29） ---------- */
+/*
+ * 虚线框 = 「这一档不由你定」。用虚线而不是灰字，是为了和旁边的下拉在视觉上分开：
+ * 它是读数，不是控件。
+ */
+.cv-dock-readout {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-dim);
+  background: var(--cv-field);
+  border: 1px dashed var(--cv-line-strong);
+  border-radius: var(--cv-radius-sm);
+}
+
+/* ---------- 读数上**真的能点**的那一种（2026-09-30） ---------- */
+/*
+ * 它原来只是个读数（虚线框），因为比例自适应时分辨率确实不生效。
+ * 可「只有读数、没有出路」是不行的：用户只会得出「这儿选不了」
+ * —— 徐先就是这么问的（「这里怎么选择不了 1k，2k，4k 的了」），
+ * 而唯一的提示原来藏在 hover 的 title 里。
+ *
+ * 现在点它 = 先把比例定成一档具体画幅，下拉当场就出来。
+ *
+ * 虚线边**保留**：它仍然不是下拉，仍然是「这一档此刻不由你定」；
+ * 变的是鼠标移上去变实线 + 强调色，右边多一句「点这里固定尺寸」——
+ * 让人看得出这里有出路，而不是一个坏掉的控件。
+ */
+.cv-dock-readout-action {
+  gap: 8px;
+  height: auto;
+  min-height: 22px;
+  padding: 3px 8px;
+  /* button 的默认字体跟周围不一样，不拉回来会突然变成另一种字 */
+  font: inherit;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-dim);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.cv-dock-readout-action em {
+  font-style: normal;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-accent);
+  white-space: nowrap;
+}
+.cv-dock-readout-action:hover {
+  border-style: solid;
+  border-color: var(--cv-accent-line);
+  background: var(--cv-accent-veil);
+  color: var(--cv-accent);
+}
+.cv-dock-readout-action:focus-visible {
+  outline: 2px solid var(--cv-accent-ring);
+  outline-offset: 1px;
+}
+
+/*
+ * 点完之后把「比例」那一栏闪一下 —— 用户下一步八成就是去那儿换画幅
+ * （1:1 只是先替他指的一档，不是锁死的值）。
+ * 用 box-shadow 画这圈光：**不占布局**，闪完不会让弹层里的东西挪位置。
+ */
+.cv-dock-flash {
+  border-radius: var(--cv-radius-sm);
+  animation: cv-dock-flash 0.9s ease-out;
+}
+@keyframes cv-dock-flash {
+  0% { box-shadow: 0 0 0 3px var(--cv-accent-soft); }
+  100% { box-shadow: 0 0 0 3px transparent; }
+}
+
+/* ---------- 创作预设面板（2026-10-06，从 AIFISHER 迁移） ---------- */
+/* 与挑字段弹层同一套做法：居中一层遮罩 + 一块面板，z-index 70。
+   差别在**内容形状** —— 这里是「看图挑」，所以中间是两列卡片网格而不是文字列表。 */
+/*
+ * 🔴 遮罩的底**必须是不透明色**，不能写 `rgba(0,0,0,.55)`（2026-10-06，查了一整轮）。
+ *
+ * 半透明的祖先会让 Chromium 把里面那几百张**被缩放的 webp** 画成一条条横纹 ——
+ * 图是好的（`naturalWidth` 正常）、尺寸也是对的，就是每一行都在重复几个像素。
+ * 隔离实验（每一步都截图对过）：
+ *   · 同一张卡片搬出这个面板 → 完全正常；
+ *   · 把网格整块克隆到面板外（同样 60 张图）→ 完全正常；
+ *   · 只把这一行的 `rgba(.55)` 去掉 → 正常；
+ *   · `will-change` / `decoding` / `loading` / `content-visibility` 全都**没用**。
+ * 顺带一提：用不透明底还更对 —— 原来那层半透明底下，画布是透出来的，
+ * 一屏几百张图压在上面本来也看不清。
+ */
+.cv-cpk-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #000;
+}
+.cv-cpk {
+  display: grid;
+  /* 头部 / 搜索 / 分类 / 网格 / 页脚 —— 只有网格那一行伸缩，其余都是定高。 */
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  width: min(640px, 100%);
+  max-height: min(78vh, 680px);
+  background: var(--cv-elev);
+  border: 1px solid var(--cv-line-strong);
+  border-radius: var(--cv-radius);
+  box-shadow: var(--cv-shadow-3);
+  overflow: hidden;
+}
+.cv-cpk-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px 8px; }
+.cv-cpk-tabs { display: flex; align-items: center; gap: 2px; flex: 1; min-width: 0; }
+.cv-cpk-tab {
+  height: 26px;
+  padding: 0 11px;
+  font-family: inherit;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+}
+.cv-cpk-tab:hover { color: var(--cv-text); }
+/* 选中那一档用「填色胶囊」而不是下划线：一排里只有一颗是实心的，扫一眼就知道在看哪一档。 */
+.cv-cpk-tab.on {
+  color: var(--cv-accent-ink);
+  background: var(--cv-accent-fill);
+  border-color: var(--cv-accent-fill);
+  font-weight: 600;
+}
+.cv-cpk-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  color: var(--cv-mute);
+  background: transparent;
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+}
+.cv-cpk-x:hover { color: var(--cv-text); border-color: var(--cv-line-strong); }
+.cv-cpk-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 12px 8px;
+  padding: 0 8px;
+  height: 30px;
+  color: var(--cv-mute);
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+}
+.cv-cpk-search input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  color: var(--cv-text);
+  background: transparent;
+  border: 0;
+  outline: none;
+  font-family: inherit;
+  font-size: var(--cv-fs-3);
+}
+.cv-cpk-search input::placeholder { color: var(--cv-placeholder); }
+/* 分类胶囊：可能有好几个，装不下就让它自己横向滚 —— 换行会把网格挤下去。 */
+.cv-cpk-cats {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 12px 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.cv-cpk-cats::-webkit-scrollbar { display: none; }
+.cv-cpk-cat {
+  height: 24px;
+  padding: 0 9px;
+  flex: none;
+  font-family: inherit;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-dim);
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cv-cpk-cat:hover { color: var(--cv-text); border-color: var(--cv-line-strong); }
+.cv-cpk-cat.on {
+  color: var(--cv-text);
+  background: var(--cv-panel-2);
+  border-color: var(--cv-accent-line);
+}
+.cv-cpk-grid {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 12px 10px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  align-content: start;
+  /*
+   * 🔴 `contain` / `content-visibility` 一概**不要**加在这个网格上（2026-10-06，踩过）。
+   * 217 张图的网格在 Electron 里会被裁成一条条横纹（Chromium 的滚动合成层 bug），
+   * 而同一张卡片搬出网格就恢复正常 —— 详见下面 `.cv-cpk-card` 那段。
+   * 加任何会影响合成的属性都只会让它更容易触发。
+   */
+}
+/* 卡片：图占满，名字压在图上（参考产品就是这个形状 —— 名字占一行会把网格拉得很高，
+   而这里一屏要看十几条）。 */
+/*
+ * 卡片：**不裁剪、不半透明**。
+ *
+ * 🔴 这两条都是为了躲开同一个渲染坑（2026-10-06，与上面 `.cv-cpk-mask` 是同一个毛病）：
+ * `overflow: hidden` 或半透明的父子层，碰上几百张**被缩放的 webp**，
+ * Chromium 会把每张图画成一条条横纹。图本身没问题 ——
+ * 同一张卡片放到面板外就清清楚楚。
+ *
+ * 代价：缩略图不再按圆角裁齐（`border-radius` 只有 5px，肉眼几乎看不出），
+ * 换来的是几百张预览真的能看。已实测：去掉这两条之后整屏恢复正常。
+ */
+.cv-cpk-card {
+  position: relative;
+  /* 🔴 网格项默认会拉伸到行高 —— 卡片高度必须是**内容撑出来的**。 */
+  align-self: start;
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  background: var(--cv-panel-2);
+}
+.cv-cpk-card:hover { border-color: var(--cv-line-strong); }
+.cv-cpk-card.on { border-color: var(--cv-accent-line); box-shadow: 0 0 0 1px var(--cv-accent-line); }
+/*
+ * 🔴 `height: auto` **必须显式写**（2026-10-06，查了一整轮）。
+ *
+ * `globals.css:678` 那条 `button, .button { height: calc(36px * var(--ui)) }` 是全库
+ * 每个 `<button>` 都吃的 —— 记忆里那条「组件里要显式写 height」就是它。
+ * 这里忘了写，于是这张卡片的按钮被钉死在 32px（36 × 0.9），
+ * 里面 185px 的缩略图 + 23px 的名字整个被压扁、相互盖住。
+ *
+ * 另外还得是 `flex-direction: column`：按钮默认 `inline-flex` + `align-items: center`，
+ * 纵向排列 + 拉伸才是「图上、名字在下」的正常堆叠。
+ */
+.cv-cpk-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  gap: 0;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 400;
+  line-height: normal;
+  text-align: left;
+  white-space: normal;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  cursor: pointer;
+}
+/*
+ * 缩略图**不能用 `aspect-ratio`**（2026-10-06，踩了）。
+ * 同一份 CSS 在 dev（Chromium 的 Next 页面）里好好的，到了 `app://` 协议下
+ * `aspect-ratio` 算出来是 0：`getComputedStyle` 读得到 `16 / 10`，
+ * 但 `getBoundingClientRect()` 的高度是 0 —— 图片全都加载完了（naturalWidth 正常）
+ * 却一个像素都不显示。改成**宽度 + `padding-top` 撑高**（老办法，哪儿都认）。
+ */
+/*
+ * 🔴 `aspect-ratio` 在 `app://` 协议下的合成层里**会算出 0 高**（2026-10-06，踩了两次）。
+ * 同一个浏览器跑 dev（Next 页面）一切正常，进了 Electron 就变样：
+ * `getComputedStyle` 读得到 `16 / 10`，`getBoundingClientRect()` 却是 0 ——
+ * 图全都加载完了（`naturalWidth` 正常）却一个像素都不显示，或者被压成一条条横纹。
+ * 所以这里**一律用 `padding-top` 撑高**（老办法，不依赖合成层）。
+ */
+/*
+ * 缩略图容器**不裁剪** —— 同样是为了躲开「半透明 / 裁剪层 + 大量缩放 webp = 横纹」
+ * 那个合成坑（凶手主要是祖先那层，但这一层能少一个就少一个）。
+ * 撑高还是用 `padding-top`：`aspect-ratio` 在 `app://` 下有时算不出高度。
+ */
+.cv-cpk-thumb {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 0;
+  padding-top: 62.5%; /* 16 : 10 */
+  background: var(--cv-panel-2);
+}
+.cv-cpk-thumb img,
+.cv-cpk-thumb video {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+/* 预览图缺了（打包漏了 / 用户手删）时留一块带斜纹的底，别留纯黑 ——
+   纯黑看起来像「这条预设本来就是黑的」。 */
+.cv-cpk-noimg {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(45deg, var(--cv-panel-2) 0 8px, var(--cv-field) 8px 16px);
+}
+.cv-cpk-name {
+  display: block;
+  padding: 5px 7px 6px;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-cpk-card.on .cv-cpk-name { color: var(--cv-accent); font-weight: 600; }
+/* 收藏星标压在缩略图右上角（与参考产品一致）：单独占一行会把卡片拉高。 */
+.cv-cpk-star {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  color: var(--cv-dim);
+  background: rgba(0, 0, 0, 0.45);
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.cv-cpk-star:hover { color: var(--cv-text); }
+.cv-cpk-star.on { color: var(--cv-warn); }
+.cv-cpk-empty {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 26px 12px;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-mute);
+  text-align: center;
+}
+.cv-cpk-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-mute);
+  border-top: 1px solid var(--cv-line);
+}
+.cv-cpk-clear {
+  height: 22px;
+  padding: 0 8px;
+  font-family: inherit;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-dim);
+  background: transparent;
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+}
+.cv-cpk-clear:hover { color: var(--cv-danger); border-color: var(--cv-danger-line); }
+/* 页脚右侧那一小撮动作（导入 / 清除）—— 别让它俩挤成一坨。 */
+.cv-cpk-foot-acts {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+.cv-cpk-import-btn {
+  height: 22px;
+  padding: 0 8px;
+  font-family: inherit;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-dim);
+  background: transparent;
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+}
+.cv-cpk-import-btn:hover { color: var(--cv-text); background: var(--cv-panel-2); }
+
+/* ---------- 导入预设（2026-10-07，ComfyUI-Easy-Use 那批 styles） ---------- */
+/*
+ * 它盖掉面板里「tab / 搜索 / 分类 / 网格」那一整块，头部与遮罩仍是外面那套 ——
+ * 所以高度由内容撑（跟着 `.cv-cpk` 自己那条 `align-self: start`），
+ * 不能写死，否则分类列表一长就被裁掉。
+ */
+.cv-cpk-import {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.cv-cpk-import-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-text);
+  border-bottom: 1px solid var(--cv-line);
+}
+.cv-cpk-import-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  /*
+   * 🔴 `height: auto` 必须显式写（2026-10-06 踩过一整轮）：
+   * `globals.css` 那条 `button,.button{height:calc(36px*var(--ui))}` 是全库每个 button 都吃的，
+   * 不写的话这颗钮会被钉死在 32px，里面的图标和文字互相盖住。
+   */
+  height: auto;
+  padding: 2px 6px;
+  font-family: inherit;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-dim);
+  background: transparent;
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+}
+.cv-cpk-import-back:hover { color: var(--cv-text); background: var(--cv-panel-2); }
+.cv-cpk-import-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  overflow-y: auto;
+}
+.cv-cpk-import-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-dim);
+}
+.cv-cpk-import-row > span { flex: none; min-width: 56px; }
+.cv-cpk-import-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  font-family: inherit;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-text);
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+}
+.cv-cpk-import-src {
+  display: inline-flex;
+  gap: 6px;
+  flex: 0 1 auto;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.cv-cpk-import-src button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 9px;
+  font-family: inherit;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-text);
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+}
+.cv-cpk-import-src button:hover { background: var(--cv-panel-2); }
+.cv-cpk-import-hint,
+.cv-cpk-import-path {
+  margin: 0;
+  font-size: var(--cv-fs-2);
+  line-height: 1.6;
+  color: var(--cv-mute);
+}
+/* 长路径一行放不下就截断 —— 不能让它把面板撑宽。 */
+.cv-cpk-import-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-cpk-import-go {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 12px;
+  font-family: inherit;
+  font-size: var(--cv-fs-3);
+  /* 与「发送」那一颗同一对令牌（`--cv-run-*`）—— 导入也是个主动作，配色跟着走。 */
+  color: var(--cv-run-ink);
+  background: var(--cv-run-bg);
+  border: 0;
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+}
+.cv-cpk-import-go:disabled { opacity: 0.5; cursor: default; }
+.cv-cpk-import-msg {
+  margin: 0;
+  font-size: var(--cv-fs-2);
+  line-height: 1.6;
+  color: var(--cv-dim);
+}
+.cv-cpk-import-msg.bad { color: var(--cv-danger); }
+.cv-cpk-import-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--cv-line);
+  font-size: var(--cv-fs-3);
+  color: var(--cv-dim);
+}
+.cv-cpk-import-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cv-cpk-import-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cv-text);
+}
+.cv-cpk-import-count { flex: none; font-size: var(--cv-fs-2); color: var(--cv-mute); }
+.cv-cpk-import-del {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-left: auto;
+  padding: 0;
+  color: var(--cv-mute);
+  background: transparent;
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+}
+.cv-cpk-import-del:hover { color: var(--cv-danger); border-color: var(--cv-danger-line); }
+/* 导入那一趟可能几十秒，转个圈表示还活着。 */
+.cv-spin { animation: cv-spin 0.9s linear infinite; }
+@keyframes cv-spin { to { transform: rotate(360deg); } }
+
+/* ---------- 对话框里那一排预设按钮 ---------- */
+.cv-dock-presets {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+/* 已选那一档显示成「风格 · 暖阳赛璐璐CG」—— 光一个「风格」看不出选没选。 */
+.cv-dock-preset {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  max-width: 190px;
+  padding: 0 8px;
+  flex: 0 1 auto;
+  min-width: 0;
+  font-family: inherit;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-dim);
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cv-dock-preset:hover { color: var(--cv-text); border-color: var(--cv-line-strong); }
+.cv-dock-preset.on {
+  color: var(--cv-text);
+  background: var(--cv-panel-2);
+  border-color: var(--cv-accent-line);
+}
+/* 名字长了要截断，但**按钮本身不能塌成 0 宽** —— 一排里只有它可压缩时必须给 min-width。 */
+.cv-dock-preset > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.cv-dock-preset > svg { flex: none; }
+
+/* ---------- 提示词框里的「已选预设」标签（2026-10-07） ---------- */
+/*
+  徐先要的是「选了之后在提示词里以标签的形式出现」—— 所以标签和正文装在**同一个框**里：
+  上面一排标签、下面一个无框 textarea，看上去就是「这句提示词 = 这几个标签 + 这段话」。
+
+  🔴 框的边框画在**外层容器**上，里面的 textarea 仍然是 `border: 0; background: transparent`
+  （它一直如此）。画两层边会出现「框中框」，画在 textarea 上则标签跑到框外面去。
+  聚焦高亮用 `:focus-within`（点在标签上不算聚焦，点进正文才亮）——
+  只给 textarea 加 `:focus` 的话，用户点进框里打字，框的边框纹丝不动，看着像没点上。
+*/
+.cv-dock-promptbox {
+  display: flex;
+  flex-direction: column;
+  gap: calc(4px * var(--ui));
+  padding: calc(5px * var(--ui)) calc(6px * var(--ui));
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  transition: border-color 0.14s ease, box-shadow 0.14s ease;
+}
+.cv-dock-promptbox:focus-within {
+  border-color: var(--cv-accent);
+  box-shadow: 0 0 0 3px var(--cv-accent-ring);
+}
+.cv-dock-ptags {
+  display: flex;
+  align-items: center;
+  gap: calc(4px * var(--ui));
+  flex-wrap: wrap;
+  /* 标签与正文之间那条线：**只画在标签这一排的下沿**，没选预设时整排不存在、也不留空行。 */
+  padding-bottom: calc(4px * var(--ui));
+  border-bottom: 1px solid var(--cv-line);
+}
+/*
+  标签本体是 `<span>` 不是 `<button>`：里面要装两个按钮（换一条 / 清除），
+  按钮套按钮是非法 DOM。所以边框画在 span 上，两个按钮都不带边框。
+*/
+.cv-dock-ptag {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(2px * var(--ui));
+  height: calc(22px * var(--ui));
+  max-width: calc(210px * var(--ui));
+  padding: 0 calc(3px * var(--ui)) 0 calc(4px * var(--ui));
+  min-width: 0;
+  background: var(--cv-panel-2);
+  border: 1px solid var(--cv-accent-line);
+  border-radius: var(--cv-radius-sm);
+  white-space: nowrap;
+}
+/*
+  🔴 两个按钮都得**显式写 height**：`globals.css` 有一条 `button { height: calc(36px * var(--ui)) }`
+  是全库每个 `<button>` 都吃的，不写就会被钉成 36px、把整排撑成一条。
+*/
+.cv-dock-ptag-main {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(4px * var(--ui));
+  height: calc(20px * var(--ui));
+  min-width: 0;
+  padding: 0;
+  font-family: inherit;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-text);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.cv-dock-ptag-thumb {
+  width: calc(14px * var(--ui));
+  height: calc(14px * var(--ui));
+  flex: none;
+  object-fit: cover;
+  border-radius: calc(2px * var(--ui));
+  /* 预览图原先是几百张被缩放的 webp，只有它自己被裁剪 —— 不会触发那种全屏横纹。 */
+  background: var(--cv-panel);
+}
+.cv-dock-ptag-kind {
+  flex: none;
+  font-size: var(--cv-fs-1);
+  color: var(--cv-dim);
+}
+.cv-dock-ptag-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.cv-dock-ptag-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(16px * var(--ui));
+  height: calc(16px * var(--ui));
+  flex: none;
+  padding: 0;
+  color: var(--cv-dim);
+  background: none;
+  border: 0;
+  border-radius: calc(2px * var(--ui));
+  cursor: pointer;
+}
+.cv-dock-ptag-x:hover { color: var(--cv-text); background: var(--cv-elev); }
+
+/* 卡片上的「已选创作预设」角标（2026-10-06）：一行几颗小胶囊，形如「风格 · 暖阳赛璐璐CG」。 */
+.cv-node-status.preset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 6px;
+}
+.cv-node-status.preset > em {
+  font-style: normal;
+  font-size: var(--cv-fs-1);
+  color: var(--cv-dim);
+  padding: 1px 6px;
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: 4px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
