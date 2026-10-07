@@ -110,6 +110,7 @@ export default function CreativePresetPicker({
   const [category, setCategory] = useState('全部');
   const [shown, setShown] = useState(PAGE);
   const [showImport, setShowImport] = useState(false);
+  const [customText, setCustomText] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
   const importedAll = useImportedPresets();
 
@@ -229,9 +230,24 @@ export default function CreativePresetPicker({
               <textarea
                 className="cv-cpk-custom-input"
                 placeholder={`输入自定义${CREATIVE_KIND_LABEL[tab]}提示词...`}
+                value={customText}
+                onChange={e => setCustomText(e.target.value)}
                 rows={6}
               />
-              <button type="button" className="cv-cpk-custom-add">
+              <button type="button" className="cv-cpk-custom-add" onClick={() => {
+                const text = customText.trim();
+                if (!text) return;
+                const customPreset: CreativePreset = {
+                  id: `custom-${Date.now()}`,
+                  kind: tab,
+                  name: text.slice(0, 30) + (text.length > 30 ? '...' : ''),
+                  description: '自定义',
+                  category: '自定义',
+                  prompt: text,
+                };
+                onToggle(tab, customPreset);
+                setCustomText('');
+              }}>
                 添加到当前节点
               </button>
             </div>
