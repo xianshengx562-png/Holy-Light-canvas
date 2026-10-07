@@ -1,85 +1,19 @@
-/* Workbench layout: navigation, unobstructed canvas, persistent inspector. */
-.flow-shell .cv-topbar {
-  height: calc(56px * var(--ui));
-  gap: calc(12px * var(--ui));
-  background: var(--cv-panel);
+/* ============================================================
+   Holy Light Canvas — 画布背景（简约风，纯净无渐变）
+   ============================================================ */
+
+.flow-shell .cv-stage {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  background-color: var(--cv-floor);
+  /* 移除渐变背景，保持纯净 */
 }
-.cv-workspace-brand { display: flex; align-items: center; gap: 9px; color: var(--cv-text); text-decoration: none; font-size: var(--cv-fs-4); font-weight: 600; flex: none; }
-.cv-workspace-brand img { width: 30px; height: 30px; object-fit: contain; }
-.cv-topbar .cv-brand { min-width: 0; max-width: 220px; font-size: var(--cv-fs-4); }
-.cv-workspace-count { color: var(--cv-mute); font-size: var(--cv-fs-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
-.cv-topbar .cv-btn.on { background: var(--cv-elev); border-color: var(--cv-line-strong); }
-.flow-shell .cv-stage { margin-left: 64px; }
-.flow-shell .cv-rail {
-  left: -64px; top: 0; bottom: 0; width: 64px;
-  transform: none; padding: 20px 8px; gap: 12px;
-  background: var(--cv-panel); border: 0; border-right: 1px solid var(--cv-line);
-  border-radius: 0; box-shadow: none;
+
+.flow-shell .cv-stage .react-flow { 
+  background: transparent; 
 }
-.cv-rail .cv-rail-btn { width: 40px; height: 40px; border-radius: 8px; }
-.cv-rail .cv-rail-btn.primary { border-radius: 8px; }
-.cv-rail .cv-rail-mark { margin-top: auto; width: 40px; height: 40px; border-radius: 8px; }
-.cv-inspector {
-  flex: 0 0 360px; width: 360px; min-width: 0; min-height: 0;
-  display: flex; flex-direction: column; background: var(--cv-panel);
-  border-left: 1px solid var(--cv-line-strong); z-index: 21;
-}
-.cv-inspector-head { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 0 18px; border-bottom: 1px solid var(--cv-line); }
-.cv-inspector-head h2 { flex: 1; margin: 0; font-size: var(--cv-fs-4); font-weight: 600; }
-.cv-inspector-selection { display: flex; align-items: center; gap: 12px; padding: 18px; border-bottom: 1px solid var(--cv-line); }
-.cv-inspector-selection > svg { flex: none; color: var(--cv-dim); }
-.cv-inspector-selection > div { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
-.cv-inspector-selection strong { font-size: var(--cv-fs-4); font-weight: 600; overflow-wrap: anywhere; }
-.cv-inspector-selection span { font-size: var(--cv-fs-2); color: var(--cv-mute); }
-.cv-inspector-empty { flex: 1; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 16px; color: var(--cv-mute); font-size: var(--cv-fs-3); }
-.cv-inspector-content { overflow-y: auto; overscroll-behavior: contain; min-height: 0; padding: 18px; }
-.cv-inspector-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; font-size: var(--cv-fs-3); }
-.cv-inspector-facts dt { color: var(--cv-mute); }
-.cv-inspector-facts dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
-.flow-shell .cv-inspector .cv-dock {
-  --cv-dock-ctl: 30px;
-  position: relative; inset: auto; flex: 1; width: 100%; min-height: 0; max-height: none;
-  padding: 0; background: transparent; border: 0; border-radius: 0; box-shadow: none;
-}
-.cv-inspector .cv-dock-scroll { padding: 18px; gap: 12px; overscroll-behavior: contain; }
-.cv-inspector h3 { margin: 0; font-size: var(--cv-fs-3); font-weight: 600; color: var(--cv-dim); }
-.cv-inspector-section { display: flex; flex-direction: column; gap: 14px; padding-bottom: 18px; border-bottom: 1px solid var(--cv-line); }
-.cv-inspector-label { padding-top: 6px; }
-.cv-inspector-engine { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
-.cv-inspector .cv-dock-eng { width: 100%; max-width: none; border: 1px solid var(--cv-line); border-radius: 6px; background: var(--cv-field); font-size: var(--cv-fs-3); }
-.cv-inspector .cv-dock-promptbox { flex: none; min-height: 140px; border-radius: 6px; }
-.cv-inspector .cv-dock-input { min-height: 120px; line-height: 1.6; font-size: var(--cv-fs-3); }
-.cv-inspector .cv-dock-ratios { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.cv-inspector .cv-dock-ratio { min-width: 0; border-radius: 6px; }
-.cv-inspector .cv-dock-group { gap: 8px; }
-.cv-inspector .cv-dock-groupbody { min-width: 0; }
-.cv-inspector .cv-dock-presets { flex-wrap: wrap; }
-.cv-inspector .cv-dock-bar { flex-wrap: wrap; gap: 8px; padding: 14px 18px; border-top: 1px solid var(--cv-line); background: var(--cv-panel); }
-.cv-inspector .cv-dock-spacer { display: none; }
-.cv-inspector .cv-dock-send { flex: 1 0 100%; width: 100%; height: 38px; display: flex; gap: 8px; border-radius: 6px; font-size: var(--cv-fs-3); }
-.cv-inspector .cv-dock-pop { left: 10px; right: 10px; width: auto; max-height: min(65vh, 480px); overflow-y: auto; }
-.cv-inspector .cv-dock-more { margin: 0; padding-top: 12px; }
-.cv-inspector .cv-dock-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.cv-inspector .cv-dock-field { min-width: 0; }
-.cv-inspector .cv-dock-field.half { flex: 1 1 100%; }
-.flow-shell:has(.cv-inspector) .react-flow__node .cv-param-bar { display: none; }
-.cv-inspector .cv-param-bar { position: static; transform: none; width: 100%; min-width: 0; max-height: none; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
-.cv-inspector .cv-param-title { display: none; }
-.cv-inspector .cv-param-body { max-height: none; overflow: visible; }
-.cv-inspector .cv-param-tools { display: flex; flex-direction: column; align-items: stretch; gap: 12px; }
-.flow-shell :is(button, a, input, select, textarea):focus-visible { outline: 2px dashed var(--cv-dim); outline-offset: 2px; }
-@media (max-width: 1100px) {
-  .cv-workspace-count, .cv-workspace-brand span { display: none; }
-  .cv-inspector { flex-basis: 320px; width: 320px; }
-}
-@media (max-width: 760px) {
-  .flow-shell .cv-topbar { gap: 6px; padding-left: 8px; }
-  .cv-topbar .cv-brand { max-width: 120px; }
-  .cv-topbar .cv-save, .cv-topbar [data-balance-slot], .cv-topbar .cv-divider, .cv-topbar .cv-run-times { display: none; }
-  .cv-topbar .site-balance { display: none; }
-  .cv-inspector { position: absolute; top: calc(56px * var(--ui)); right: 0; bottom: 0; width: min(320px, calc(100vw - 64px)); z-index: 45; }
-  .cv-workspace-brand img { width: 24px; height: 24px; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .flow-shell *, .flow-shell *::before, .flow-shell *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+
+.flow-shell .react-flow__background { 
+  z-index: 0; 
 }

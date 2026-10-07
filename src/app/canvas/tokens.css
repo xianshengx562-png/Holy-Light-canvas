@@ -1,18 +1,18 @@
 /* ============================================================
-   Holy Light Canvas — 简约风
+   Holy Light Canvas — 简约风格配色系统
    克制用色 · 大量留白 · 清晰层次
    ============================================================ */
 
 .canvas-studio,
 .flow-shell {
-  /* ---- 表面系统（3级，够用就好）---- */
-  --cv-bg: #FAFBFC;           /* 画布地板：极浅灰 */
-  --cv-panel: #FFFFFF;         /* 面板：纯白 */
-  --cv-card: #FFFFFF;          /* 节点卡片：纯白 */
-  --cv-elev: #FFFFFF;          /* 浮层：纯白 */
-  --cv-panel-2: #F5F6F7;       /* 次级面（极少用）*/
+  /* ---- 表面系统（3级）---- */
+  --cv-bg: #FAFBFC;
+  --cv-panel: #FFFFFF;
+  --cv-card: #FFFFFF;
+  --cv-elev: #FFFFFF;
+  --cv-panel-2: #F5F6F7;
   
-  /* ---- 描边（细线主义）---- */
+  /* ---- 描边（细线）---- */
   --cv-line-soft: rgba(0, 0, 0, 0.04);
   --cv-line: rgba(0, 0, 0, 0.08);
   --cv-line-strong: rgba(0, 0, 0, 0.12);
@@ -48,6 +48,9 @@
   --cv-edge: var(--cv-edge-custom, #2563EB);
   --cv-edge-active: var(--cv-edge-active-custom, #1D4ED8);
   
+  /* 禁用渐变背景 */
+  --cv-mesh: none;
+  
   /* ---- 表单控件 ---- */
   --cv-field: #FFFFFF;
   --cv-select-bg: rgba(37, 99, 235, 0.05);
@@ -64,14 +67,18 @@
   --cv-media-scrim: rgba(0, 0, 0, 0.5);
   --cv-lightbox: rgba(0, 0, 0, 0.85);
   
-  /* ---- 阴影（极轻，只用来分层）---- */
+  /* ---- 阴影（极轻）---- */
   --cv-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.04), 0 2px 8px rgba(0, 0, 0, 0.06);
   --cv-shadow-2: 0 2px 4px rgba(0, 0, 0, 0.05), 0 8px 16px rgba(0, 0, 0, 0.08);
   --cv-shadow-3: 0 4px 8px rgba(0, 0, 0, 0.06), 0 16px 32px rgba(0, 0, 0, 0.1);
   --cv-node-shadow: var(--cv-shadow-1);
   
   /* ---- 节点专属 ---- */
+  --cv-node-bg: var(--cv-card);
   --cv-node-line: var(--cv-node-line-custom, var(--cv-line-strong));
+  --cv-node-line-hover: var(--cv-line-strong);
+  --cv-node-accent: var(--cv-accent);
+  --cv-node-accent-ring: var(--cv-accent-soft);
   --cv-node-opposite: #FAFBFC;
   
   /* ---- 运行按钮 ---- */
@@ -88,16 +95,28 @@
   --xy-minimap-node-stroke-color: #2563EB;
   --xy-background-color: transparent;
   
-  /* ---- 几何（更大的圆角）---- */
+  /* ---- 几何（圆角）---- */
+  --cv-radius: 12px;
+  --cv-radius-sm: 8px;
+  --cv-radius-lg: 16px;
   --cv-r-sm: 8px;
   --cv-r-md: 12px;
   --cv-r-lg: 16px;
   --cv-r-full: 999px;
+  
+  /* ---- 字体尺寸 ---- */
+  --cv-fs-1: 11px;
+  --cv-fs-2: 12px;
+  --cv-fs-3: 13px;
+  --cv-fs-4: 14px;
+  --cv-fs-5: 16px;
 }
 
-/* ---- 深色模式 ---- */
-[data-theme="dark"] .canvas-studio,
-[data-theme="dark"] .flow-shell {
+/* ============================================================
+   深色模式
+   ============================================================ */
+[data-theme='dark'] .canvas-studio,
+[data-theme='dark'] .flow-shell {
   --cv-bg: #0F1419;
   --cv-panel: #1A1F26;
   --cv-card: #1A1F26;
@@ -126,6 +145,8 @@
   --cv-edge: var(--cv-edge-custom, #60A5FA);
   --cv-edge-active: var(--cv-edge-active-custom, #93C5FD);
   
+  --cv-mesh: none;
+  
   --cv-field: #151B22;
   --cv-handle-bg: #222832;
   --cv-handle-line: #4A4F55;
@@ -137,22 +158,10 @@
   --cv-float: rgba(26, 31, 38, 0.98);
   --cv-media-bg: #0F1419;
   
+  --cv-node-bg: var(--cv-card);
+  --cv-node-line-hover: rgba(255, 255, 255, 0.18);
+  
   --xy-minimap-mask-background-color: rgba(15, 20, 25, 0.85);
   --xy-minimap-node-background-color: #1A1F26;
   --xy-minimap-node-stroke-color: #60A5FA;
-}
-
-/* ---- 画布背景（纯净，不要渐变）---- */
-.cv-stage {
-  background: var(--cv-floor);
-}
-
-/* ---- 画布点阵（更稀疏）---- */
-.react-flow__background {
-  background-image: radial-gradient(circle, var(--cv-dot) 1px, transparent 1px);
-  background-size: 32px 32px;
-}
-
-[data-theme="dark"] .react-flow__background {
-  background-size: 28px 28px;
 }

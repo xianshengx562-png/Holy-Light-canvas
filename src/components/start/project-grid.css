@@ -1,146 +1,146 @@
 /* ============================================================
-   项目卡片：改名输入框 / 提示条 / **批量选择**（`components/start/ProjectGrid.tsx`）
-
-   ⚠️ 卡片本身的样式在 `app/home.css`（`.home-project` 那一族），这里只加「卡片上多出来的那层」。
-   两份不在同一个文件，是因为卡片是**页面版式**的一部分（两页共用同一张网格的版式），
-   而这些是组件自己的交互件 —— 跟着组件走（这条规矩见 home.css 头部那段自省）。
-
-   ⚠️ 右键菜单与确认框的样式**不在这里**了（2026-09-26）：资产卡片也要右键，
-   于是那一层搬去了 `components/ui/context-menu.css`，两页 import 同一份。
-   这个文件现在只剩「改名框」和「选择模式」两块。
-
-   ⚠️ 全段**不允许出现裸色值**：一律走 globals 的语义令牌，
-   否则切日间模式时这里会留在夜间那一档。
+   项目网格 - 瀑布流布局（简约风格）
    ============================================================ */
 
-/* ---------- 改名 ---------- */
+.home-projects {
+  column-count: 3;
+  column-gap: 20px;
+  margin-top: 24px;
+}
 
-/* 卡片里那个输入框：跟原来的 `<strong>` 占同一行、同一个字号，不做成「表单控件」的样子。 */
-.home-project .pg-rename {
+@media (max-width: 1200px) {
+  .home-projects {
+    column-count: 2;
+  }
+}
+
+@media (max-width: 768px) {
+  .home-projects {
+    column-count: 1;
+  }
+}
+
+.home-project {
+  break-inside: avoid;
+  page-break-inside: avoid;
+  margin-bottom: 20px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  cursor: pointer;
+  text-decoration: none;
+  display: block;
+}
+
+.home-project:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  border-color: var(--accent);
+}
+
+.home-project-cover {
   width: 100%;
-  padding: 2px 6px;
-  font-family: var(--font-sans);
-  font-size: 13px;
+  aspect-ratio: 16 / 9;
+  background: var(--bg);
+  object-fit: cover;
+  display: block;
+}
+
+.home-project-body {
+  padding: 16px;
+}
+
+.home-project-name {
+  font-size: 15px;
   font-weight: 600;
   color: var(--text);
-  background: var(--field);
-  border: 1px solid var(--accent-line);
-  border-radius: var(--r-xs);
+  margin: 0 0 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.home-project .pg-rename:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-/* 改名时不要那 2px 上抬：卡片在抖、用户正在打字，这一下会显得像点错了什么。 */
-.home-project.editing:hover { transform: none; }
 
-/* ---------- 提示条 ---------- */
-
-.pg-notice {
-  margin: 0 0 12px;
-  padding: 8px 12px;
-  font-size: 12.5px;
-  color: var(--danger);
-  background: var(--danger-soft);
-  border: 1px solid var(--danger-line);
-  border-radius: var(--r-sm);
+.home-when {
+  font-size: 13px;
+  color: var(--mute);
+  font-style: normal;
+  display: block;
 }
-/* 批量删完的「删掉了 N 个」走这一档 —— 那条是**成功**回执，不能长成报错的样子。 */
-.pg-notice.ok {
+
+.home-when.fresh {
   color: var(--accent);
-  background: var(--accent-soft);
-  border-color: var(--accent-line);
+  font-weight: 500;
 }
-
-/* ---------- 批量选择（2026-09-26）---------- */
-
-/*
- * 选择模式下卡片是一个勾选目标，不再是链接：
- *  - 光标从 `pointer` 改成 `default` 不合适 —— 它确实可点，只是点了不跳走；
- *    用 `pointer` 更符合「点一下有反应」的预期。
- *  - 卡片整体加一圈描边会跟 hover 的强调线打架，所以「选中」只靠左上角那个勾选框 + 底部一条强调条。
- */
-.home-project.picking { cursor: pointer; }
-.home-project.picking:hover { transform: none; }
-
-/* 左上角那颗勾：**必须**盖在封面上，所以放 `absolute`。 */
-.home-project .pg-pick {
-  position: absolute;
-  left: 8px;
-  top: 8px;
-  z-index: 1;
-  display: grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  color: var(--surface);
-  background: var(--surface-2);
-  border: 1.5px solid var(--line-strong);
-  border-radius: 6px;
-}
-.home-project.picked .pg-pick {
-  color: var(--accent-ink);
-  background: var(--accent-fill);
-  border-color: var(--accent-fill);
-}
-/* 选中那张卡整体压一层强调底色，扫一眼就知道勾了哪些。 */
-.home-project.picked { border-color: var(--accent-line); background: var(--accent-soft); }
-.home-project.picked::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 3px;
-  background: var(--accent);
-}
-.home-project.picking:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-
 
 /* ============================================================
-   加载骨架屏（2026-09-29）。
-   原来「数据还没回来」是一整块 `.empty`（一句「正在读取项目…」），列表回来时版式会
-   从"一小块"弹成"一整屏卡片" —— 跳一下。骨架屏的高度照着真卡片给，回来时不跳版。
-
-   ⚠️ 微光是**扫过去的一条高光**（`::after` 位移），不是整块闪：整块闪在灰阶界面里
-   看着像"接触不良"。黑白配色里它只能靠明度表达 —— 用 --surface 扫在 --surface-3 上。
+   选择模式
    ============================================================ */
-.home-skeleton { display: grid; gap: 12px; }
-.home-skeleton-tip { margin: 0; }
-.sk-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 14px;
-}
-.home-skeleton-card {
-  display: grid;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-lg);
-  background: var(--surface);
-}
-.home-skeleton-thumb,
-.home-skeleton-line {
+
+.home-project.picking {
   position: relative;
-  display: block;
-  overflow: hidden;
-  background: var(--surface-3);
-  border-radius: var(--r-sm);
+  cursor: pointer;
 }
-.home-skeleton-thumb { height: 96px; }
-.home-skeleton-line { height: 10px; width: 60%; border-radius: var(--r-full); }
-.home-skeleton-line.wide { width: 88%; }
-.home-skeleton-thumb::after,
-.home-skeleton-line::after {
+
+.home-project.picking::before {
   content: '';
   position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, transparent 0%, var(--surface) 50%, transparent 100%);
-  transform: translateX(-100%);
-  animation: sk-sweep 1.4s ease-in-out infinite;
+  top: 12px;
+  right: 12px;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--surface);
+  z-index: 2;
+  transition: all 0.2s ease;
 }
-@keyframes sk-sweep {
-  to { transform: translateX(100%); }
+
+.home-project.picking.picked::before {
+  background: var(--accent);
+  border-color: var(--accent);
 }
+
+.home-project.picking.picked::after {
+  content: '✓';
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+  z-index: 3;
+}
+
+/* ============================================================
+   空状态占位图
+   ============================================================ */
+
+.home-project-placeholder {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  color: var(--mute);
+  font-size: 48px;
+}
+
+/* ============================================================
+   减少动画
+   ============================================================ */
+
 @media (prefers-reduced-motion: reduce) {
-  .home-skeleton-thumb::after,
-  .home-skeleton-line::after { animation: none; opacity: 0; }
+  .home-project {
+    transition: none;
+  }
+  
+  .home-project:hover {
+    transform: none;
+  }
 }
