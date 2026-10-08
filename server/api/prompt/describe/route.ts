@@ -4,6 +4,7 @@ import {
   PromptAssistantError, PROMPT_ASSISTANT_MAX, describePrompt, loadSkillForPrompt,
 } from '@/lib/promptAssistant';
 import { resolvePromptImage, resolvePromptVideo } from '@/lib/promptMedia';
+import { isFreeformSkill } from '@/lib/optimizeOptions';
 import { recordCall } from '@/lib/providers/keys';
 
 /**
@@ -32,6 +33,7 @@ const schema = z.object({
   kind: z.enum(['image', 'video']).default('image'),
   /** 设置页「测一下这家」时指定厂商；节点上不传，走用户设的那家。 */
   provider: z.string().trim().max(120).optional(),
+  /** 与 `/api/prompt/optimize` 同一个字段、同一套语义（含「什么都不填」那个哨兵）。 */
   skillId: z.string().trim().max(160).optional(),
   /** 用户自己填的一句附加要求。与优化那条同一套规矩：**不限字数**。 */
   note: z.string().trim().max(PROMPT_ASSISTANT_MAX).optional(),
@@ -52,12 +54,19 @@ export async function POST(request: Request) {
       const shots = isVideo
         ? await resolvePromptVideo(parsed.data.media, user.id)
         : [await resolvePromptImage(parsed.data.media, user.id)];
+      /* 与优化那条同一个判断：哨兵 = 「什么都不填」，不是一个技能 id。 */
+      const freeform = isFreeformSkill(parsed.data.skillId);
       const result = await describePrompt(
         user.id,
         shots,
         parsed.data.provider,
-        loadSkillForPrompt(parsed.data.skillId),
-        { keepAliveSeconds: parsed.data.keepAlive, note: parsed.data.note, video: isVideo },
+        loadSkillForPrompt(freeform ? undefined : parsed.data.skillId),
+        {
+          keepAliveSeconds: parsed.data.keepAlive,
+          note: parsed.data.note,
+          video: isVideo,
+          freeform,
+        },
       );
       /* 与优化那条同一套记账规矩：本地那一档不记（没有服务商、不花额度）。 */
       if (result.provider !== 'local') {

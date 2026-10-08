@@ -1,5 +1,11 @@
 /* ---------- 主体：左轨道 + 画布 + 右侧面板 ---------- */
 .flow-shell .cv-body { flex: 1; display: flex; min-height: 0; }
+/* 预设侧边栏的落点（`CreativePresetPicker` 从 `GenerateDock` 里 portal 到这儿）。
+   `display: contents` = **这一层自己不生成盒子**，portal 进来的 `.cv-cpk-sidebar`
+   于是直接成为 `.cv-body` 的 flex 子项 —— 不用 `order` 也能让它排在
+   `.cv-stage` 与 `.cv-inspector` 中间（DOM 顺序在那儿摆着）。
+   不开预设时这块是空的，对布局一点影响都没有。 */
+.flow-shell .cv-preset-slot { display: contents; }
 .flow-shell .cv-stage {
   position: relative;
   flex: 1;
@@ -73,7 +79,7 @@
   color: var(--cv-dim);
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: var(--cv-radius-lg);
   cursor: pointer;
   transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
 }
@@ -187,7 +193,7 @@
   color: var(--cv-text);
   background: var(--cv-elev);
   border: 1px solid var(--cv-line-strong);
-  border-radius: 7px;
+  border-radius: var(--cv-radius);
   box-shadow: var(--cv-shadow-1);
   opacity: 0;
   pointer-events: none;
@@ -534,7 +540,7 @@
   padding-right: 2px;
 }
 .cv-param-body::-webkit-scrollbar { width: 6px; }
-.cv-param-body::-webkit-scrollbar-thumb { background: var(--cv-line-strong); border-radius: 3px; }
+.cv-param-body::-webkit-scrollbar-thumb { background: var(--cv-line-strong); border-radius: var(--cv-radius-sm); }
 .cv-param-body::-webkit-scrollbar-track { background: transparent; }
 
 /* ---------- 拖右下角改节点尺寸 ------------- */
@@ -826,7 +832,7 @@
   line-height: 1.5;
   color: var(--cv-mute);
   background: var(--cv-media-solid);
-  border-radius: 4px;
+  border-radius: var(--cv-radius-sm);
 }
 .cv-frame-tag {
   position: absolute;
@@ -837,7 +843,7 @@
   line-height: 1.5;
   color: var(--cv-text);
   background: var(--cv-media-solid);
-  border-radius: 4px;
+  border-radius: var(--cv-radius-sm);
 }
 /* 参数条里「看首帧 / 下载首帧」两个按钮算一组，别被 flex 拉散。 */
 .cv-param-inline { display: inline-flex; align-items: center; gap: 6px; }
@@ -1059,7 +1065,7 @@
   color: var(--cv-mute);
   background: transparent;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--cv-radius);
   cursor: pointer;
 }
 .cv-results-reload:hover { background: var(--cv-panel-2); color: var(--cv-text); }
@@ -1080,7 +1086,7 @@
   padding: 9px 10px;
   background: var(--cv-panel-2);
   border: 1px solid var(--cv-line);
-  border-radius: 10px;
+  border-radius: var(--cv-radius-lg);
 }
 .cv-results-head {
   display: flex;
@@ -1117,13 +1123,13 @@
 .cv-results-open:hover { text-decoration: underline; }
 .cv-results-at { font-size: var(--cv-fs-1); color: var(--cv-mute); }
 .cv-results-media { display: grid; gap: 6px; justify-items: start; }
-.cv-results-media .cv-video { width: 100%; border-radius: 8px; border: 1px solid var(--cv-line); }
+.cv-results-media .cv-video { width: 100%; border-radius: var(--cv-radius); border: 1px solid var(--cv-line); }
 /* 音频：一条窄条就够了 —— 用 16:9 的黑框装一段只有波形的声音，既难看也看不出进度。 */
-.cv-results-media .cv-audio { width: 100%; border-radius: 8px; border: 1px solid var(--cv-line); }
+.cv-results-media .cv-audio { width: 100%; border-radius: var(--cv-radius); border: 1px solid var(--cv-line); }
 /* 文本结果在历史栏里只给一条入口（见 CanvasResultsPanel 那段注释）。 */
 .cv-results-text {
   display: block; width: 100%; padding: 10px 12px; text-decoration: none;
-  border: 1px solid var(--cv-line); border-radius: 8px;
+  border: 1px solid var(--cv-line); border-radius: var(--cv-radius);
   background: var(--cv-field); color: var(--cv-text); font-size: var(--cv-fs-3);
 }
 
@@ -1270,7 +1276,7 @@
   display: grid;
   place-items: center;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--cv-radius);
   background: transparent;
   color: var(--cv-mute);
   cursor: pointer;
@@ -1286,7 +1292,7 @@
   height: 26px;
   padding: 0 8px;
   border: 1px solid var(--cv-line);
-  border-radius: 7px;
+  border-radius: var(--cv-radius);
   background: var(--cv-panel-2);
   color: var(--cv-text);
   font-size: var(--cv-fs-3);
@@ -1321,7 +1327,7 @@
   padding: 0;
   overflow: hidden;
   border: 1px solid var(--cv-line);
-  border-radius: 8px;
+  border-radius: var(--cv-radius);
   background: var(--cv-panel-2);
   cursor: pointer;
 }
@@ -1403,7 +1409,7 @@
   color: var(--cv-dim);
   background: transparent;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--cv-radius-sm);
   cursor: pointer;
 }
 .cv-codex-model:hover { color: var(--cv-text); background: var(--cv-panel-2); }
@@ -1424,7 +1430,7 @@
   /* 消息里有换行，也有代码块式的长行 —— 两个都要能看。 */
   white-space: pre-wrap;
   word-break: break-word;
-  border-radius: 10px;
+  border-radius: var(--cv-radius-lg);
 }
 .cv-codex-msg.user { align-self: flex-end; background: var(--cv-accent-soft); color: var(--cv-text); }
 .cv-codex-msg.bot { align-self: flex-start; background: var(--cv-panel-2); color: var(--cv-text); }
@@ -1455,7 +1461,7 @@
   padding: 6px 9px;
   background: var(--cv-panel-2);
   border: 1px solid var(--cv-line);
-  border-radius: 8px;
+  border-radius: var(--cv-radius);
 }
 .cv-codex-tool-name { font-size: var(--cv-fs-2); color: var(--cv-dim); }
 .cv-codex-tool-raw { font-size: var(--cv-fs-1); color: var(--cv-mute); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -1493,7 +1499,7 @@
   color: var(--cv-text);
   background: var(--cv-field);
   border: 1px solid var(--cv-line);
-  border-radius: 8px;
+  border-radius: var(--cv-radius);
   resize: none;
 }
 .cv-codex-input:focus {

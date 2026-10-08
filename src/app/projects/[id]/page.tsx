@@ -26,7 +26,43 @@ export default function Project() {
   const { data: project, loading, error } = useApi<ProjectPayload>(id ? `/api/projects/${id}` : null);
 
   if (loading) {
-    return <div className="empty" style={{ padding: 48 }}><div className="empty-icon">✦</div><h3>正在打开画布…</h3></div>;
+    /*
+     * 画布骨架（2026-10-07 徐先：「加载的界面优化一下」）。
+     *
+     * 原来是「一块空底 + 居中一个 ✦ 字符 + 正在打开画布…」（`.empty` 那套）。
+     * 点进项目的第一眼是一块什么都没有的底板，然后整块画布**切**进来。
+     * 现在先按**真实画布的形状**摆一个空壳：顶栏、左侧工具条、地板上的几个影子节点。
+     * 数据回来时是「影子被真节点替换」，不是「整个界面换了一次」。
+     *
+     * ⚠️ 刻意**不画右侧参数栏** —— 真实画布刚打开时没选中任何节点，参数栏本来就不出现，
+     *    画上去等于自己造一次布局跳动。
+     * ⚠️ 用 `.flow-shell` 而不是自己写一套底色：`cv-*` 令牌都挂在它身上
+     *    （tokens.css 里 `.flow-shell` / `[data-theme='dark'] .flow-shell` 两档），
+     *    于是这块骨架自动跟着主题与画布配色走，不用再维护第三套颜色。
+     */
+    return (
+      <div className="canvas-studio">
+        <div className="flow-shell cv-booting" role="status" aria-live="polite" aria-busy="true">
+          <div className="cv-boot-topbar">
+            <span className="cv-boot-brand" />
+            <span className="cv-boot-chip" />
+            <span className="cv-boot-chip sm" />
+            <span className="cv-boot-gap" />
+            <span className="cv-boot-chip" />
+            <span className="cv-boot-btn" />
+          </div>
+          <div className="cv-boot-body">
+            <div className="cv-boot-rail">
+              {[0, 1, 2, 3, 4].map(n => <span className="cv-boot-dot" key={n} />)}
+            </div>
+            <div className="cv-boot-floor">
+              {[0, 1, 2].map(n => <span className="cv-boot-node" key={n} />)}
+            </div>
+          </div>
+          <p className="cv-boot-tip">正在打开画布…</p>
+        </div>
+      </div>
+    );
   }
   if (error || !project) {
     return (

@@ -19,6 +19,7 @@ import { readLastUpscaleWorkflow } from '@/lib/upscaleMemory';
 import type { NodeKind } from './nodeMeta';
 import { NodeGlyph } from './nodeIcons';
 import NodeParamBar from './NodeParamBar';
+import { useParamPanelOpen } from './paramPanelMode';
 import StarFlow from '@/components/ui/StarFlow';
 
 /**
@@ -50,6 +51,8 @@ const isInnerGesture = (target: EventTarget | null) =>
 
 export default function NodeCard({ data, selected }: { data: NodeData; selected?: boolean }) {
   const kind = (data.kind || 'text') as NodeKind;
+  /** 右侧参数栏开着吗 —— 开着的话参数只在那边改，卡片下方的浮条不画（见下面那段注释）。 */
+  const paramPanelOpen = useParamPanelOpen();
   /** 自己的 id —— 「跟随连出去的那个节点」要从这里出发顺着线找（`useNodeId` 是 React Flow 给的）。 */
   const nodeId = useNodeId() || '';
   const meta = NODE_META[kind];
@@ -802,8 +805,14 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
         生成节点不给浮层了（2026-09-21）：它们的参数改在画布底部那个对话框里。
         判断走 nodeMeta 的 `usesGenerateDock` —— 与 CanvasEditor 抬出对话框用的是同一个判定，
         不然会出现「浮条收了、对话框也没出来」，这个节点就一个参数都改不了了。
+
+        🔴 右侧参数栏开着时**这里不画**（2026-10-08 徐先）：
+        同一个 `NodeParamBar` 在 `NodeInspector` 里也挂了一份，不看这个开关就是
+        「参数栏里一份、卡片下方又一份」，还是同一颗节点的同一批参数。
+        判定由 `CanvasEditor` 通过 `ParamPanelOpenContext` 给下来（它才是 `inspectorOpen` 的持有者），
+        并且**已经带上 `&& !zen`** —— 无遮挡模式下参数栏不渲染，这里必须自己顶上。
       */}
-      {selected && kind !== 'text' && !usesGenerateDock(kind)
+      {selected && kind !== 'text' && !usesGenerateDock(kind) && !paramPanelOpen
         && <NodeParamBar data={data} followedSide={followedSide} followedFrom={followedFrom} />}
 
       {mediaFace && outputHandle}

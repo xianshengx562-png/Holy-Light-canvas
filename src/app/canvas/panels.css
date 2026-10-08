@@ -191,7 +191,7 @@
   color: var(--cv-mute);
   background: var(--cv-panel-2);
   border: 1px solid var(--cv-line);
-  border-radius: 5px;
+  border-radius: var(--cv-radius-sm);
 }
 
 /* ---------- 右下角「画布外观」入口 ---------- */
@@ -364,7 +364,7 @@
   color: var(--cv-mute);
   background: transparent;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--cv-radius);
   cursor: pointer;
 }
 .cv-ap-x:hover { color: var(--cv-text); background: var(--cv-panel-2); }
@@ -458,7 +458,7 @@
   text-align: left;
   background: var(--cv-elev);
   border: 1px solid var(--cv-line-strong);
-  border-radius: 6px;
+  border-radius: var(--cv-radius);
   box-shadow: var(--cv-shadow-2);
   transform: translateX(-50%);
 }
@@ -482,7 +482,7 @@
   color: var(--cv-dim);
   background: transparent;
   border: 1px solid var(--cv-line);
-  border-radius: 7px;
+  border-radius: var(--cv-radius);
   cursor: pointer;
   transition: color 0.14s ease, background 0.14s ease, border-color 0.14s ease;
 }
@@ -536,7 +536,7 @@
   color: var(--cv-dim);
   background: var(--cv-panel-2);
   border: 1px solid var(--cv-line);
-  border-radius: 8px;
+  border-radius: var(--cv-radius);
   cursor: pointer;
   /* 平面：hover 不位移、不加阴影，只换描边（位移会让整排文字跟着抖）。 */
   transition: color 0.14s ease, background 0.14s ease, border-color 0.14s ease;
@@ -572,7 +572,7 @@
   width: 100%;
   height: 50px;
   padding: 8px 9px;
-  border-radius: 7px;
+  border-radius: var(--cv-radius);
   overflow: hidden;
   /* ⚠️⚠️ `grid-template-columns` 必须显式写（2026-09-24 第十次，真因）：
      卡是 `display: grid` 却没写列，于是只有一个 **隐式列**，宽度 = `auto`；
@@ -623,7 +623,7 @@
      小样自己也是 grid，隐式列 auto + 内部块级面吃 100% 宽同样是循环依赖。 */
   grid-template-columns: 100%;
   grid-template-rows: 6px 1fr;
-  border-radius: 4px;
+  border-radius: var(--cv-radius-sm);
   justify-items: stretch;
 }
 /* 勾钉在**右上角**：卡正中是名字，居中放会压在字上。 */
@@ -644,7 +644,7 @@
   height: 22px;
   overflow: hidden;
   border: 1px solid var(--cv-line);
-  border-radius: 5px;
+  border-radius: var(--cv-radius-sm);
 }
 .cv-ap-mini-bar, .cv-ap-mini-body { display: block; }
 .cv-ap-mini.dark .cv-ap-mini-bar { background: #1c1f23; }
@@ -727,7 +727,7 @@
   color: var(--cv-dim);
   background: transparent;
   border: 1px solid var(--cv-line);
-  border-radius: 5px;
+  border-radius: var(--cv-radius-sm);
   cursor: pointer;
   transition: color 0.14s ease, border-color 0.14s ease;
 }
@@ -897,7 +897,7 @@
   padding: 1px 5px;
   background: var(--cv-field);
   border: 1px solid var(--cv-line);
-  border-radius: 4px;
+  border-radius: var(--cv-radius-sm);
   white-space: nowrap;
 }
 .cv-fpk-tag.live { color: var(--cv-accent); border-color: var(--cv-accent-line); background: var(--cv-accent-soft); }
@@ -1615,6 +1615,31 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
      待在滚动容器里会被裁掉。滚动全交给下面的 `.cv-dock-scroll`。 */
   overflow: visible;
 }
+/* ---------- 参数面板模式（GenerateDock 在 inspector 下复用同一份 JSX）----------
+ * 🔴 2026-10-07 徐先报的 bug：「右边的参数没了，跑到左上角，而且不是全部」。
+ *    GenerateDock 在 inspector 模式下**仍然带着 `.cv-dock`**（TSX 里是
+ *    `cv-dock cv-dock-inspector` 两个类），而上面那条 `.cv-dock` 是给
+ *    「浮在画布上」写的 —— `position: absolute; left: 14px; top: 14px`。
+ *    修饰类 `.cv-dock-inspector` 原先**一行样式都没有**，撤不掉那个定位，
+ *    于是整块参数从右侧面板里脱出、飘到画布左上角（正好是 left/top 14px 那个兜底位）。
+ *    修法：把定位和「浮层外观」整套撤掉，让它回到面板的文档流里 ——
+ *    面板自己已经有底、有边、有阴影，参数块不该再叠一层卡片。
+ *    滚动交给里面原有的 `.cv-dock-scroll`（它本来就是 flex:1 + overflow-y:auto）。 */
+.flow-shell .cv-dock.cv-dock-inspector {
+  position: static;
+  left: auto;
+  top: auto;
+  z-index: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: auto;
+  max-height: none;
+  padding: 0 calc(14px * var(--ui)) calc(14px * var(--ui));
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
 /* 滚动区：参考图 + 提示词 + 自定义参数展开区。操作排是它的兄弟，常驻底部。 */
 .cv-dock-scroll {
   flex: 1 1 auto;
@@ -1869,7 +1894,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   height: calc(18px * var(--ui));
   padding: 0;
   border: 0;
-  border-radius: 3px;
+  border-radius: var(--cv-radius-sm);
   background: transparent;
   color: var(--cv-mute);
   cursor: pointer;
@@ -1920,7 +1945,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   text-align: left;
   background: transparent;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--cv-radius);
   cursor: pointer;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2070,12 +2095,12 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   padding: 8px 4px 6px;
   background: var(--cv-field);
   border: 1px solid var(--cv-line);
-  border-radius: 8px;
+  border-radius: var(--cv-radius);
   color: var(--cv-dim);
   font-size: var(--cv-fs-2);
   cursor: pointer;
 }
-.cv-dock-ratio i { display: block; border: 1.5px solid currentColor; border-radius: 3px; }
+.cv-dock-ratio i { display: block; border: 1.5px solid currentColor; border-radius: var(--cv-radius-sm); }
 .cv-dock-ratio:hover { color: var(--cv-text); border-color: var(--cv-accent-line); }
 .cv-dock-ratio.on {
   background: var(--cv-accent-soft);
@@ -2267,7 +2292,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   color: var(--cv-mute);
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: var(--cv-radius);
 }
 .cv-skill-x:hover { color: var(--cv-text); background: var(--cv-panel-2); }
 
@@ -2291,7 +2316,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   color: var(--cv-text);
   background: var(--cv-field);
   border: 1px solid var(--cv-line);
-  border-radius: 8px;
+  border-radius: var(--cv-radius);
 }
 .cv-skill-name:focus {
   outline: none;
@@ -2337,7 +2362,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   padding: 10px;
   background: var(--cv-panel-2);
   border: 1px solid var(--cv-line);
-  border-radius: 10px;
+  border-radius: var(--cv-radius-lg);
 }
 .cv-skill-card.on { border-color: var(--cv-accent); }
 .cv-skill-card-top { display: flex; align-items: center; gap: 6px; }
@@ -2359,7 +2384,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   color: var(--cv-text);
   background: var(--cv-field);
   border: 1px solid var(--cv-line);
-  border-radius: 6px;
+  border-radius: var(--cv-radius);
 }
 .cv-skill-title-input:focus { outline: none; border-color: var(--cv-accent-line); }
 .cv-skill-usage {
@@ -2401,7 +2426,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   color: var(--cv-dim);
   background: var(--cv-panel);
   border: 1px solid var(--cv-line);
-  border-radius: 5px;
+  border-radius: var(--cv-radius-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2419,7 +2444,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   color: var(--cv-mute);
   background: transparent;
   border: 1px solid var(--cv-line);
-  border-radius: 7px;
+  border-radius: var(--cv-radius);
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -2456,7 +2481,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   color: var(--cv-dim);
   background: transparent;
   border: 1px solid var(--cv-line);
-  border-radius: 7px;
+  border-radius: var(--cv-radius);
   cursor: pointer;
   max-width: 220px;
 }
@@ -2478,7 +2503,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   color: var(--cv-text);
   background: var(--cv-field);
   border: 1px solid var(--cv-line);
-  border-radius: 6px;
+  border-radius: var(--cv-radius);
 }
 .cv-skill-cat-input:focus { outline: none; border-color: var(--cv-accent-line); }
 /* 删分类那个 ×：平时不显形，鼠标移到这一格才出来（跟端口那套一个路子）。 */
@@ -2492,7 +2517,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   color: var(--cv-mute);
   background: transparent;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--cv-radius-sm);
   cursor: pointer;
   opacity: 0;
 }
@@ -2507,7 +2532,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   color: var(--cv-dim);
   background: var(--cv-panel-2);
   border: 1px solid var(--cv-line);
-  border-radius: 5px;
+  border-radius: var(--cv-radius-sm);
   padding: 1px 6px;
   display: inline-flex;
   align-items: center;
@@ -2531,7 +2556,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   color: var(--cv-mute);
   background: transparent;
   border: 1px dashed var(--cv-line);
-  border-radius: 5px;
+  border-radius: var(--cv-radius-sm);
   cursor: pointer;
 }
 .cv-skill-tag-add:hover { color: var(--cv-accent); border-color: var(--cv-accent-line); }
@@ -2545,7 +2570,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   color: var(--cv-mute);
   background: transparent;
   border: 0;
-  border-radius: 3px;
+  border-radius: var(--cv-radius-sm);
   cursor: pointer;
 }
 .cv-skill-tag-x:hover { color: var(--cv-danger); }
@@ -2558,7 +2583,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   padding: 6px;
   background: var(--cv-panel-2);
   border: 1px solid var(--cv-line);
-  border-radius: 7px;
+  border-radius: var(--cv-radius);
 }
 .cv-skill-tagedit .cv-skill-tag-input {
   flex: 1 1 160px;
@@ -2569,7 +2594,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   color: var(--cv-text);
   background: var(--cv-field);
   border: 1px solid var(--cv-line);
-  border-radius: 6px;
+  border-radius: var(--cv-radius);
 }
 .cv-skill-tagedit .cv-skill-tag-input:focus { outline: none; border-color: var(--cv-accent-line); }
 .cv-skill-tag-quick { flex: 1 1 100%; display: flex; gap: 4px; flex-wrap: wrap; }
@@ -2597,7 +2622,7 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   color: var(--cv-mute);
   background: transparent;
   border: none;
-  border-radius: 5px;
+  border-radius: var(--cv-radius-sm);
 }
 .cv-codex-skill-x:hover { color: var(--cv-text); background: var(--cv-panel); }
 
@@ -2781,26 +2806,40 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   100% { box-shadow: 0 0 0 3px transparent; }
 }
 
-/* ---------- 创作预设侧边栏（2026-10-07 重构为右侧面板）---------- */
-/* 从全屏模态框改为固定右侧的侧边栏，420px宽 */
+/* ---------- 创作预设栏（2026-10-07 重构为并排第三栏）---------- */
+/*
+ * 形态：**画布 │ 预设栏 │ 节点参数**（徐先 2026-10-07 当面定）。
+ *
+ * 🔴 它不再是 `position: fixed; right: 0` 的浮层 —— 那是上一版的写法，
+ *    会**盖住右侧参数栏**。现在它是 `.cv-body` 的直接 flex 子项
+ *    （portal 到 `.cv-preset-slot`，那块是 `display: contents`，见 nodes.css），
+ *    所以宽度是真从画布身上让出来的，谁也不挡谁。
+ *    改回 fixed 的话：三栏并排这个前提就没了，而且点开预设时右边参数会整块被吃掉。
+ *
+ * ⚠️ 宽度走 `--ui`（跟 `.cv-inspector` 一个规矩）：全站尺寸归那一个乘数管，
+ *    写死 px 的话用户改「界面大小」这栏不跟着缩放。
+ * ⚠️ `min-height: 0` 不能省：grid 的 `minmax(0, 1fr)` 那一行要能被压下去才会出滚动条。
+ */
 .cv-cpk-sidebar {
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 70;
-  width: 420px;
+  flex: none;
+  width: calc(360px * var(--ui));
+  min-height: 0;
   display: grid;
+  /* 头（tab + ×）/ 搜索 / 分类胶囊 / 网格（唯一可滚的那行）/ 底栏 */
   grid-template-rows: auto auto auto minmax(0, 1fr) auto;
-  background: var(--cv-elev);
-  border-left: 1px solid var(--cv-line-strong);
-  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.15);
-  animation: cv-sidebar-in 0.25s ease;
+  background: var(--cv-panel);
+  /* 一条极淡线跟画布分区 —— 跟 `.cv-inspector` 左右对称，中间这栏两边各一条。
+     这是**区域分隔**，不是 P-38 管的那种「选中态左侧竖条」。 */
+  border-left: 1px solid var(--cv-line);
+  overflow: hidden;
+  animation: cv-sidebar-in 0.2s ease;
 }
 
+/* 从右边滑进来 12px + 淡入。上一版是 `translateX(100%)`（浮层整套滑完），
+   现在是并排栏，滑满整个宽度会把它左边那块画布闪一下。 */
 @keyframes cv-sidebar-in {
   from {
-    transform: translateX(100%);
+    transform: translateX(12px);
     opacity: 0;
   }
   to {
@@ -2904,13 +2943,20 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 
 .cv-cpk-search input::placeholder { color: var(--cv-placeholder); }
 
+/*
+ * 分类胶囊：**换行**，不做横向滚动。
+ * 原先写的是 `overflow-x: auto`（浮层时代那版），在并排栏里那条更糟 ——
+ * 360px 宽放不下几个分类，于是最后那颗永远被切一半，看着像坏了；
+ * 而且藏在横向滚动里的分类**等于不存在**（没人会想到去横着滚一行胶囊）。
+ * 竖着有的是地方：`.cv-cpk-grid` 那一行是 `minmax(0, 1fr)`，
+ * 分类排多了就自动把网格让窄一点，不会挤爆。
+ */
 .cv-cpk-cats {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   padding: 0 16px 12px;
-  overflow-x: auto;
-  scrollbar-width: thin;
 }
 
 .cv-cpk-cats::-webkit-scrollbar { height: 4px; }
@@ -3030,8 +3076,13 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   border: 1px solid var(--cv-line);
   border-radius: var(--cv-radius-sm);
   background: var(--cv-panel);
-  transition: all 0.15s ease;
-  overflow: hidden;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  /*
+   * ⚠️ 这里**故意不写 `overflow: hidden`**。圆角靠下面 `.cv-cpk-thumb` 自己那条
+   *    `border-radius` 实现（`border-radius` 本来就会裁自己的背景，不需要裁子孙）。
+   *    理由见 MEMORY：Electron 里「会裁剪的祖先 + 几十上百张被缩放的 webp」
+   *    会被合成器画成一片横纹。这一栏一屏 60 张卡，正好踩满那个条件。
+   */
 }
 
 .cv-cpk-card:hover { 
@@ -3072,6 +3123,9 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   height: 0;
   padding-top: 62.5%;
   background: var(--cv-panel-2);
+  /* 卡片那圈圆角由上沿这两颗来（卡片自己没有 overflow: hidden）：
+     `border-radius` 会裁掉自己的背景色，而 `img` 那边单独写一份同样的圆角。 */
+  border-radius: calc(var(--cv-radius-sm) - 1px) calc(var(--cv-radius-sm) - 1px) 0 0;
 }
 
 .cv-cpk-thumb img,
@@ -3082,12 +3136,26 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   width: 100%;
   height: 100%;
   object-fit: cover;
+  border-radius: inherit;
 }
 
+/*
+ * 没有预览图的那些（自定义提示词）：直接把用户写的那句话铺上来。
+ * 原先是一块 45° 斜纹占位 —— 每张自定义卡长得一模一样，写了什么完全看不出来。
+ */
 .cv-cpk-noimg {
   position: absolute;
   inset: 0;
-  background: repeating-linear-gradient(45deg, var(--cv-panel-2) 0 8px, var(--cv-field) 8px 16px);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+  padding: 10px;
+  font-size: var(--cv-fs-1);
+  line-height: 1.5;
+  color: var(--cv-mute);
+  background: var(--cv-panel-2);
+  word-break: break-word;
 }
 
 .cv-cpk-name {
@@ -3116,11 +3184,10 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   width: 24px;
   height: 24px;
   color: rgba(255, 255, 255, 0.7);
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.55);
   border: 0;
   border-radius: 50%;
   cursor: pointer;
-  backdrop-filter: blur(4px);
   transition: all 0.15s ease;
 }
 
@@ -3148,19 +3215,26 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  /* 装了「已选 N 条」之后左边那句会变长，加上右边两颗按钮，360px 宽里一行放不下。
+     让它**整块**换行、而不是把那句话拆成两截 —— 「217 / 217 个预设 · 已选」/「1 条」
+     断在数字中间，读起来像坏了。 */
+  flex-wrap: wrap;
+  gap: 8px 12px;
   padding: 12px 16px;
   font-size: var(--cv-fs-2);
   color: var(--cv-mute);
   border-top: 1px solid var(--cv-line);
   background: var(--cv-panel-2);
 }
-
+.cv-cpk-foot > span:first-child { white-space: nowrap; }
 .cv-cpk-foot-acts {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   flex: none;
+  /* 换到第二行时贴右，跟第一行那句仍然拉开；用 margin 而不是 justify-content ——
+     只有一个子项时 space-between 会把它按在左边。 */
+  margin-left: auto;
 }
 
 .cv-cpk-clear,
@@ -3518,9 +3592,174 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   padding: 1px 6px;
   background: var(--cv-field);
   border: 1px solid var(--cv-line);
-  border-radius: 4px;
+  border-radius: var(--cv-radius-sm);
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ---------- 右侧节点参数面板 ----------
+ * ⚠️ 这一整套类**从来没写过样式**：`NodeInspector.tsx` 渲染了 `<aside class="cv-inspector">`，
+ *    但全库 CSS 里对它零命中。而 `.cv-body` 是 flex 容器，它作为 flex item 默认
+ *    `flex: 0 1 auto` + 宽度 auto —— 于是被内容压成 **61px**（真机实测），
+ *    「节点参数 / × / 未选中节点」挤成三行竖排、贴着屏幕右缘，看着像界面坏了。
+ * 宽度给死值而不是 auto：这是工具面板，不该随内容抖。
+ */
+.flow-shell .cv-inspector {
+  flex: none;
+  /* 兜底宽度：实际值由组件内联写（可拖拽、存 localStorage，见 NodeInspector.tsx）。
+     留一份是为了内联样式万一没生效时不至于把面板塌掉。 */
+  width: calc(380px * var(--ui));
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  /* 拖拽条要相对它定位 */
+  position: relative;
+  background: var(--cv-panel);
+  /* 一条极淡线跟画布分区 —— 亮色下 --cv-panel 与画布地板只差 2% 明度，
+     不加线看不出边界。这是**区域分隔**，不是卡片/选中态左侧竖条（P-38 管的是后者）。 */
+  border-left: 1px solid var(--cv-line);
+  overflow: hidden;
+}
+/* 左边缘的拖拽热区：6px 宽，比那条 1px 分隔线好抓得多。
+   默认完全透明（不参与视觉），hover / 按住时才显一条强调色 ——
+   常驻可见的话，面板边上会一直挂着一道没必要的高光。
+   ⚠️ hover 那支包在 `(hover: hover) and (pointer: fine)` 里：触屏没有 hover 态，
+      不加判断的话手指点上去会「粘」住一条高光不放。 */
+.flow-shell .cv-inspector-resize {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  z-index: 5;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.14s ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .flow-shell .cv-inspector-resize:hover { background: var(--cv-accent-line); }
+}
+.flow-shell .cv-inspector-resize:active { background: var(--cv-accent); }
+.flow-shell .cv-inspector-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: calc(8px * var(--ui));
+  height: calc(52px * var(--ui));
+  padding: 0 calc(14px * var(--ui));
+  border-bottom: 1px solid var(--cv-line-soft);
+  color: var(--cv-dim);
+}
+/* `flex: 1` 自己就能把关闭钮顶到最右，不要再用 margin-left: auto（两者会打架）。 */
+.flow-shell .cv-inspector-head h2 {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--cv-fs-4);
+  font-weight: 600;
+  color: var(--cv-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.flow-shell .cv-inspector-head .cv-btn { flex: none; }
+.flow-shell .cv-inspector-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: calc(10px * var(--ui));
+  font-size: var(--cv-fs-3);
+  color: var(--cv-mute);
+}
+.flow-shell .cv-inspector-selection {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: calc(10px * var(--ui));
+  padding: calc(12px * var(--ui)) calc(14px * var(--ui));
+  border-bottom: 1px solid var(--cv-line-soft);
+}
+.flow-shell .cv-inspector-selection strong {
+  display: block;
+  font-size: var(--cv-fs-4);
+  font-weight: 600;
+  color: var(--cv-text);
+}
+.flow-shell .cv-inspector-selection span { font-size: var(--cv-fs-2); color: var(--cv-mute); }
+.flow-shell .cv-inspector-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: calc(14px * var(--ui));
+}
+/* ---------- 参数条在检查器里（NodeParamBar 复用同一份 JSX）----------
+ * 🔴 2026-10-08 徐先报的 bug：「右侧怎么什么参数都没有」。
+ *    跟上面 `.cv-dock-inspector` 是**同一个病**：`.cv-param-bar` 是为「挂在节点卡片
+ *    正下方」写的 —— `position: absolute; top: calc(100% + 10px); left: -14px; width: 520px`。
+ *    它进了检查器之后，包含块变成 `.cv-inspector`（那里有 `position: relative`），
+ *    `top: 100%` 把整块推到面板**外面**，而 `.cv-inspector` 是 `overflow: hidden`
+ *    —— 结果是 `querySelectorAll('.cv-inspector .cv-param-bar')` 查得到 1 条、
+ *    屏幕上一个字都没有。⚠️**只数 DOM 条数会假通过**，验收必须量「可见」
+ *    （rect 宽高非零 + 落在面板矩形内 + `elementFromPoint` 命中）。
+ *    修法照搬 `.cv-dock-inspector`：撤掉定位与浮层外观，回到面板的文档流里。
+ *    滚动交给 `.cv-inspector-content`（它本来就是 `overflow-y: auto`），
+ *    所以里面那层 `.cv-param-body` 自己的滚动也要撤掉 —— 两层都滚会出现
+ *    一条滚不动的内滚动条，看着像内容被截断。
+ *    ⚠️ `grid-template-rows` 也要撤：`minmax(0, 1fr)` 是「浮层有固定高度、内容超高
+ *    就在里面滚」那套的写法，面板里要的是「内容多高就多高」。 */
+.flow-shell .cv-inspector .cv-param-bar {
+  position: static;
+  top: auto;
+  left: auto;
+  right: auto;
+  z-index: auto;
+  grid-template-rows: auto;
+  width: auto;
+  max-width: none;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.flow-shell .cv-inspector .cv-param-bar.flip { right: auto; }
+.flow-shell .cv-inspector .cv-param-body { overflow: visible; }
+/*
+ * 四项参数（`OptimizeOptions`）原本是**两列**——那条规矩写在 `panels.css` 的
+ * `.cv-param-opts` 上，理由是「参数条浮在节点下方，横向很窄」。
+ * 面板比那条浮条还窄（默认 380 × --ui ≈ 342，可用 316），两列一开每格只剩 ~154px，
+ * 「自动（跟随设置 · 本地 · Qwen3.5-4B-…」这种值当场被截成半句。
+ * 面板里一律单列：每个下拉各占一行、宽度拉满。
+ */
+.flow-shell .cv-inspector .cv-param-opts { grid-template-columns: 1fr; }
+.flow-shell .cv-inspector-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: calc(6px * var(--ui)) calc(12px * var(--ui));
+  margin: 0;
+  font-size: var(--cv-fs-3);
+}
+.flow-shell .cv-inspector-facts dt { color: var(--cv-mute); }
+.flow-shell .cv-inspector-facts dd {
+  margin: 0;
+  color: var(--cv-text);
+  font-variant-numeric: tabular-nums;
+}
+/* GenerateDock 在「参数面板」模式下的分节（选中生成类节点时才会出现）。 */
+.flow-shell .cv-inspector-section {
+  display: grid;
+  gap: calc(8px * var(--ui));
+  margin-bottom: calc(16px * var(--ui));
+}
+.flow-shell .cv-inspector-section h3,
+.flow-shell .cv-inspector-label {
+  margin: 0;
+  font-size: var(--cv-fs-2);
+  font-weight: 600;
+  color: var(--cv-mute);
+}
+.flow-shell .cv-inspector-engine { display: grid; gap: calc(6px * var(--ui)); }

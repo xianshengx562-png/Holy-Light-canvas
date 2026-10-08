@@ -16,7 +16,10 @@
  * 老画布的优化结果一个字都不会变。见 `lib/optimizeOptions.ts` 里那条注释。
  */
 import { useApi } from '@/lib/client';
-import { OPTIMIZE_STRENGTHS, normalizeOptimizeNote, resolveStrength } from '@/lib/optimizeOptions';
+import {
+  OPTIMIZE_FREEFORM_HINT, OPTIMIZE_SKILL_FREE, OPTIMIZE_STRENGTHS,
+  isFreeformSkill, normalizeOptimizeNote, resolveStrength,
+} from '@/lib/optimizeOptions';
 import type { NodeData } from './types';
 
 /** `/api/skills` 里只用到这三列 —— 别把整个 `SkillItem` 搬进来。 */
@@ -37,7 +40,9 @@ export default function OptimizeOptions({ data }: { data: NodeData }) {
 
   const skills = (skillList.data?.skills ?? []).filter(item => item.optimize);
   const skill = String(data.promptSkill || '');
-  const missingSkill = skill && !skills.some(item => item.id === skill) ? skill : '';
+  /** 「什么都不填」那一档 —— 它是哨兵值，不是真技能，所以不算「技能已经不在了」。 */
+  const freeform = isFreeformSkill(skill);
+  const missingSkill = skill && !freeform && !skills.some(item => item.id === skill) ? skill : '';
 
   const strength = resolveStrength(data.promptStrength);
   const strengthHint = OPTIMIZE_STRENGTHS.find(item => item.value === strength)?.hint || '';
@@ -92,6 +97,13 @@ export default function OptimizeOptions({ data }: { data: NodeData }) {
           onChange={event => data.onField?.('promptSkill', event.target.value)}
         >
           <option value="">— 通用写法（不指定）—</option>
+          {/*
+            「什么都不填」（2026-10-08 徐先）。
+            🔴 它和上面那条「不指定」是**两档**：不指定 = 不挑技能，但通用写法那套补全规矩照旧；
+            这一档 = 连那套规矩也不套，写什么完全由「补充要求」决定。
+            两档都放在最前面，因为它们都是「不挑技能」，跟下面那些具体技能不是一类。
+          */}
+          <option value={OPTIMIZE_SKILL_FREE}>什么都不填 · 只按补充要求走</option>
           {missingSkill ? <option value={missingSkill}>{`${missingSkill} · 这个技能已经不在了`}</option> : null}
           {skills.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
         </select>
@@ -115,7 +127,10 @@ export default function OptimizeOptions({ data }: { data: NodeData }) {
         />
       </label>
 
-      <span className="cv-param-hint" data-opt-hint="">{strengthHint}</span>
+      {/* 那一格默认显示的是「改写幅度」那一档的说明；选了「什么都不填」就得换成
+          这一档自己的说法 —— 否则界面还在讲「补全主体、动作、环境…」，
+          而实际一条都没发给模型。 */}
+      <span className="cv-param-hint" data-opt-hint="">{freeform ? OPTIMIZE_FREEFORM_HINT : strengthHint}</span>
     </div>
   );
 }

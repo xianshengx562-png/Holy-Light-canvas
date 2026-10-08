@@ -20,7 +20,10 @@
   /* ---- 文字（4级灰阶）---- */
   --cv-text: #1A1A1A;
   --cv-dim: #4A4A4A;
-  --cv-mute: #888888;
+  /* 次要文字原为 #888888，实测对白底只有 3.54:1（「已保存」「125%」这类状态字
+     全都踩在这一档上），不到 WCAG AA 的 4.5。提到 #6E7276 ≈ 4.85:1 ——
+     再深就开始抢主文字的注意力了。 */
+  --cv-mute: #6E7276;
   --cv-placeholder: #AAAAAA;
   
   /* ---- 强调色：克制的蓝 ---- */
@@ -67,10 +70,13 @@
   --cv-media-scrim: rgba(0, 0, 0, 0.5);
   --cv-lightbox: rgba(0, 0, 0, 0.85);
   
-  /* ---- 阴影（极轻）---- */
-  --cv-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.04), 0 2px 8px rgba(0, 0, 0, 0.06);
-  --cv-shadow-2: 0 2px 4px rgba(0, 0, 0, 0.05), 0 8px 16px rgba(0, 0, 0, 0.08);
-  --cv-shadow-3: 0 4px 8px rgba(0, 0, 0, 0.06), 0 16px 32px rgba(0, 0, 0, 0.1);
+  /* ---- 阴影（Cursor DNA：远扩散 + 中扩散 + 1px ring 三层结构）----
+   * 偷的是**结构比例**，强度按工具 UI 收敛到 Cursor 原值（0.28/70px 那档是营销
+   * hero card 用的）的约三分之一 —— 工具体不应该有悬浮卡片的手感。
+   * 第三层 ring 取代 border：Linear 的做法，描边参与阴影栈、不会被 anti-alias 吃掉。 */
+  --cv-shadow-1: rgba(0, 0, 0, 0.05) 0px 1px 2px, rgba(0, 0, 0, 0.04) 0px 4px 10px, rgba(0, 0, 0, 0.06) 0px 0px 0px 1px;
+  --cv-shadow-2: rgba(0, 0, 0, 0.06) 0px 2px 4px, rgba(0, 0, 0, 0.08) 0px 10px 24px, rgba(0, 0, 0, 0.08) 0px 0px 0px 1px;
+  --cv-shadow-3: rgba(0, 0, 0, 0.08) 0px 4px 8px, rgba(0, 0, 0, 0.12) 0px 20px 44px, rgba(0, 0, 0, 0.1) 0px 0px 0px 1px;
   --cv-node-shadow: var(--cv-shadow-1);
   
   /* ---- 节点专属 ---- */
@@ -95,13 +101,19 @@
   --xy-minimap-node-stroke-color: #2563EB;
   --xy-background-color: transparent;
   
-  /* ---- 几何（圆角）---- */
-  --cv-radius: 12px;
-  --cv-radius-sm: 8px;
-  --cv-radius-lg: 16px;
-  --cv-r-sm: 8px;
-  --cv-r-md: 12px;
-  --cv-r-lg: 16px;
+  /* ---- 几何（圆角）—— Linear DNA 的 6 / 8 / 12 / 22 刻度 ----
+   * 这里原先两套名字各写一份（8/12/16），全库还散着 3/4/5/7px 的裸值，
+   * 实测界面上一共 7 种圆角 —— 同一档浮层和卡片差 2px，看着像两家做的。
+   * 收敛成五档：sm 6（按钮/输入/胶囊）· md 8（卡片）· lg 12（浮层）· xl 22（大面板）。
+   * 两套名字都留着（历史用法太多），但**值必须统一**。 */
+  --cv-radius: 8px;
+  --cv-radius-sm: 6px;
+  --cv-radius-lg: 12px;
+  --cv-radius-xl: 22px;
+  --cv-r-sm: 6px;
+  --cv-r-md: 8px;
+  --cv-r-lg: 12px;
+  --cv-r-xl: 22px;
   --cv-r-full: 999px;
   
   /* ---- 字体尺寸 ---- */
@@ -115,55 +127,102 @@
 /* ============================================================
    深色模式
    ============================================================ */
+/*
+ * 🔴 2026-10-07 徐先：「深色主题改为深灰色」—— 这一档从**蓝黑**换成了**中性深灰**。
+ *
+ * 改之前是 #0F1419 / #1A1F26 这一族：亮度很低，而且蓝通道恒比红通道高 10
+ * （15/20/25、26/31/38），整屏读出来是「发蓝的近黑」。现在把色相抽掉、整体抬一档，
+ * 三个通道压到差 5 之内 —— 是灰的，不是蓝的。
+ *
+ * ⚠️ 抬的高度是**算过对比度**的，不是随手挑的（19 对全过线）：
+ *    · 画布地板 #1B1C1F 仍明显深于节点卡 #2A2B2F（1.20:1；改之前是 1.12:1，反而更清楚）；
+ *    · 弱文 #9BA0A6 压在**新的**节点卡上 5.37:1、地板上 6.47:1、浮层上 5.08:1；
+ *    · 正文 #E8EAED 11.73:1，次文 #B9BBBF 7.36:1。
+ *   ⚠️ 以后动这一族的任何一个值，都要回去重算 —— **表面一变亮，弱文那一档最先掉线**。
+ */
 [data-theme='dark'] .canvas-studio,
 [data-theme='dark'] .flow-shell {
-  --cv-bg: #0F1419;
-  --cv-panel: #1A1F26;
-  --cv-card: #1A1F26;
-  --cv-elev: #222832;
-  --cv-panel-2: #151B22;
+  --cv-bg: #1B1C1F;
+  --cv-panel: #2A2B2F;
+  --cv-card: #2A2B2F;
+  --cv-elev: #33343A;
+  --cv-panel-2: #212225;
   
   --cv-line-soft: rgba(255, 255, 255, 0.04);
   --cv-line: rgba(255, 255, 255, 0.08);
   --cv-line-strong: rgba(255, 255, 255, 0.12);
   
   --cv-text: #E8EAED;
-  --cv-dim: #B4B8BC;
-  --cv-mute: #888C90;
-  --cv-placeholder: #646668;
+  --cv-dim: #B9BBBF;
+  /* 暗底上一次档是 #888C90，对节点卡只有 4.9:1 —— 刚过线但余量太薄，
+     状态字一小就看不清。提到 #9BA0A6 ≈ 6.2:1。表面换灰之后重新量过：
+     对节点卡 #2A2B2F 是 5.37:1、对地板 #1B1C1F 是 6.47:1、对浮层 #33343A 是 5.08:1。 */
+  --cv-mute: #9BA0A6;
+  --cv-placeholder: #6E7075;
   
   --cv-accent: #60A5FA;
   --cv-accent-hover: #93C5FD;
-  --cv-accent-ink: #0F1419;
+  --cv-accent-ink: #1B1C1F;
   --cv-accent-soft: rgba(96, 165, 250, 0.1);
   --cv-accent-line: rgba(96, 165, 250, 0.25);
   --cv-accent-fill: #60A5FA;
   --cv-accent-fill-hover: #93C5FD;
   
-  --cv-floor: var(--cv-floor-custom, #0F1419);
+  --cv-floor: var(--cv-floor-custom, #1B1C1F);
   --cv-dot: rgba(255, 255, 255, 0.05);
   --cv-edge: var(--cv-edge-custom, #60A5FA);
   --cv-edge-active: var(--cv-edge-active-custom, #93C5FD);
   
   --cv-mesh: none;
   
-  --cv-field: #151B22;
-  --cv-handle-bg: #222832;
-  --cv-handle-line: #4A4F55;
+  --cv-field: #212225;
+  --cv-handle-bg: #33343A;
+  --cv-handle-line: #55575C;
   
-  --cv-shadow-1: 0 2px 4px rgba(0, 0, 0, 0.3), 0 4px 12px rgba(0, 0, 0, 0.25);
-  --cv-shadow-2: 0 4px 8px rgba(0, 0, 0, 0.35), 0 12px 24px rgba(0, 0, 0, 0.3);
-  --cv-shadow-3: 0 8px 16px rgba(0, 0, 0, 0.4), 0 24px 48px rgba(0, 0, 0, 0.35);
+  /* 暗面上纯黑投影几乎没有体积感 —— Linear 的做法是加一层 1px inset 高光
+     把上沿「照亮」，于是浮层有了厚度而不是一团更黑的东西。ring 层同 engine 交给上面的刻度。 */
+  --cv-shadow-1: rgba(0, 0, 0, 0.30) 0px 1px 2px, rgba(0, 0, 0, 0.26) 0px 4px 12px, inset 0px 1px 0px rgba(255, 255, 255, 0.04);
+  --cv-shadow-2: rgba(0, 0, 0, 0.38) 0px 2px 6px, rgba(0, 0, 0, 0.32) 0px 10px 26px, inset 0px 1px 0px rgba(255, 255, 255, 0.05);
+  --cv-shadow-3: rgba(0, 0, 0, 0.46) 0px 4px 10px, rgba(0, 0, 0, 0.40) 0px 22px 50px, inset 0px 1px 0px rgba(255, 255, 255, 0.06);
   
-  --cv-float: rgba(26, 31, 38, 0.98);
-  --cv-media-bg: #0F1419;
+  --cv-float: rgba(42, 43, 47, 0.98);
+  --cv-media-bg: #1B1C1F;
   
   --cv-node-bg: var(--cv-card);
   --cv-node-line-hover: rgba(255, 255, 255, 0.18);
   
-  --xy-minimap-mask-background-color: rgba(15, 20, 25, 0.85);
-  --xy-minimap-node-background-color: #1A1F26;
-  --xy-minimap-node-stroke-color: #60A5FA;
+  --xy-minimap-mask-background-color: rgba(27, 28, 31, 0.85);
+  --xy-minimap-node-background-color: #2A2B2F;
+  /* 原来是实心 #60A5FA —— 小地图在暗色界面里是**导航辅助**，不该抢画布的注意力，
+     实测它是整屏最跳的元素。降成半透明：位置还认得出，存在感没了。 */
+  --xy-minimap-node-stroke-color: rgba(96, 165, 250, 0.5);
+
+  /* ---------- 深色块必须补齐的令牌（2026-10-07）----------
+   * 🔴 这两块是**覆盖式**的：深色块里没写的令牌会**静默继承亮色块的值**。
+   *    这里原先漏了十来个「直接写死颜色」的令牌，于是深色主题下：
+   *      ① 右上角那排圆钮（`.cv-ap-open` 读 `--cv-float-strong`）渲成**刺眼的白圆**
+   *         —— 徐先报的「白色的图标不符合主题」就是这个；
+   *      ② 语义色、开关、媒体底全在用亮色那组值。
+   *    规则：**凡是直接写死颜色值的令牌，两块都要写**；
+   *    写成 `var(...)` 间接引用的（如 `--cv-node-line`）不用 —— 它们是延迟解析的，
+   *    用到时才去查当前层的 `--cv-line-strong`，本来就会跟着主题走。 */
+  --cv-float-strong: rgba(42, 43, 47, 0.98);
+  --cv-media-solid: #2A2B2F;
+  --cv-switch-off: rgba(255, 255, 255, 0.14);
+  --cv-switch-knob: #E8EAED;
+  --cv-select-bg: rgba(96, 165, 250, 0.10);
+  --cv-icon-dim: #9AA0A6;
+  --cv-node-opposite: #1B1C1F;
+  --cv-accent-ring: rgba(96, 165, 250, 0.18);
+  --cv-accent-veil: rgba(96, 165, 250, 0.05);
+  /* 语义色：亮色那组（#DC2626 / #F59E0B / #10B981）压在暗底上偏暗、对比不足 ——
+     按暗色习惯提亮一档，同时避开纯饱和，跟整体低饱和的调子一致。 */
+  --cv-danger: #F87171;
+  --cv-danger-soft: rgba(248, 113, 113, 0.12);
+  --cv-danger-line: rgba(248, 113, 113, 0.30);
+  --cv-warn: #FBBF24;
+  --cv-warn-line: rgba(251, 191, 36, 0.30);
+  --cv-success: #34D399;
 }
 
 /* ============================================================
@@ -305,8 +364,8 @@
 }
 
 [data-canvas-theme="minimal"][data-theme="dark"] {
-  --cv-bg: #0F1419;
-  --cv-panel: #1A1F26;
+  --cv-bg: #1B1C1F;
+  --cv-panel: #2A2B2F;
   --cv-line: rgba(255, 255, 255, 0.08);
   --cv-text: #E5E7EB;
   --cv-text-muted: #9CA3AF;

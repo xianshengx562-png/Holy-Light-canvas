@@ -46,6 +46,98 @@
 }
 .cv-input::placeholder, .cv-textarea::placeholder { color: var(--cv-placeholder); }
 
+/*
+ * 不认 `base-select` 的平台的兜底：那边 popup 是网页自绘的、认 `option` 的背景，这条是正解。
+ * ⚠️ 在 Windows 上它其实无效（见 ①）—— 留着是给别的平台，别删，也别指望它。
+ *
+ * 🔴🔴 **位置是命门：必须写在下面那个 `@supports` 块【之前】**（2026-10-08 第二轮实测踩到）。
+ *   两条选择器特异性相同（都是 `.cv-select option` = 0,1,1），**同特异性下后写的赢**。
+ *   一开始它排在 `@supports` 后面 → 把块里的 `background: var(--cv-float)` 整个盖掉 →
+ *   节点内 `--cv-field` 又是无效值（见 ②）→ 那个 option 的底变成透明 →
+ *   **露出 picker 自己画的白底**，看起来跟没修一模一样（检查器那个反而正常，
+ *   因为那边 `--cv-field` 有值）。这一条曾经让我以为是"打包 vs 注入"的玄学差异。
+ */
+.cv-select option { color: inherit; background: var(--cv-field); }
+
+/*
+ * 🔴 原生下拉**展开后那一列**的底色 —— 两轮才修对（2026-10-08 徐先：「这里还没什么变化」）。
+ *
+ * 第一版写的是 `.cv-select option { background: var(--cv-field) }`，**一个字都没生效**。
+ * 实测把两层原因都挖出来了：
+ *
+ *   ① Windows 上那个展开面板是**操作系统菜单**画的，Chromium 只把「文字 / 选中态」
+ *      交给菜单，`option` 的 `background-color` **根本不参与绘制**
+ *      （Chromium issue 41281328，2016 挂到现在）。所以 `color: inherit` 生效了、
+ *      `background` 没有 → 白底压近白字，实测 1.05:1，展开之后一个字读不出来。
+ *      ⚠️ `color-scheme: dark` 也救不了它 —— 那玩意儿不等于系统主题。
+ *
+ *   ② 更隐蔽的一层：`.cv-node` 里有一句 `--cv-field: var(--cv-node-field)`（nodes.css），
+ *      而 `--cv-node-field` **全库没有定义**（唯一那条随作废的 `canvas-original.css` 一起没了）
+ *      → **节点内 `--cv-field` 是无效值**（实测读出来是空串），
+ *      拿它当背景 / 当底都会落回 UA 白，连「节点里的框」本身也是透明的。
+ *
+ * 正路：`appearance: base-select`（Chromium 135+，本机 152）把 select 切成**全 CSS 可控**模式，
+ *   展开面板从原生菜单变成**网页自绘的 `::picker(select)`**，`option` 的底也就归我们了
+ *   —— 而且它成了真 DOM，**截图截得到**，所以能验（上一版就吃在没 DOM 可验、
+ *   拿注入的假控件自证，量到的是控件自己的底色，假阳性）。
+ *
+ * ⚠️ 实测一个反直觉的点：**`::picker(select)` 自己的 `background` 在渲染时并不生效**
+ *   （computed 读出来是对的，但注入 `background: red !important` 也不变色，
+ *   渲染出来永远是 UA 的白）。所以**真正顶用的是 `option` 自己的底** ——
+ *   上面那条兜底条的位置才那么要命（见那段注释）。
+ *
+ * 底取 `--cv-float` 而**不是** `--cv-field`：`--cv-float` 是浮层专用令牌，两档都有值
+ *   （深 rgba(42,43,47,.98) / 浅 rgba(255,255,255,.98)），且它定义在 `.canvas-studio` 上、
+ *   **在 `.cv-node` 里照样继承得到**；`--cv-field` 在节点内是无效的（见 ②），拿它做底会变纯白。
+ *
+ * `white-space: nowrap` **和** `overflow: hidden` 是一对，少一个就出事：
+ *   · 只写 nowrap（上一版）：长文字不换行了，但**也不截断** → 直接溢出框外，
+ *     压到旁边「改写幅度」那一格上（徐先 2026-10-08「字段长度超出文本框了」）。
+ *     实测那条「自动（跟随设置 · 本地 · Qwen3.5-4B-UD-Q4_K_XL）」`scrollWidth 321 /
+ *     clientWidth 240`，溢出 81px；用 `elementFromPoint` 打在框右边界外 2px 和 6px 上
+ *     —— 答的是这个 select 自己，说明那两个字确实画在框外。
+ *   · 补上 `overflow: hidden` 之后，同样两点答的是外层 `div`，字回到框里了。
+ *   · `text-overflow: ellipsis` 是补省略号 —— 原生下拉本来就是截断加省略号的。
+ * ⚠️ 别拿 `scrollWidth` 当验收：它报的是内容宽度，**裁没裁它都不变**（裁完还是 321）。
+ *   要验「字还在不在框外」，用 `elementFromPoint` 打框外那几点，看归谁。
+ *
+ * 用 `@supports` 包住：不认这个值的环境原样退回系统下拉，不会更糟。
+ * ⚠️ 只开在 `.cv-select` 上。全站那些裸 `<select>`（设置页等）有同一个白底病，
+ *   但一次性全开 `base-select` 会连它们的外观（默认 chevron / 盒模型）一起改掉 —— 等徐先点到再说。
+ */
+@supports (appearance: base-select) {
+  .cv-select {
+    appearance: base-select;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* 展开的那一列。`background` 留着（部分实现认），但别指望它 —— 真正管用的是下面 option 的底。 */
+  .cv-select::picker(select) {
+    margin-top: 4px;
+    padding: 4px;
+    background: var(--cv-float);
+    border: 1px solid var(--cv-line);
+    border-radius: var(--cv-radius-sm);
+    box-shadow: var(--cv-shadow-2);
+    color: var(--cv-text);
+  }
+  /* 🔴 面板的实际底色在这一条上（见上面那个反直觉的点）。 */
+  .cv-select option {
+    padding: calc(5px * var(--ui)) calc(8px * var(--ui));
+    border-radius: 4px;
+    background: var(--cv-float);
+    color: var(--cv-text);
+    white-space: nowrap;
+  }
+  .cv-select option:hover { background: var(--cv-line); }
+  .cv-select option:checked {
+    background: var(--cv-accent-soft);
+    color: var(--cv-accent);
+    font-weight: 500;
+  }
+}
+
 .cv-stat {
   display: flex;
   align-items: center;

@@ -17,10 +17,11 @@
  * `transform` 会给 `position: fixed` 造包含块、`overflow: hidden` 会裁掉菜单那两个坑。
  */
 import { useEffect, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Check, FolderOpen, MousePointerClick, Pencil, Trash2 } from 'lucide-react';
+import { coverTintOf } from '@/lib/coverTint';
 import { apiDelete, apiPatch, apiPost } from '@/lib/client';
 import { ConfirmDialog, ContextMenu, type MenuItem } from '@/components/ui/ContextMenu';
 import { SelectionBar, SelectionEnter } from '@/components/ui/SelectionBar';
@@ -37,6 +38,22 @@ export type ProjectCardItem = {
 
 /** 封面：`cover` 是这个项目的资产里随机挑的一张图，`thumbnail` 是项目表上那个字段（一直没人写）。 */
 const coverOf = (p: ProjectCardItem) => p.cover || p.thumbnail || '';
+
+/*
+ * 没有封面的项目卡轮换用这几支低饱和色（2026-10-08 徐先：「主页的卡片颜色可以更丰富一点」）。
+ *
+ * 🔴 **非要一组轮换色、不能就这么回落到中性面**：一个还没出过图的新项目（或只出过视频的）
+ *    正好是最容易被一眼扫过去的那几张卡，把它们留在灰面上，「更丰富」就等于没做。
+ *    颜色按卡片在列表里的位置轮换（不是按项目 id）—— 一排里相邻的两张一定不同色。
+ * 具体取值在 `globals.css` 里按深浅两档各写一份（那是**洗底**用的 alpha，不是实心色）。
+ */
+const FALLBACK_TINTS = [
+  'var(--home-tint-1)',
+  'var(--home-tint-2)',
+  'var(--home-tint-3)',
+  'var(--home-tint-4)',
+  'var(--home-tint-5)',
+];
 
 type MenuState = { x: number; y: number; project: ProjectCardItem } | null;
 type Notice = { text: string; ok?: boolean } | null;
@@ -61,6 +78,16 @@ export default function ProjectGrid({
   /* 删除要二次确认：确认框里显示的是**哪个项目**，不能只弹一句「确定删除吗」。 */
   const [confirming, setConfirming] = useState<ProjectCardItem | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
+  /*
+   * 项目 id → 从它封面取到的主色（`"r, g, b"`，见 `lib/coverTint.ts`）。
+   *
+   * 🔴 刻意**不用 effect 预先算**：那需要依赖 `projects` 这个数组，而它的身份由上层
+   *    `useApi` 决定、不一定稳定 —— 依赖它会把 effect 打进死循环（本文件上面那条
+   *    「只在渲染时过一遍、不用 effect」的注释讲的就是同一个坑）。
+   *    改成在封面 `<img>` 的 `load` 里当场取：**什么时候有图什么时候算**，
+   *    既不用管 `projects` 的身份，也不用为取样多发一次请求。
+   */
+  const [tints, setTints] = useState<Record<string, string>>({});
 
   /* ── 批量选择（2026-09-26）───────────────────────────────── */
   const [selecting, setSelecting] = useState(false);
@@ -263,17 +290,42 @@ export default function ProjectGrid({
     )}
 
     <div className="home-projects" data-pg-grid data-pg-selecting={selecting ? 'yes' : 'no'}>
-      {projects.map(p => {
+      {projects.map((p, index) => {
         const editing = renaming?.id === p.id;
         const on = picked.includes(p.id);
+        const cover = coverOf(p);
+        /*
+         * 卡片面要洗的那支色，三档来源：
+         *   ① 封面取色到了 → 用封面自己的色（`--card-tint-a` 由 CSS 按主题给 alpha）；
+         *   ② 有封面但取色失败 / 还没加载完 → 先不洗，等 `load` 到了再洗（不留灰底是对的：
+         *      有封面的卡下一次渲染就着色了，中间这一帧洗成别的色反而像闪了一下）；
+         *   ③ 压根没有封面 → 轮到哪支用哪支，保证一张彩卡都不会是灰的。
+         */
+        const rgb = tints[p.id];
+        const tint = rgb
+          /* 取到的是 `"r, g, b"` 三个数 —— alpha 交给 CSS 的 `--card-tint-a`（深浅两档不同）。 */
+          ? `rgba(${rgb}, var(--card-tint-a))`
+          : (cover ? '' : FALLBACK_TINTS[index % FALLBACK_TINTS.length]);
+        const tintStyle = tint ? ({ '--card-tint': tint } as CSSProperties) : undefined;
         const body = <>
           <span className="home-project-thumb">
             {/*
               封面就是这个项目跑出来的图。一个图都没有的新项目（或只出过视频的）退回文件夹图标；
               图真加载不出来（文件被删了）就把 `<img>` 自己藏掉，别留一个碎图标。
             */}
-            {coverOf(p)
-              ? <img src={coverOf(p)} alt="" loading="lazy" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+            {cover
+              ? <img
+                src={cover}
+                alt=""
+                loading="lazy"
+                /* 图一解码完就顺手取一次主色。取不到（真·黑白图 / 画布被污染）就什么都不做。 */
+                onLoad={(e) => {
+                  const rgb = coverTintOf(e.currentTarget);
+                  if (!rgb) return;
+                  setTints(prev => (prev[p.id] === rgb ? prev : { ...prev, [p.id]: rgb }));
+                }}
+                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+              />
               : <FolderOpen size={20} strokeWidth={1.4} aria-hidden />}
             {/* 选择模式下「打开 →」那行字要让位给勾选框，两个都浮在封面上会打架。 */}
             {!selecting && <span className="home-project-open" aria-hidden>打开 →</span>}
@@ -308,7 +360,7 @@ export default function ProjectGrid({
 
         if (editing) {
           /* 改名时**不能**外层还是 `<a>`：输入框嵌在链接里，点一下就会跳走。 */
-          return <div className="home-project editing" key={p.id} data-project-id={p.id}>{body}</div>;
+          return <div className="home-project editing" key={p.id} data-project-id={p.id} style={tintStyle}>{body}</div>;
         }
 
         if (selecting) {
@@ -322,6 +374,7 @@ export default function ProjectGrid({
               key={p.id}
               data-project-id={p.id}
               data-project-picked={on ? 'yes' : 'no'}
+              style={tintStyle}
               role="checkbox"
               aria-checked={on}
               aria-label={p.name}
@@ -343,6 +396,7 @@ export default function ProjectGrid({
             href={`/projects/${p.id}`}
             data-project-id={p.id}
             data-project-picked="no"
+            style={tintStyle}
             onContextMenu={event => openMenu(event, p)}
             /* Ctrl / ⌘ + 单击 = 顺手进入选择模式并勾上这一张（文件管理器那套肌肉记忆）。 */
             onClick={event => {

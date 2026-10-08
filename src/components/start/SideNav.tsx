@@ -15,6 +15,7 @@ import {
 import { isDesktop } from '@/lib/edition';
 import { useSession } from '@/lib/client';
 import { siteAccountLabel, useSiteAccount } from '@/lib/site-account';
+import { useAppearance } from '@/components/theme/ThemeProvider';
 import UserAvatar from '@/components/UserAvatar';
 
 /**
@@ -111,10 +112,26 @@ export default function SideNav({ active }: { active: SideNavKey }) {
   const { site } = useSiteAccount();
   const siteLabel = siteAccountLabel(site);
 
+  /*
+   * 收起成「窄图标条」时，标签被 CSS 的 `font-size: 0` 收掉了（见 globals.css 里那段），
+   * 屏幕上只剩图标 —— 鼠标用户需要一个名字，靠原生 `title` 给。
+   *
+   * ⚠️ **展开态故意不给 title**：名字就在图标旁边，再叠一个和它一模一样的系统气泡
+   *    纯属噪音（而且它晚 1 秒才弹，正好盖住你本来要点的东西）。
+   * ⚠️ 首帧 `appearance` 是 `null`（还没读 localStorage）→ 按展开算，与防闪脚本一致。
+   */
+  const { appearance } = useAppearance();
+  const collapsed = appearance?.navCollapsed ?? false;
+
   const entry = (item: NavItem) => {
     const Icon = item.icon;
     return (
-      <Link key={item.key} className={item.key === active ? 'active' : undefined} href={item.href}>
+      <Link
+        key={item.key}
+        className={item.key === active ? 'active' : undefined}
+        href={item.href}
+        title={collapsed ? item.label : undefined}
+      >
         <Icon size={15} strokeWidth={1.8} aria-hidden /> {item.label}
       </Link>
     );
@@ -141,7 +158,12 @@ export default function SideNav({ active }: { active: SideNavKey }) {
       没有用户时（未登录的 web 版）整块不渲染：那时候侧栏本来也没有账号可显示。
     */}
     {user && (
-      <Link className={'side-user' + (active === 'user' ? ' active' : '')} href="/user" data-side-user>
+      <Link
+        className={'side-user' + (active === 'user' ? ' active' : '')}
+        href="/user"
+        data-side-user
+        title={collapsed ? user.name : undefined}
+      >
         <UserAvatar avatar={user.avatar} name={user.name} email={user.email}
           className="side-user-avatar" attrs={{ 'data-avatar': 'side' }} />
         <span className="side-user-body">

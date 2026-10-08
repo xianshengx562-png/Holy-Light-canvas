@@ -38,19 +38,37 @@ a.entry-card:hover {
   background: var(--surface-2);
   transform: translateY(-2px);
 }
+
+/* ---------- 三张入口各自的低饱和色（2026-10-07 徐先：「这里的三个选项添加不同的低饱和度颜色」）----------
+
+   做法是**一个中间变量**：`[data-entry]` 只负责把 `--entry*` 指到对应那支色上，
+   下面图标 / 「进入 →」只写一次、读 `--entry*`。三张卡各写一套 background/color/border
+   的话，以后改一次描边粗细就要改三处，而且漏一处不会报错、只会长得不一样。
+
+   ⚠️ 「不铺色」这条在 **2026-10-08 松了一档**（徐先：「主页的卡片颜色可以更丰富一点」）：
+      卡片整面现在会铺一层 **`-face`**（alpha 0.06~0.09 的洗底），图标块仍旧是 `-soft`、
+      描边 / 悬停是 `-line` —— 三档依次加深，卡片因此一眼能看出是「三条不同的路」，
+      又不会整格糊成一块彩色板（面洗底的 alpha 只有图标块的三分之二）。
+   ⚠️ 色值全部来自 globals.css 的 token（深浅两档各一份），这里一个裸色值都不许出现
+      —— 这是本文件从第一天起的硬规矩，理由见文件头。 */
+.entry-card { --entry: var(--text-dim); --entry-soft: var(--surface-2); --entry-line: var(--line); --entry-face: var(--surface-2); }
+.entry-card[data-entry='canvas'] { --entry: var(--entry-canvas); --entry-soft: var(--entry-canvas-soft); --entry-line: var(--entry-canvas-line); --entry-face: var(--entry-canvas-face); }
+.entry-card[data-entry='image'] { --entry: var(--entry-image); --entry-soft: var(--entry-image-soft); --entry-line: var(--entry-image-line); --entry-face: var(--entry-image-face); }
+.entry-card[data-entry='assets'] { --entry: var(--entry-assets); --entry-soft: var(--entry-assets-soft); --entry-line: var(--entry-assets-line); --entry-face: var(--entry-assets-face); }
+
 .entry-icon {
   display: grid;
   place-items: center;
   width: 32px;
   height: 32px;
-  color: var(--accent);
-  background: var(--accent-soft);
-  border: 1px solid var(--accent-line);
+  color: var(--entry);
+  background: var(--entry-soft);
+  border: 1px solid var(--entry-line);
   border-radius: var(--r-xs);
 }
 .entry-card strong { font-size: 14px; font-weight: 600; }
 .entry-card p { margin: 0; font-size: 12.5px; line-height: 1.65; }
-.entry-cta { font-size: 12px; color: var(--accent); }
+.entry-cta { font-size: 12px; color: var(--entry); }
 .entry-note {
   justify-self: start;
   padding: 2px 9px;

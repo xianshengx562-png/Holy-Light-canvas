@@ -1,35 +1,189 @@
-.brand-mark { background: url('../assets/logo.png') center / contain no-repeat !important; color: transparent !important; border: 0 !important; }
-.brand-mark::before, .brand-mark::after { display: none !important; }
+/*
+ * ⚠️ 这个文件原来开头有两条 `.brand-mark` 的 `!important` 覆盖（把背景换成 logo.png、
+ *    压掉 `::before/::after`）。2026-10-07 删掉了 —— 它们不但已经没用，**还在制造 bug**：
+ *    - `globals.css` 的 `--logo` 现在直接指向同一个 `src/assets/logo.png`（见那里的注释）；
+ *    - 那两条却只在本文件里、只有**首页** import，于是「首页用文件（新 logo）、
+ *      其它页用内联 base64（旧 logo）」—— 同一个软件在首页和别处显示两个不同的标。
+ * 图源现在只有 `--logo` 一处，尺寸与深浅两档的滤镜也都在 `globals.css` 里，别在这儿复制第二份。
+ */
+
+/*
+ * 首页页头：右侧那一簇（余额 + 收纳钮）整体靠右。
+ *
+ * 为什么不用 globals 那条 `.workspace-header > :nth-child(2) { margin-left: auto }`：
+ * 首页的第二个孩子是**余额卡槽**，而它是 `display: contents`（自己不生成盒子）
+ * —— 自动外边距挂在一个没有盒子的元素上等于没写。改成「第一个孩子吃右侧剩余空间」，
+ * 不管后面跟几个孩子都成立。
+ */
+.home-shell .workspace-header > .workspace-title { margin-right: auto; }
+/* 余额卡槽：与画布顶栏 `.cv-balance-slot` 同一套 —— 让余额自己参与页头的 flex，
+   不然它成了卡槽的唯一孩子，页头那 18px 的 gap 会算在卡槽外面，间距多出一格。 */
+.home-shell .home-balance-slot { display: contents; }
 .content.home { max-width: 1180px; margin-right: auto; padding-bottom: 40px; }
+
+/*
+ * 首页「看得见的卡片」底色 —— 创作入口卡与项目卡**共用这一处**（2026-10-08）。
+ *
+ * 起因是同一个病犯了两次：入口卡（`.entry-card`）与项目卡（`.home-project`）都用
+ * `--surface` 当底色，而**亮档下 `--bg` 与 `--surface` 都是 #ffffff** ——
+ * 卡片压在页面底上完全同色，边界只剩一圈 10% 黑的描边，看着像没画。
+ *
+ * 🔴 两个档位取的不是同一个令牌，这是有意的，别"统一"掉：
+ *    亮档 `--surface-2` 是 #f7f7f7，压在白底上只差 **8 级**，是几乎看不见的那种淡；
+ *    而深档 `--surface-3` 是 #3E3F43，压在 #26272A 上差 **24 级**、比侧栏面板还亮，
+ *    卡片会像贴上去的膏药。
+ *    各取「跨过同色系一档」：深档 38→53（**+15**）、亮档 255→237（**−18**），
+ *    两档的视觉强度才是接近的 —— 只写一个共用令牌做不到这件事。
+ * ⚠️ 入口卡与项目卡**必须读同一个令牌**：它们是同一屏里上下相邻的两排卡，
+ *    分开写两份迟早会改一边漏一边，然后同一屏出现两种深浅的"卡片"。
+ */
+.home { --card-face: var(--surface-2); }
+:root[data-theme='light'] .home { --card-face: var(--surface-3); }
+
+/*
+ * 卡片面上那层「洗底」的 alpha（2026-10-08 徐先：「主页的卡片颜色可以更丰富一点」）。
+ *
+ * 洗底是什么色由各处自己给：
+ *   · 入口卡 —— `data-entry` 铺的 `--entry-face`（三支高彩度色，见 `start.css`
+ *     与 `globals.css` 里那份"彩度才是闷的真因"的说明）；
+ *   · 项目卡 —— 从封面图取的主色（`lib/coverTint.ts`），取不到就轮换
+ *     `--home-tint-1..5`（`globals.css` 里按深浅两档各写一份）。
+ * **alpha 只在这一处定**：取色那边给的是 `"r, g, b"` 三个数，不是颜色字符串 ——
+ * 深浅两档要的浓度不一样（同一个 alpha 在浅底上显得更浓），拼在取色代码里的话
+ * 就得写两份取色逻辑。
+ *
+ * 🔴 洗底走的是 `background-image` 上的一层 `linear-gradient(<同色>, <同色>)`，
+ *    **不是改 `background-color` 的透明度**：卡片自己是不透明的一块，
+ *    半透明底色会让页面底透上来，卡片看着就不像「架在台面上的一层」了。
+ *    叠一层不透明基色（`background-color`）再压一层同色渐变，得到的仍是实心面。
+ *
+ * 🔴 2026-10-08 二次改（徐先：「日间模式的……颜色太深了，可以更加鲜艳明亮一点」）：
+ *    亮档从 **0.13 提到 0.22** —— 0.13 的时候封面取色几乎看不出来，
+ *    一排卡还是"灰的"，只是各自灰得不完全一样。
+ *    ⚠️ 提之前先算过：项目卡的标题与副标题都是 `--text`（#111，深字），
+ *    卡面变深**只会让它更好读**（实测从 13.7 掉到仍 >= 12.2），所以这一档可以放心加。
+ *    但**入口卡不能照抄这个数**：那边的「进入 →」是彩色字，卡面一深就掉对比度 ——
+ *    它走自己的 `--entry-face`（0.10），两条各算各的。
+ */
+.home { --card-tint-a: 0.16; }
+:root[data-theme='light'] .home { --card-tint-a: 0.22; }
 .home .home-section-head { margin: 20px 0 16px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
 .home .home-section-head h2 { font-size: var(--fs-5); font-weight: 600; }
-.home .entry-grid { gap: 0; border-block: 1px solid var(--line); margin-bottom: 34px; }
-.home .entry-card { padding: 18px; border: 0; border-right: 1px solid var(--line); border-radius: 0; grid-template-columns: 32px minmax(0, 1fr); align-items: center; gap: 8px 12px; background: transparent; }
-.home .entry-card:last-child { border-right: 0; }
+/*
+ * 首页两处区块标题各一支色（2026-10-08 徐先：「这里的文字的颜色也可以改下」——
+ * 圈的是「创作」与「最近项目」两处标题，连同它们左边那道小竖条）。
+ *
+ * 竖条是 `globals.css` 里 `.section-head h2::before` 画的，底色走 `--bracket`
+ * （那道装饰在全站是"跟强调色走"的）—— 这里**必须连它一起覆盖**：
+ * 只换字的话，会剩下「字是蓝的、旁边那道杠还是强调色」这种半吊子状态。
+ *
+ * ⚠️ 只作用在**首页这两处**（靠 `page.tsx` 上那个 `data-head`），不是把全站
+ *    `.section-head` 都染了 —— 资产页、工具页那些区块标题不动。
+ * ⚠️ 令牌两档分开写（暗档浅色 / 亮档深色），见 `globals.css` 里的说明。
+ */
+.home .home-section-head[data-head='create'] h2 { color: var(--home-head-create); }
+.home .home-section-head[data-head='create'] h2::before { background: var(--home-head-create); }
+.home .home-section-head[data-head='projects'] h2 { color: var(--home-head-projects); }
+.home .home-section-head[data-head='projects'] h2::before { background: var(--home-head-projects); }
+/*
+ * 三张入口卡（2026-10-08 徐先：「卡片选项比周围颜色稍微显眼一点」）。
+ *
+ * 原来这三条把卡片写成了**透明**：`background: transparent` + `border: 0` +
+ * 只留一根 `border-right` 当分格线，三格连成一整块。
+ * 问题是首页的页面底色就是 `--bg`，卡片没有自己的色面 —— **和周围完全同色**，
+ * 看不出「这是一个可以点的选项」，只像几行字排在那儿。
+ *
+ * 现在回到 `start.css` 给的基础卡形（色面 + 描边 + 圆角）。
+ * 2026-10-08 又往前走了一步（徐先：「主页的卡片颜色可以更丰富一点」）：
+ * 卡片整面也铺一层极淡的入口色洗底，三张卡因此一眼看得出是三条不同的路
+ * —— 原来那三支色只在图标块和「进入 →」上，两张卡并排时几乎分不出来。
+ *
+ * ⚠️ 底色读 `--card-face`（定义在本文件上面），**不是** `--surface` ——
+ *    亮档下 `--bg` 与 `--surface` 都是 #ffffff，用后者等于什么都没改。
+ * ⚠️ 原来 `.entry-grid` 上的 `border-block` 与 `gap: 0` 要一起撤掉：那是「三格连成
+ *    一整块、只用竖线分格」那套写法的零件。只改卡片不改网格，会剩下
+ *    「三张各自有圆角描边的卡，却共用上下两条长横线」这种半吊子状态。
+ */
+.home .entry-grid { gap: 14px; margin-bottom: 34px; }
+.home .entry-card {
+  padding: 18px;
+  background-color: var(--card-face);
+  /* 整面的那一层洗底。`--entry-face` 万一没定义（没带 `data-entry` 的卡），
+     `background-image` 会整条失效、回落成没有图片 —— 不会把卡片搞没。 */
+  background-image: linear-gradient(var(--entry-face, transparent), var(--entry-face, transparent));
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  grid-template-columns: 32px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px 12px;
+}
 .home .entry-card p { display: none; }
-.home .entry-icon { grid-row: 1 / 3; border-radius: 6px; background: var(--surface); color: var(--text-dim); border-color: var(--line); }
+/* 三张入口卡各自那一支色由 start.css 按 `data-entry` 铺成 `--entry*`（那里有完整说明）。
+   ⚠️ 这一层必须**读同一组变量**、不许再写死 `var(--surface)` —— 这里的选择器
+   （0,2,0）压得住 start.css 的 `.entry-icon`（0,1,0），写死就等于把那三支色吃掉了。
+   ⚠️ 图标块的底**从 `-soft` 提到了 `-line`**（2026-10-08）：卡片整面也有洗底之后，
+   0.12 的图标块跟卡面分不开了，那颗图标就成了「印在卡上、没有自己的块」。
+   三档于是是：面 `-face`(0.10~0.09) < 图标块 `-line`(0.22~0.30)，描边也用 `-line`。
+   🔴 这颗图标之所以是 `var(--entry)`（跟「进入 →」同一个色）而不是另配一支"亮色"：
+   **在浅底上不存在"又亮又读得出来"的彩色图标** —— 想让它变亮只能让块变深，
+   3:1 立刻不保。亮的那部分交给**面**和**块**（都提过浓度了），图标只要够鲜。 */
+.home .entry-icon { grid-row: 1 / 3; border-radius: 6px; background: var(--entry-line); color: var(--entry); border-color: var(--entry-line); }
 .home .entry-card strong { font-size: var(--fs-4); }
-.home .entry-card .entry-cta { grid-column: 2; font-size: var(--fs-2); color: var(--text-mute); }
-.home .entry-card:hover { transform: none; background: var(--surface); }
+.home .entry-card .entry-cta { grid-column: 2; font-size: var(--fs-2); color: var(--entry); }
+/* 悬停：洗底换成更深一档的同色（`-soft` 0.12，静息那档是 `-face` 0.10），
+   不是换成中性面 —— 三格各自亮起自己那一支。
+   ⚠️ 描边要跟着换（2026-10-08 卡片有了自己的描边）：只洗干净底色的话，
+      会留下一个「卡里是彩色、卡框还是灰的」的中间态。
+   ⚠️ `background-image` 那条要重写一遍：只写 `background` 的话会把上面那条
+      洗底连底色一起顶掉（简写会重置 `background-color`），鼠标一移上去卡片反而变灰。 */
+.home .entry-card:hover {
+  transform: none;
+  background-color: var(--card-face);
+  background-image: linear-gradient(var(--entry-soft, transparent), var(--entry-soft, transparent));
+  border-color: var(--entry-line);
+}
 
-/* 项目列表 - 使用瀑布流布局，不覆盖 project-grid.css */
+/* 项目列表 - 使用瀑布流布局，不覆盖 project-grid.css
+   （`project-grid.css` 里那条基础 `.home-project` 用的是 `--surface`，
+     亮档下跟页面底同为纯白 —— 卡片的边界只剩一圈描边。这里改成 `--card-face`。） */
+/*
+ * 项目卡：**每一张的面色跟着它自己的封面走**（2026-10-08 徐先：「更丰富一点」）。
+ *
+ * 色的来源有两档，都由 `ProjectGrid.tsx` 写成行内的 `--card-tint`：
+ *   · 有封面 → 从那张图取的主色（`lib/coverTint.ts`，取到的是 `"r, g, b"`，
+ *     这里拼上 `--card-tint-a` 才成颜色）；
+ *   · 没封面 → 轮换 `--home-tint-1..5`。
+ * 两个都没给（封面还在加载 / 取色失败 / 黑白图）→ `--card-tint` 是无效值，
+ * `var(--card-tint, transparent)` 兜底成透明 → 卡片就是干净的中性面。
+ */
 .home .home-project { 
   /* 不设置 grid，让 column-count 生效 */
   border-radius: 12px;
-  background: var(--surface);
+  background-color: var(--card-face);
+  background-image: linear-gradient(var(--card-tint, transparent), var(--card-tint, transparent));
   border: 1px solid var(--line);
 }
+/*
+ * ⚠️ 悬停这里原来还写着一句 `background: var(--surface)` —— 那会把卡片在鼠标移上去的
+ *    瞬间**变回纯白**（比静息时的灰更亮），是反向反馈。删掉：底色由上面那条静息规则
+ *    给（特异性也够），悬停只管抬升与描边。
+ */
 .home .home-project:hover { 
   transform: translateY(-2px); 
-  background: var(--surface);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
   border-color: var(--accent);
 }
+/*
+ * 封面位跟鞋卡片**同色**（`inherit`）。
+ * `project-grid.css` 里它写的是 `background: var(--bg)`（= 页面底），
+ * 卡片一旦有了自己的色面，没缩略图的项目就会出现「上半白、下半灰」的拼色横带。
+ */
 .home .home-project-thumb { 
   width: 100%; 
   aspect-ratio: 16/9;
   border: 0;
   border-radius: 0;
+  background: inherit;
 }
 .home .home-project-body { 
   padding: 16px; 
@@ -49,6 +203,4 @@
 
 @media (max-width: 720px) {
   .home .entry-grid { grid-template-columns: 1fr; }
-  .home .entry-card { border-right: 0; border-bottom: 1px solid var(--line); }
-  .home .entry-card:last-child { border-bottom: 0; }
 }

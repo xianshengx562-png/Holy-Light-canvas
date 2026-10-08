@@ -17,6 +17,12 @@
          兜底深色与 `electron/main/index.ts` 的 `backgroundColor` 一致。
     -->
     <style>
+      /*
+       * ⚠️ 2026-10-07 徐先：「加载的界面优化一下」→ 保持居中标，把它做厚。
+       *    这一版比原来**厚**在三处：logo 88→112、底下的字分出了主次、进度条 2→3px 并加了拖尾。
+       *    形制没动 —— 中间一个标、底下名字、一根进度条、一行说明，还是那块牌子。
+       * ⚠️ 下面这些值**只有内联这一份**，没有第二条规则会覆盖它们（`:root` 里的令牌除外）。
+       */
       #boot {
         position: fixed;
         inset: 0;
@@ -24,22 +30,26 @@
         display: grid;
         place-content: center;
         justify-items: center;
-        gap: 12px;
+        gap: 14px;
         background: var(--bg, #0b0b0f);
         color: var(--text, #e8eaed);
         opacity: 0;
         transition: opacity 220ms ease, background-color 200ms linear;
       }
       #boot.on { opacity: 1; }
-      /* 特异性 (1,1,1) 压得住 `#boot.on` 的 (1,1,0) —— 不用 !important。 */
+      /* 特异性 (1,1,1) 压得住 `#boot.on` 的 (1,1,0) —— 不用 !important。
+         ⚠️ 这也是「快启动时牌子根本不出现」的原因：`done` 先落，淡入那条就永远追不上。
+            这是**有意的**（热启动不该闪一下没用的牌子），别当成 bug 去改。 */
       html[data-boot='done'] #boot { opacity: 0; pointer-events: none; }
-      /* 启动画面上的软件 logo（2026-09-29）。
-         ⚠️ 这一串 data URI 是**生成**的（`FRAME\_make-logo.py`），和
-            `src/assets/logo.png` 同源 —— 换 logo 换那张图再跑脚本，别手改这一行。
+      /* 启动画面上的软件 logo。
+         ⚠️ 就是 `src/assets/logo.png` 那**同一张图** —— 构建时会被换成哈希名
+            （`./assets/logo-<hash>.png`），换 logo 只换那个文件，这里不用动。
          ⚠️ 必须内联：它要在 2MB 的 bundle 还在解析的时候就已经画在屏幕上。 */
       #boot-mark {
-        width: 88px;
-        height: 88px;
+        /* 88 → 112（2026-10-07）。这块牌子在 1440 宽的窗口里只占中央一小块，
+           88 的标看着像不小心漏出来的图标；112 才立得住。 */
+        width: 112px;
+        height: 112px;
         /* 先"长出来"一次，然后极轻地呼吸 —— 呼吸幅度只有 4%，盯着看才知道它在动。 */
         animation: boot-mark-in 420ms cubic-bezier(0.4, 0, 0.2, 1) backwards,
                    boot-breathe 2.6s ease-in-out 420ms infinite;
@@ -53,22 +63,36 @@
         0%, 100% { transform: scale(1); }
         50% { transform: scale(1.04); }
       }
-      #boot-name { font-size: 13px; letter-spacing: 4px; color: var(--text-dim, #9aa1a8); }
-      #boot-tip { font-size: 11px; color: var(--text-mute, #6b737a); }
+      /* 名字：13 → 15px、600 字重、字距 4 → 5px。它现在是这块牌子上的**主标题**。 */
+      #boot-name {
+        font-size: 15px;
+        font-weight: 600;
+        letter-spacing: 5px;
+        color: var(--text-dim, #9aa1a8);
+      }
+      /* 说明行：11 → 12px，并且用 `--text-mute`（压在 `--bg` 上是 6.5:1）。
+         文案换掉了原来的「正在启动…」——「启动」是**我们的**视角，用户等的是他的工作台。 */
+      #boot-tip { font-size: 12px; color: var(--text-mute, #6b737a); }
       #boot-bar {
-        width: 168px;
-        height: 2px;
-        margin-top: 4px;
+        /* 168×2 → 220×3。2px 在 DPR 1 的屏上只有一根头发丝，看不出是在走。 */
+        width: 220px;
+        height: 3px;
+        margin-top: 8px;
         background: var(--line, rgba(255, 255, 255, 0.14));
         border-radius: 999px;
         overflow: hidden;
       }
       #boot-bar > i {
         display: block;
-        width: 42%;
+        width: 38%;
         height: 100%;
+        /* 主体是强调色，两端各拖一段透明 —— 一根「走过」的光，而不是一截滑动的砖。
+           ⚠️ 不能用 `background: linear-gradient(...) ` 配 `--accent` 再做 transparent 过渡：
+              `--accent` 是个色值令牌，拼不出带 alpha 的版本。用 mask 让两端淡出更干净。 */
         background: var(--accent, #4fb389);
         border-radius: 999px;
+        -webkit-mask-image: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent);
+        mask-image: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent);
         animation: boot-slide 1.15s ease-in-out infinite;
       }
       @keyframes boot-slide {
@@ -76,7 +100,7 @@
         100% { transform: translateX(340%); }
       }
       @media (prefers-reduced-motion: reduce) {
-        #boot-bar > i { animation: none; width: 100%; }
+        #boot-bar > i { animation: none; width: 100%; -webkit-mask-image: none; mask-image: none; }
         #boot-mark { animation: none; }
       }
     </style>
@@ -87,26 +111,66 @@
       <img id="boot-mark" alt="Holy Light" src="./assets/logo.png" />
       <span id="boot-name">Holy Light画布</span>
       <span id="boot-bar"><i></i></span>
-      <span id="boot-tip">正在启动…</span>
+      <span id="boot-tip">正在准备你的工作台…</span>
     </div>
     <script>
       (function () {
         var root = document.documentElement;
         var el = document.getElementById('boot');
-        var REVEAL_MS = 180;     /* 这么久还没好才亮出来 —— 快机器不闪一下没用的牌子 */
-        var HARD_STOP_MS = 6000; /* 硬兜底：连 JS 都挂了也照撤 */
+        /*
+         * ⚠️ 这一对时间常数是 2026-10-07 实测调出来的，别随手改。
+         *
+         * 原来 REVEAL_MS = 180：实测**本机热启动**是 script@43ms → reveal@224ms →
+         * done@373ms，也就是说牌子亮出来 150ms 就被撤了 —— 那是「闪一下」，
+         * 比不出现还难看。而它本来就是为**真冷启动**（会话要 1.3s 以上）准备的。
+         * 180 这个数定的时候大概没量过：它把「热启动」的门槛划在了 180ms，
+         * 而热启动实际要 ~370ms 才完事，于是每次热启动都精准地踩在闪一下那一档。
+         *
+         * 现在：400ms 之前就好 → **完全不出现**（快启动不闪）；
+         *       一旦亮出来 → 至少显示 450ms（把 220ms 的淡入走完，再满不透明待 230ms），
+         *       不会出现「淡到一半被撤掉」那种半透明的鬼影。
+         *       代价：启动刚好落在 400~850ms 这一小段时会多等最多 450ms ——
+         *       这一段本来就慢到该有反馈，多等这点比闪一下值。
+         */
+        var REVEAL_MS = 400;       /* 这么久还没好才亮出来 */
+        var MIN_VISIBLE_MS = 450;  /* 一旦亮出来，至少待这么久 */
+        var HARD_STOP_MS = 6000;   /* 硬兜底：连 JS 都挂了也照撤 */
         var done = false;
+        var revealedAt = 0;        /* 亮出来的时刻；0 = 从没亮过 */
+        /*
+         * 计时埋点（2026-10-07）。为什么留它：这块牌子撤得太快，外面只能靠连拍碰运气
+         * ——实测两次采样都落在它已经撤掉之后，「到底亮没亮过」根本没法证。
+         * 记一行在 `window.__bootTrace` 里，问一句就知道真相，成本可以忽略。
+         * ⚠️ 不要把它当成功能用，也不要在别处依赖它。
+         */
+        var trace = (window.__bootTrace = []);
+        var mark = function (k) {
+          try { trace.push(k + '@' + Math.round(performance.now()) + 'ms'); } catch (e) {}
+        };
+        var now = function () { return (window.performance && performance.now) ? performance.now() : Date.now(); };
+        mark('script');
         window.__frameBootReady = function () {
           if (done) return;
           done = true;
-          root.setAttribute('data-boot', 'done');
-          /* 等淡出走完再摘，别在半透明的时候突然消失。 */
+          mark('done');
+          /* 没亮过就立刻撤（快启动，本来就不该出现）；亮过就等它待够。 */
+          var wait = revealedAt ? Math.max(0, MIN_VISIBLE_MS - (now() - revealedAt)) : 0;
+          if (wait > 0) mark('hold=' + Math.round(wait));
           window.setTimeout(function () {
-            if (el && el.parentNode) el.parentNode.removeChild(el);
-          }, 400);
+            root.setAttribute('data-boot', 'done');
+            /* 等淡出走完再摘，别在半透明的时候突然消失。 */
+            window.setTimeout(function () {
+              if (el && el.parentNode) el.parentNode.removeChild(el);
+            }, 400);
+          }, wait);
         };
         window.setTimeout(function () {
-          if (!done) el.className = 'on';
+          if (!done) { el.className = 'on'; revealedAt = now(); }
+          mark('reveal' + (done ? '(skipped)' : ''));
+          /* 淡入走完之后再看一眼**真实**的 opacity：1 才说明这块牌子真的被人看见了。 */
+          window.setTimeout(function () {
+            try { mark('visible-op=' + getComputedStyle(el).opacity); } catch (e) {}
+          }, 300);
         }, REVEAL_MS);
         window.setTimeout(function () { window.__frameBootReady(); }, HARD_STOP_MS);
       })();

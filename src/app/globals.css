@@ -76,24 +76,51 @@
   --ui: 1;
 
   /* ------------------------------------------------------------------
-     表面（2026-10-07 方向 D · 玻璃工坊，见 DESIGN.md §3.1）
+     表面（2026-10-07 方向 D · 玻璃工坊）
+     🔴 2026-10-07 二次改（徐先：「深色主题改为深灰色」）：这一族从**蓝灰**换成**中性灰**。
+        原来是 #25272e / #2a2c34 / #31333c / #3a3c45 —— 蓝通道恒比红通道高 7~11，
+        整屏带着一层冷蓝。现在三个通道压到差 4 之内，灰得很正；
+        亮度只抬了 1~4 个值（不是大幅提亮），因为下面这条老规矩还在：
 
      ⚠️ 两条反直觉的取值，改之前先读：
        ① **画布地板（--bg-canvas）比界面底（--bg）更深**。这是出图工具 ——
           画布底提到中调灰会让用户误判生成结果的黑位与对比度。
           「中调灰」落在**界面 chrome**（顶栏 / 面板 / 浮层），不落在**内容舞台**。
        ② 输入框 --field **比面板深**，读成「陷进台面里的一格」，不是「贴在台面上的一块」。
+
+     ⚠️ 亮度是**算过对比度**才定的：`--text-mute` 压在最亮的次级面 #3E3F43 上
+        还剩 4.57:1（这张表见下面 `--text-mute` 那段）。**表面一提亮，弱文那一档最先掉线。**
      ------------------------------------------------------------------ */
-  --bg: #25272e;
-  --bg-canvas: #131417;
-  --surface: #2a2c34;
-  --surface-2: #31333c;
-  --surface-3: #3a3c45;
+  --bg: #26272A;
+  --bg-canvas: #16171A;
+  --surface: #2D2E32;
+  --surface-2: #35363A;
+  --surface-3: #3E3F43;
   /* 🔴 不透明度 ≥ 0.88：Electron 合成层上「太透 + 底下有缩放过的图」会被画成横纹
      （2026-10-06 踩过一次，见 DESIGN.md §6 玻璃的使用边界）。 */
-  --surface-glass: rgba(42, 44, 52, 0.92);
-  --field: #1e2026;
-  --well: #1a1c21;
+  --surface-glass: rgba(45, 46, 50, 0.92);
+  --field: #222327;
+  --well: #1E1F22;
+
+  /*
+   * 骨架屏（加载占位）用的两块灰。
+   *
+   * ⚠️ 2026-10-07 之前骨架屏写的是 `background: var(--bg)` —— **两档下都看不见**：
+   *    深档 `--bg #26272A` 压在卡片 `--surface #2D2E32` 上是 1.07:1（而且方向是反的，
+   *    看着像卡片上挖了个洞）；亮档 `--bg` 和 `--surface` **都是 #ffffff**，零对比。
+   *    「正在读取项目…」下面那三张卡于是完全看不出在加载。
+   *
+   * ⚠️ 这两条**故意写死 alpha**，不要改成 `color-mix(in srgb, var(--text) 12%, transparent)`。
+   *    试过那个写法：electron-vite 的 CSS 压缩器会给它配一份 `@supports` 兜底，
+   *    而那份兜底是**错的** —— 它把比例丢了，写成 `--skeleton: var(--text);`
+   *    （在产物里实测到过）。没踩到 @supports 那一支的环境会得到「实心文字色的药丸」。
+   *    Electron 里确实支持 color-mix、走的是对的那一支，但留一份会在别处炸的兜底不值得。
+   *
+   * 深档（`--surface #2D2E32`）：0.10 白 → 约 #424346，对比 **1.38:1**；
+   * 落在画布地板（`--cv-floor #1B1C1F`）上约 **1.32:1**。
+   */
+  --skeleton: rgba(255, 255, 255, 0.10);
+  --skeleton-sheen: rgba(255, 255, 255, 0.07);
 
   --line: rgba(255, 255, 255, 0.09);
   --line-strong: rgba(255, 255, 255, 0.17);
@@ -104,15 +131,19 @@
   /* ------------------------------------------------------------------
      文字（2026-10-07）。中文界面按 **7:1** 设防，不是英文页常用的 4.5:1 ——
      中文笔画密，低对比暗底上损失更大。
-     下面三个比值是对 --surface (#2a2c34) 实测的：15.6 / 7.6 / 4.6。
+     下面三个比值是对 --surface (#2D2E32) 实测的：12.7 / 7.4 / 5.9。
      ⚠️ --text-mute 只给**非关键**文字（禁用、角标、占位），正经信息不许用它。
      ------------------------------------------------------------------ */
   --text: #f2f3f6;
   --text-dim: #bcbfc8;
   /* ⚠️ 这一档是**弱文**（禁用、角标、占位），真机实测过：#8f939e 压在顶栏那种
      最深的底上只有 3.57:1，连 4.5 都不到；提到 #9ea2ad 后浮层上过了线，
-     但**压在账户卡那种最亮的次级面（#3a3c45）上仍只有 4.3**。
+     但**压在账户卡那种最亮的次级面上仍只有 4.3**（那一档当时是 #3a3c45）。
      定在 #a6abb6：四种底都过线（地板 8.1 / 面板 6.0 / 浮层 5.2 / 次级面 4.75）。
+     🔴 2026-10-07 表面换中性灰、整体抬亮一档之后**重新量过**：
+     地板 #26272A 6.49 / 面板 #2D2E32 5.89 / 浮层 #35363A 5.28 / 次级面 #3E3F43 **4.57**。
+     最紧的那一档从 4.75 掉到 4.57 —— 还在线上，但没有余量了。
+     **以后再把次级面 --surface-3 提亮，这一支必须跟着提。**
      正经信息仍然不许用它。 */
   --text-mute: #a6abb6;
 
@@ -128,6 +159,55 @@
   --kind-audio: #cbb083;
   --kind-upscale: #a893c6;
   --kind-other: #9aa0aa;
+
+  /* ------------------------------------------------------------------
+     三个创作入口各自的色（2026-10-07 徐先：「这里的三个选项添加不同的低饱和度颜色」）。
+     用在首页那三格入口卡上（`components/start/StartEntries.tsx`，按 `data-entry` 区分）：
+     只落在**图标块**与那行「进入 →」上 —— 整格铺色会变成三块彩色板，
+     跟上面那条「界面 chrome 无色、彩色属于内容」的规矩打架。
+
+     ⚠️ 三支都按**低饱和**挑（原本就是 --kind-* 那族高级灰的色相，暗档直接沿用），
+        不是鲜艳色。⚠️ 深浅两档都要写：亮档那三支是压深过的，
+        直接把暗档搬上白底只有 2.3:1，等于没字（下面 light 块里有对应的一份）。
+     ⚠️ 图标要 ≥ 3:1（非文本图形），「进入 →」是正文级小字要 ≥ 4.5:1 ——
+        实测暗档 5.30 / 5.07 / 6.51，亮档 6.03 / 5.44 / 5.39，都过。
+     ------------------------------------------------------------------ */
+  /*
+   * ⚠️ 2026-10-08 这三支**整体提过一档亮度**，不是随手调的：
+   *    卡片整面加了洗底之后，卡面比原来亮了（深档 (53,54,58) → (61,64,70)），
+   *    而这三支当初是按**中性面**压到刚好 5.30 / 5.07 / 6.51 的 —— 面一亮就掉到
+   *    4.06 / 3.92 / 4.88，**两支跌破 4.5**。「进入 →」是 12px 正文级小字，必须 ≥ 4.5。
+   *    往回压洗底也救不回来：算下来 alpha 得压到 0.027 才够，那等于没铺色。
+   *    所以是**提字色**而不是减洗底 —— 现在三支对洗底后的卡面是 5.3 / 5.2 / 5.7。
+   */
+  --entry-canvas: #B8CAE2;
+  --entry-canvas-soft: rgba(184, 202, 226, 0.12);
+  --entry-canvas-line: rgba(184, 202, 226, 0.30);
+  /* 卡片**整面**的那一层洗底。比 `-soft` 再淡一档 —— `-soft` 那 0.12 是给图标块用的，
+     整张卡铺同一个值，图标块就跟卡面糊成一片、看不出哪里是图标了。三档的关系是
+     `-face`(整面) < `-soft`(图标块) < `-line`(描边 / 悬停)，**别把这个顺序弄反**。 */
+  --entry-canvas-face: rgba(184, 202, 226, 0.09);
+  --entry-image: #E3B7CB;
+  --entry-image-soft: rgba(227, 183, 203, 0.12);
+  --entry-image-line: rgba(227, 183, 203, 0.30);
+  --entry-image-face: rgba(227, 183, 203, 0.09);
+  --entry-assets: #DCC9A2;
+  --entry-assets-soft: rgba(220, 201, 162, 0.12);
+  --entry-assets-line: rgba(220, 201, 162, 0.30);
+  --entry-assets-face: rgba(220, 201, 162, 0.09);
+
+  /* ------------------------------------------------------------------
+     没有封面的项目卡轮换用的那几支（2026-10-08）。
+     与上面三支入口色同族（蓝灰 / 粉 / 金）+ 青绿、紫，凑够五支让一排里不重样。
+     用的是**洗底**的 alpha（不是实心色）：它压在 `--card-face` 之上，
+     实心的话卡就成了色板，跟「界面 chrome 无色」那条规矩打架。
+     ⚠️ 深浅两档都要写（亮档那几支是压深过的，与入口色同一条理由）。
+     ------------------------------------------------------------------ */
+  --home-tint-1: rgba(143, 163, 196, 0.16);
+  --home-tint-2: rgba(199, 142, 166, 0.16);
+  --home-tint-3: rgba(203, 176, 131, 0.16);
+  --home-tint-4: rgba(143, 188, 164, 0.15);
+  --home-tint-5: rgba(168, 147, 198, 0.16);
 
   /* ------------------------------------------------------------------
      画布地板的弥散渐变（2026-10-07 用户指定：「Figma 弥散渐变效果」）。
@@ -203,6 +283,18 @@
   /* 区块标题那道装饰：极简里是一颗小圆点，颜色仍走强调色。 */
   --bracket: rgba(242, 242, 242, 0.8);
 
+  /* 首页两处区块标题自己的色（2026-10-08 徐先：「这里的文字的颜色也可以改下」，
+     圈的是「创作」与「最近项目」两处标题 + 它们左边那道小竖条）。
+     两处各一支 —— 「创作」那支跟画布入口卡同一族（同一支 blue 的暗档值），
+     「最近项目」配一支青绿；两处都**连竖条一起**换（只换字的话那道装饰会留在强调色上，
+     看着像没改完）。
+     ⚠️ 这两支**不跟「主题配色」走**（那几套 palette 只重定义 `--bracket`，不知道这两个名字），
+        选了别的配色时它们仍是这两支 —— 要跟着走就把它们也加进各 palette 块。
+     ⚠️ 暗档用浅色、亮档用深色，两档分开写；别把亮档那两支直接搬到暗底上（#004AEB 在
+        #26272A 上只有 1.3:1，等于没字）。 */
+  --home-head-create: #B8CAE2;
+  --home-head-projects: #9DCFC0;
+
   /* 圆角：**两套主题共用**（2026-10-07 方向 D：比上一代大一档，配合软阴影）。
      图标钮走 --r-full（圆 / 胶囊），标签走 --r-full，卡片走 --r-md / --r-lg。 */
   --r-xs: 6px;
@@ -236,12 +328,15 @@
   --t-fast: 0.14s cubic-bezier(0.4, 0, 0.2, 1);
   --t: 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 
-  /* 软件 logo（2026-09-29）。
-     ⚠️ 这一串是**生成**的：`FRAME\_make-logo.py` 从 `src/assets/logo.png` 导出。
-     换 logo 只换那张 PNG 再跑一次脚本 —— 启动画面（index.html 内联）、侧栏品牌、
-     页头右上角三处都由它派生，不会出现「换了一处忘了另一处」。
-     走 data URI 而不是文件路径：asar 内相对路径要跟着布局变，而它只有几 KB。 */
-  --logo: url("data:image/png;base64,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");
+  /* 软件 logo。
+     ⚠️ 改回**文件路径**（2026-10-07）：原来这里内联的是 `_make-logo.py` 从
+        `src/assets/logo.png` 导出的 base64 —— 但 logo 素材 10-07 17:18 换过，
+        那段 base64 是**旧 logo**，而首页那条 `workspace-home.css` 的覆盖用的是新文件。
+        结果就是「首页显示新 logo、其它页显示旧 logo」，同一个软件两个标。
+        走 url() 让打包器自己发哈希资源：换 logo 只换 `src/assets/logo.png` 一张图，
+        全站（含启动画面那个 <img>）自动跟着走，没有第二处要记得改。
+     ⚠️ 相对路径是相对**这个 CSS 文件**算的：`src/app/globals.css` + `../assets/` = `src/assets/`。 */
+  --logo: url('../assets/logo.png');
 
   /* 排版 */
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
@@ -274,6 +369,11 @@
   --field: #ffffff;
   --well: #f6f6f6;
 
+  /* 骨架屏（说明在 `:root` 那份里，含「为什么写死 alpha 而不用 color-mix」）。
+     亮档卡片是纯白，块得**比卡片暗**：0.11 黑 → #E3E3E3，对比 1.30:1。 */
+  --skeleton: rgba(0, 0, 0, 0.11);
+  --skeleton-sheen: rgba(0, 0, 0, 0.06);
+
   /* 描边在极简里是「最后手段」：能靠底色差分开的就不画线。
      留着的这一档只比底色深一丁点，凑近才看得出有一条线。 */
   --line: rgba(0, 0, 0, 0.1);
@@ -290,6 +390,54 @@
      #8a6a12 对卡片底 #f7f7f7 是 4.72:1、对纯白 5.06:1，和这套里其他正文色同一档。
      夜间那支 #e8c15f 直接搬过来的话在白底上只有 1.6:1，等于没字。 */
   --gold: #8a6a12;
+
+  /* 三个创作入口各自的色 —— 白底档（暗档那份在 `:root` 里，说明也写在那儿）。
+     暗档那三支（#8FA3C4 / #C78EA6 / #CBB083）直接搬上白底只有 2.3~2.6:1，等于没字，
+     所以这里按同一批色相压深到正文级：对纯白 6.03 / 5.44 / 5.39。
+     ⚠️ 还是低饱和 —— 不是"改成鲜艳色"，只是把明度压到白底读得出来。 */
+  /* 🔴 2026-10-08 二次改（徐先：「日间模式的主题选项卡颜色要优化一下，现在太深了。
+     颜色可以更加鲜艳明亮一点」）—— **上面那三支的病不在明度，在彩度**。
+     量一下就知道：`#4E6484` 的归一化色度只有 **0.053**（青灰）、`#8C4E66` 0.058（暗梅）、
+     `#7A5C22` 0.082 —— 它们其实不深，是**灰**，所以看着"闷"。
+     解法是把**彩度**拉到对比度允许的上限，而不是继续调明度：
+     搜法见 `DESIGN.md` 那一节（约束 cr >= 4.75，目标 `色度 = 色域跨度 × 明度离中段的距离`，
+     后者在两端都会衰减，正好把解压在中间，不会挑出一支快发黑的"高饱和"）。
+     结果彩度：canvas 0.053 → **0.201**（3.8 倍）、image 0.058 → **0.145**（2.5 倍）、
+     assets 0.082 → **0.120**（1.5 倍）；「进入 →」对洗底后的卡面 4.84 / 4.86 / 4.96
+     —— 比原来那三支（4.78 / 4.86 / 4.89）还高一点。
+     ⚠️ 色相没动（蓝 221° / 玫瑰 331° / 琥珀 31°），跟暗档那三支是同一族，别改成别的颜色。
+
+     另外把"面"和"图标块"两档的浓度一起提了，让整张卡真的有色：
+       · `-face`  0.06 → **0.10**（卡面从"几乎看不见"变成一眼分得出三条路）；
+       · `-line`  0.26 → **0.22**（它同时是图标块的底 —— 原来的 0.26 乘上新的高彩度色
+         会把块压得偏暗，图标只剩 3.1:1；压到 0.22 后回到 3.3~3.7，
+         块本身反而更亮更鲜）。
+     ⚠️ 别把 `-line` 再调高"找回描边"：块底跟着一起变暗，图标会掉出 3:1。 */
+  --entry-canvas: #004AEB;
+  --entry-canvas-soft: rgba(0, 74, 235, 0.12);
+  --entry-canvas-line: rgba(0, 74, 235, 0.22);
+  /* 卡片整面那层洗底 —— 白底上比暗档再淡一档（同色在浅底上显得更浓）。
+     三档顺序（面 < 图标块 < 描边）的理由写在 `:root` 那一份旁边。 */
+  --entry-canvas-face: rgba(0, 74, 235, 0.10);
+  --entry-image: #B40459;
+  --entry-image-soft: rgba(180, 4, 89, 0.12);
+  --entry-image-line: rgba(180, 4, 89, 0.22);
+  --entry-image-face: rgba(180, 4, 89, 0.10);
+  --entry-assets: #8F4A00;
+  --entry-assets-soft: rgba(143, 74, 0, 0.12);
+  --entry-assets-face: rgba(143, 74, 0, 0.10);
+  --entry-assets-line: rgba(143, 74, 0, 0.22);
+
+  /* 没有封面的项目卡轮换用的那几支 —— 白底档（暗档那份在 `:root` 里，说明也写在那儿）。
+     🔴 2026-10-08 同入口卡那条：旧那五支的彩度只有 0.047~0.103，卡片颜色发灰；
+     换成同色相的高彩度支（彩度 0.15~0.31），alpha 跟着 `--card-tint-a` 一起提到 0.19 上下。
+     ⚠️ 这几支**自带 alpha**（跟封面取色那条 `rgba(r,g,b, var(--card-tint-a))` 不是一个写法），
+     改 `--card-tint-a` 时别忘了它们要跟着走，否则同一排卡深浅会不一样。 */
+  --home-tint-1: rgba(48, 102, 220, 0.19);
+  --home-tint-2: rgba(196, 60, 120, 0.18);
+  --home-tint-3: rgba(184, 122, 22, 0.18);
+  --home-tint-4: rgba(36, 152, 112, 0.18);
+  --home-tint-5: rgba(124, 84, 208, 0.18);
 
   /* 强调色：**黑** #111111 —— 黑白配色里它就是「最深的那一档墨」：
      按钮是黑底白字，链接、选中态、进度条一律黑。对比度 18.9:1，
@@ -346,6 +494,12 @@
   --title-sheen: rgba(255, 255, 255, 0.8);
   /* 区块标题那道方括号：极简里缩成一颗小圆点，颜色仍走强调色。 */
   --bracket: rgba(17, 17, 17, 0.85);
+
+  /* 首页两处区块标题自己的色 —— 说明写在 `:root` 那一份旁边。
+     亮档这两支是在**白底**上取的：对比 6.61 / 6.06，两处都够（标题是 20px 粗体，
+     本来就按大字判）。彩度 0.201 / 0.108 —— 跟同屏那三支入口色同一档，不会比它们还"闷"。 */
+  --home-head-create: #004AEB;
+  --home-head-projects: #00705A;
 
   /* 阴影：只留「离地一点点」的量。极简靠留白分层，投影一重就变成一堵卡片墙。 */
   --sh-1: none;
@@ -793,23 +947,41 @@ button:disabled:hover { background: var(--accent-fill); }
   color: var(--text);
 }
 .brand:hover { color: var(--accent); }
-  /* 软件 logo（2026-09-29）：原来这里是「✦」这个字符，换成 logo 图形。
+  /* 软件 logo（2026-09-29）。原来这里是「✦」这个字符，换成 logo 图形。
      走 CSS 背景而不是改 JSX —— 侧栏品牌在好几个页面里都有，改一处全站生效；
-     那个字符仍留在 DOM 里（宽度与语义都还靠它），只是被压成透明。 */
+     那个字符仍留在 DOM 里（宽度与语义都还靠它），只是被压成透明。
+     ⚠️ `#boot` 那块启动牌子上另有一个 `<img>`，两张是同一张图（都指 src/assets/logo.png），
+        换 logo 只换那张文件即可。 */
   .brand-mark {
     display: inline-block;
-    width: 18px;
-    height: 18px;
+    /* 18 → 24（2026-10-07 徐先：「logo 图标变大」）。跟 .brand 的 13.5px 字配，
+       24 是「看得出是个图形、又不至于把品牌行撑高」的那一档。 */
+    width: 24px;
+    height: 24px;
     color: transparent;
     background-image: var(--logo);
     background-repeat: no-repeat;
     background-position: center;
     background-size: contain;
-    vertical-align: -3px;
+    vertical-align: -4px;
   }
-  /* logo 本身是黑白的（85% 近黑 + 12% 近白）：深底上要反相，
-     否则深色界面里它是一块看不见的黑。 */
-  html[data-theme='dark'] .brand-mark { filter: invert(1); }
+  /*
+   * 🔴 深色档**不再反相**（2026-10-07 改）。
+   *
+   * 这里原来是 `filter: invert(1)` —— 那是给**旧 logo**写的（旧那张是深色图形，
+   * 压在深底上看不见，所以反相）。但 logo 素材 10-07 换成了**浅色**的三角+节点图形
+   * （不透明像素亮度 160~224），再反相就把图形压成亮度 **85** 的深灰，
+   * 压在侧栏底 `#2D2E32`（亮度 45）上只有 **1.6:1** —— 深色界面里它基本消失。
+   * 新 logo 本来就是为深底画的：深色档什么都不做，对比度 **~5.3:1**。
+   */
+  html[data-theme='dark'] .brand-mark { filter: none; }
+  /*
+   * 亮色档反过来：浅色图形压白底只有 **2.6:1**（低于图形元素该有的 3:1），
+   * 压暗到 ~0.6 倍亮度后落到 **~6.2:1**。
+   * ⚠️ 这里用 brightness 而不是 invert —— invert 会把那三支低饱和的节点色（蓝/玫/绿）
+   *    翻成互补色，logo 就不是 logo 了。
+   */
+  html[data-theme='light'] .brand-mark { filter: brightness(0.6); }
 
 .muted { color: var(--text-dim); }
 
@@ -879,6 +1051,32 @@ input:focus, select:focus, textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
+/*
+ * 🔴 原生下拉**展开后那一列**的底色必须自己给（2026-10-08 徐先报「深色主题，选项，文字太淡了」）。
+ *
+ * 真因不是"颜色选淡了"，是**白底压白字**：
+ *   · `<option>` 的 `color` 继承 `select` 的 —— 深色档是近白的 `--text`；
+ *   · 而展开面板的**底色由浏览器画**，它在 Electron 里照的是**系统浅色主题**，
+ *     不认应用自己的 `<html data-theme>` / `color-scheme: dark` —— 实测那一列是纯白
+ *     （截图取样：底 `(255,255,255)`、字 `(242,243,246)`，对比度 **1.05:1**，等于看不见）。
+ *   · 全站此前**一条 `option` 规则都没有**，所以这个坑对每一个原生下拉都成立。
+ *
+ * ⚠️⚠️ **这条在 Windows 上其实不生效**（2026-10-08 第二轮实测确认，别再被骗一次）：
+ *   那个展开面板是**操作系统菜单**画的，Chromium 只把「文字 / 选中态」交给它，
+ *   `option` 的 `background-color` **根本不参与绘制**（Chromium issue 41281328，2016 挂到现在）。
+ *   实测：给 `.cv-select option` 设了背景，computed 读出来是深色 `rgb(33,34,37)`，
+ *   展开后**照样纯白**，只有 `color` 生效（于是更糟：近白字压在系统白底上）。
+ *   本机 Chromium 152 也没修。
+ *
+ * 真正管用的那条在 `canvas/controls.css`：`@supports (appearance: base-select)`
+ *   —— 把 select 切成全 CSS 可控模式，popup 从原生菜单变成网页自绘的 `::picker(select)`。
+ *   那边目前只开在 `.cv-select` 上；**全站裸 `<select>` 的同一问题还没治** ——
+ *   要治就照搬那一段（注意会连带改外观：默认 chevron / 盒模型），等徐先点到再动。
+ *
+ * 下面这条留着：不认 `base-select` 的平台上 popup 是网页自绘的，它仍然是正解。
+ * ⚠️ 别删它去指望 `color-scheme`：两档都写了（`:root` 深 / 亮档浅），实测在原生下拉上不生效。
+ */
+select option { color: inherit; background: var(--field); }
 
 /* ---------- 4. 首页 ---------- */
 .landing { max-width: 1280px; margin: 0 auto; padding: 0 24px; }
@@ -1027,6 +1225,10 @@ footer {
    分开写两份，窄窗口下两条会各动各的，侧栏和内容之间错开一条缝。 */
 .shell {
   --nav-w: 248px;
+  /* 收起后那条「窄图标条」的宽度（2026-10-08）。只在这里出现一次，
+     和 `--nav-w` 一样：栅格第 1 列与 `.sidebar` 自身宽度都读同一处，
+     分开写两份的话窄窗口下会各动各的、错开一条缝。 */
+  --nav-rail-w: 56px;
   min-height: 100vh;
   display: grid;
   grid-template-columns: var(--nav-w) 1fr;
@@ -1203,26 +1405,94 @@ footer {
   background: var(--bg);
 }
 
-/* ---------- 通用外壳的侧栏收纳（2026-09-26）----------
+/* ---------- 侧栏收纳：收起 = 变窄图标条（2026-10-08 重写）----------
  *
- * 首页 / 项目列表那套（`.home-shell`）早就能收；这一套是全站其它页走的外壳，之前没接上。
+ * 2026-10-08 徐先拿另一款软件的窄侧栏当参照，说「侧边栏形态切换」。
+ * 他对齐的方向：**收起 = 窄图标条**；条里**只留图标，名字靠悬停提示**。
  *
- * ⚠️ 状态只看 `<html data-nav>`，组件**不写内联样式** —— 防闪脚本在 <head> 里就先写好了它；
+ * 改之前是「整条滑出屏幕」——`--nav-w: 0px` + `transform: translateX(-100%)`：
+ * 收起来就真的什么都不剩，导航还在不在、该往哪点，全靠记。
+ * 窄条把「随时能看见、随时能点」留下来，只让出宽度和文字。
+ *
+ * ⚠️ **三处必须一起动**，漏一处就会出现「侧栏收窄了、正文左侧还空着 200px」这类错位：
+ *    ① `--nav-w`（栅格第 1 列）② `.sidebar` 自身 `width` ③ 下面那一串字体 / 内距的形态规则。
+ * ⚠️ 原来那条写的是 `.shell:not(.home-shell)`，**把首页 / 项目列表排除在外** ——
+ *    那两页点收纳钮**根本没有任何反应**（侧栏一动不动，只有按钮上的图标翻了面）。
+ *    现在统一成 `.shell`，首页跟着一起生效。
+ * 🔴 状态只看 `<html data-nav>`，组件**不写内联样式** —— 防闪脚本在 `<head>` 里就先写好了它；
  *    改由组件写必然先画一帧展开、再跳成收起。
- * ⚠️ 收起用 `transform` 滑出而不是 `display: none`：后者没有过渡，展开时会「啪」地跳出来。
- * ⚠️ 列宽只由 `--nav-w` 一处控制：`.sidebar` 是 `position: fixed`（脱离了栅格），
- *    `.workspace` 又已经显式钉在第 2 列 —— 列 1 变 0 宽，正文自然拿满整宽。
- * ⚠️ 那颗钮**不能放进侧栏**（整条滑出屏幕就再也点不开了），它由 `NavTogglePortal`
+ * 🔴 那颗钮**不能放进侧栏**（窄条下会跟着挤成 36px），它由 `NavTogglePortal`
  *    挂进各页页头 —— 与「站点余额」同一套做法。
  */
-.shell:not(.home-shell) {
+.shell {
   transition: grid-template-columns 240ms cubic-bezier(0.4, 0, 0.2, 1);
 }
-html[data-nav='collapsed'] .shell:not(.home-shell) { --nav-w: 0px; }
-.shell:not(.home-shell) .sidebar {
-  transition: transform 240ms cubic-bezier(0.4, 0, 0.2, 1);
+html[data-nav='collapsed'] .shell { --nav-w: var(--nav-rail-w); }
+.sidebar {
+  transition: width 240ms cubic-bezier(0.4, 0, 0.2, 1),
+              padding 240ms cubic-bezier(0.4, 0, 0.2, 1);
+  /*
+   * ⚠️ 不能省这一行：`.sidebar` 上面有 `overflow-y: auto`，而按规范
+   *    **一个方向不是 visible 时，另一个方向的 visible 会被算成 auto** ——
+   *    于是收窄过程中文字横着溢出去，侧栏底下会长出一条横向滚动条。
+   */
+  overflow-x: hidden;
 }
-html[data-nav='collapsed'] .shell:not(.home-shell) .sidebar { transform: translateX(-100%); }
+
+/*
+ * 收起态的形态。
+ *
+ * 手法是 `font-size: 0` 而不是给文字包 `<span>`：`SideNav.tsx` 里的标签是**裸文本节点**，
+ * `.brand` 那半截也是（而且散在十几个页面里）。`font-size: 0` 让这些文本缩成 0×0，
+ * 而图标是 `<svg width/height>` 固定尺寸、`.brand-mark` 是写死的 24px，
+ * **都不受 font-size 影响** —— 一处规则就够，不用动 JSX。
+ * ⚠️ 配套要把 `gap` 归零：flex 的 gap 是按 item 数量算的，裸文本仍会生成一个 0 宽的匿名
+ *    item，留着 9px 的缝会让图标看着偏左（"选项读得到但看着没居中"那类毛病）。
+ */
+html[data-nav='collapsed'] .sidebar { padding: 22px 10px; }
+html[data-nav='collapsed'] .sidebar .brand {
+  display: flex;
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+  font-size: 0;
+}
+html[data-nav='collapsed'] .sidebar nav a {
+  justify-content: center;
+  gap: 0;
+  padding: 9px 0;
+  font-size: 0;
+}
+/* 激活态：展开时那套「一道 2px 竖条 + 文字变亮」在窄条里没有文字可亮，
+   光一根竖条太弱 —— 换成整块淡强调底（图标本来就是 `currentColor`，跟着变强调色）。 */
+html[data-nav='collapsed'] .sidebar nav a.active { background: var(--accent-soft); }
+html[data-nav='collapsed'] .sidebar nav a.active::before { height: 0; }
+/* 分组标题（「实用工具 STUDIO TOOLS」）在 36px 里放不下任何字 ——
+   收成一条居中的短横线，分组这个语义本身保住。
+   🔴 那两截文字必须 `display: none`，**不能只靠父级 `font-size: 0`**：
+      `.nav-group em` 自己就有一条 `font-size: 9px`，**显式声明不会继承父级的 0**
+      —— 它照旧有 9px 宽（实测那行「STUDIO TOOLS」+ 字距约 82px），
+      于是这条 grid 的列被撑到 **97px**、整条侧栏横向溢出 52px，
+      导航图标被推到 56px 侧栏之外（`scrollWidth` 与 `clientWidth` 的差就是它）。 */
+html[data-nav='collapsed'] .nav-group {
+  justify-content: center;
+  gap: 0;
+  margin: 14px 0 6px;
+}
+html[data-nav='collapsed'] .nav-group span,
+html[data-nav='collapsed'] .nav-group em { display: none; }
+html[data-nav='collapsed'] .nav-group::after { flex: none; width: 20px; }
+/* 底部用户卡：只留头像，缩成一个圆形按钮（36 = 内容宽，正好不吃掉侧栏内距）。 */
+html[data-nav='collapsed'] .side-user {
+  width: 36px;
+  height: 36px;
+  margin-left: auto;
+  margin-right: auto;
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+}
+html[data-nav='collapsed'] .side-user-body { display: none; }
 
 /*
  * 页头里那颗「收起 / 展开左侧导航」钮。
@@ -2486,9 +2756,43 @@ input[type='color']::-webkit-color-swatch { border: 0; border-radius: 5px; }
     position: relative;
     background: none;
   }
-  /* 小屏侧栏已经缩成一条横向带子（`display:block` + `position:static`），
-     收纳只会在地上留一块空白 —— 这一档让它一直摊着。 */
-  html[data-nav='collapsed'] .shell:not(.home-shell) .sidebar { transform: none; }
+  /* 小屏侧栏已经缩成一条**横向换行的带子**（`display:block` + `position:static`），
+     窄图标条那种「竖着一条、只有图标」的形态在这里没有意义 —— 这一档让它一直摊着，
+     把收起态那一整套形态规则逐条还原回来（选择器与上面逐字相同，靠**位置靠后**赢）。 */
+  html[data-nav='collapsed'] .shell { --nav-w: 210px; }
+  html[data-nav='collapsed'] .sidebar { padding: 22px 16px; }
+  html[data-nav='collapsed'] .sidebar .brand {
+    display: inline-flex;
+    justify-content: flex-start;
+    gap: calc(9px * var(--ui));
+    padding: 0 6px;
+    font-size: var(--fs-5);
+  }
+  html[data-nav='collapsed'] .sidebar nav a {
+    justify-content: flex-start;
+    gap: 9px;
+    padding: 8px 11px;
+    font-size: 13px;
+  }
+  html[data-nav='collapsed'] .sidebar nav a.active::before { height: 16px; }
+  html[data-nav='collapsed'] .nav-group {
+    justify-content: flex-start;
+    gap: 8px;
+    margin: 16px 2px 5px;
+  }
+  html[data-nav='collapsed'] .nav-group span,
+  html[data-nav='collapsed'] .nav-group em { display: inline; }
+  html[data-nav='collapsed'] .nav-group::after { flex: 1; width: auto; }
+  html[data-nav='collapsed'] .side-user {
+    width: auto;
+    height: auto;
+    margin-left: 0;
+    margin-right: 0;
+    justify-content: flex-start;
+    gap: 10px;
+    padding: 9px 10px;
+  }
+  html[data-nav='collapsed'] .side-user-body { display: grid; }
   .sidebar { border-right: 0; border-bottom: 1px solid var(--line); }
   .sidebar nav { display: flex; flex-wrap: wrap; }
   .side-bottom { margin-top: 16px; }

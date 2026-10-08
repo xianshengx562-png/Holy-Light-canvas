@@ -6,6 +6,112 @@
   background: var(--cv-bg);
 }
 
+/*
+ * ---------- 载入骨架（2026-10-07）----------
+ *
+ * 由 `projects/[id]/page.tsx` 在数据回来之前渲染。它跟真画布共用 `.flow-shell`
+ * 这一层，所以 `cv-*` 令牌（含画布主题 tech/warm/midnight 那几套）自动生效 ——
+ * 不需要为它再养一份颜色。
+ *
+ * 每一块都用 `--skeleton` / `--skeleton-sheen`（globals.css 里那对令牌，深浅两档各一份）。
+ * ⚠️ 别在这一层直接写灰值：深档要**亮块压深底**、亮档要**暗块压白底**，方向是反的 ——
+ * 在组件里钉一个颜色，必然在其中一档里看不见。首页骨架屏当初就是这么错的（见 home.css）。
+ * 微光那道只动 `background-position`，不碰尺寸、不碰 transform。
+ */
+.cv-boot-topbar {
+  height: calc(48px * var(--ui));
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: calc(10px * var(--ui));
+  padding: 0 calc(12px * var(--ui));
+  background: var(--cv-float);
+  border-bottom: 1px solid var(--cv-line-soft);
+}
+.cv-boot-brand,
+.cv-boot-chip,
+.cv-boot-btn,
+.cv-boot-dot,
+.cv-boot-node {
+  display: block;
+  flex: none;
+  background-color: var(--skeleton);
+  background-image: linear-gradient(90deg, transparent, var(--skeleton-sheen), transparent);
+  background-repeat: no-repeat;
+  background-size: 55% 100%;
+  background-position: -60% 0;
+  animation: cv-boot-sheen 1.5s ease-in-out infinite;
+}
+.cv-boot-brand { width: calc(148px * var(--ui)); height: calc(14px * var(--ui)); border-radius: var(--cv-radius-sm); }
+.cv-boot-chip { width: calc(54px * var(--ui)); height: calc(14px * var(--ui)); border-radius: var(--cv-radius-sm); }
+.cv-boot-chip.sm { width: calc(36px * var(--ui)); }
+.cv-boot-gap { flex: 1; }
+.cv-boot-btn { width: calc(70px * var(--ui)); height: calc(28px * var(--ui)); border-radius: var(--cv-radius-sm); }
+
+/* `.cv-booting` 自己要有定位上下文 —— 下面 `.cv-boot-tip` 是 absolute 挂在它上面的。 */
+.cv-booting { position: relative; }
+
+.cv-boot-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  /* 左侧工具条是 absolute 的，必须在这儿再立一个定位上下文，
+     否则它会一路跑到视口上去（`.flow-shell` 本身没定位）。 */
+  position: relative;
+  background: var(--cv-floor);
+}
+/* 左侧工具条：跟真画布一样是浮在画布上的竖向胶囊（`absolute` 挂在左边缘）。 */
+.cv-boot-rail {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: calc(6px * var(--ui));
+  padding: calc(8px * var(--ui)) calc(6px * var(--ui));
+  background: var(--cv-panel);
+  border: 1px solid var(--cv-line);
+  border-radius: 999px;
+}
+.cv-boot-dot { width: calc(16px * var(--ui)); height: calc(16px * var(--ui)); border-radius: 50%; }
+.cv-boot-rail .cv-boot-dot:nth-child(2) { animation-delay: 0.18s; }
+.cv-boot-rail .cv-boot-dot:nth-child(3) { animation-delay: 0.36s; }
+
+/* 地板上的影子节点。位置只是个「大概会长在这儿」的示意 —— 数据回来就换掉。 */
+.cv-boot-floor { flex: 1; position: relative; overflow: hidden; }
+.cv-boot-node {
+  position: absolute;
+  top: 13%;
+  width: calc(240px * var(--ui));
+  height: calc(150px * var(--ui));
+  border-radius: var(--cv-radius);
+}
+.cv-boot-node:nth-child(1) { left: 3%; }
+.cv-boot-node:nth-child(2) { left: 36%; animation-delay: 0.18s; }
+.cv-boot-node:nth-child(3) { left: 69%; animation-delay: 0.36s; }
+
+.cv-boot-tip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(22px * var(--ui));
+  transform: translateX(-50%);
+  margin: 0;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-mute);
+}
+@keyframes cv-boot-sheen {
+  from { background-position: -60% 0; }
+  to { background-position: 160% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cv-boot-brand,
+  .cv-boot-chip,
+  .cv-boot-btn,
+  .cv-boot-dot,
+  .cv-boot-node { animation: none; background-image: none; }
+}
+
 /* ---------- 顶栏 ---------- */
 .flow-shell .cv-topbar {
   /* 顶栏这三项跟着「界面大小」走（见 globals.css `:root` 上 `--ui` 那段说明）。
@@ -16,8 +122,9 @@
   align-items: center;
   gap: calc(10px * var(--ui));
   padding: 0 calc(12px * var(--ui));
-  /* 2026-10-07：顶栏是**界面 chrome**，不是画布 —— 它站四级明度的最高层
-     （地板 #131417 < 卡片 #1e2026 < 面板 #2a2c34 < 顶栏/浮层 #31333c）。
+  /* 2026-10-07：顶栏是**界面 chrome**，不是画布 —— 它要明显亮于画布地面
+     （深色档实测：地板 #1B1C1F 27,28,31 < 节点卡/面板 #2A2B2F 42,43,47，
+     顶栏取 `--cv-float` = rgba(42,43,47,.98)，跟面板同一档、98% 不透明）。
      原来它跟画布同色（--cv-bg），于是「哪块是工具、哪块是工作区」全靠底下那根 1px 线分。 */
   background: var(--cv-float);
   border-bottom: 1px solid var(--cv-line-soft);
@@ -39,6 +146,44 @@
 }
 .cv-topbar .cv-brand:hover { background: var(--cv-panel-2); }
 .cv-topbar .cv-brand span { color: var(--cv-mute); }
+/* ---------- 工作区品牌（logo + 「Holy Light」）----------
+ * ⚠️ 条是补的：JSX 先上了（CanvasEditor 顶栏第一个元素），样式没跟上 ——
+ *    于是那张 512×512 的 logo 以**原始尺寸**渲进 48px 的顶栏，直接溢到画布上
+ *    （表现是左上角一块巨大的彩色三角压着画布），`<span>Holy Light</span>`
+ *    也被挤到左侧中部。img 必须显式定尺寸，别指望它自己缩。
+ * 高度跟顶栏其它控件一样读 `--cv-topbar-ctl`（在 `.flow-shell .cv-topbar` 上定义）。 */
+.cv-topbar .cv-workspace-brand {
+  display: flex;
+  align-items: center;
+  gap: calc(6px * var(--ui));
+  height: var(--cv-topbar-ctl);
+  padding: 0 calc(6px * var(--ui));
+  flex: none;
+  font-size: var(--cv-fs-4);
+  font-weight: 600;
+  color: var(--cv-text);
+  border-radius: var(--cv-radius-sm);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.cv-topbar .cv-workspace-brand img {
+  width: calc(18px * var(--ui));
+  height: calc(18px * var(--ui));
+  object-fit: contain;
+  flex: none;
+  display: block;
+}
+.cv-topbar .cv-workspace-brand:hover { background: var(--cv-panel-2); }
+/* 数字一律等宽字形：节点数、连线数、缩放百分比都是**活的** ——
+   生成过程中从「6 节点」跳到「7 节点」、100% 跳到 125%，
+   比例字宽会让顶栏整行左右抖一下，看着像界面在闪。 */
+.cv-workspace-count,
+.cv-vp-percent,
+.cv-run-times .cv-input,
+.cv-node-index,
+.cv-badge {
+  font-variant-numeric: tabular-nums;
+}
 .cv-topbar .cv-divider { width: 1px; height: calc(20px * var(--ui)); background: var(--cv-line); flex: none; }
 .cv-topbar .cv-group { display: flex; align-items: center; gap: calc(4px * var(--ui)); }
 .cv-topbar .cv-spacer { flex: 1; }
@@ -66,7 +211,7 @@
   display: inline-flex; align-items: center; justify-content: center;
   line-height: 1; white-space: nowrap;
   color: var(--cv-mute); background: var(--cv-panel-2);
-  border: 1px solid var(--cv-line); border-radius: 5px;
+  border: 1px solid var(--cv-line); border-radius: var(--cv-radius-sm);
 }
 /* `:not(:disabled)` 是为了不跟 `button:disabled:hover` 抢 —— 那条是 (0,2,1)，
    光写 `.cv-run-step:hover` 在禁用时会把底色刷回去。 */

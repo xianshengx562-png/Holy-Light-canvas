@@ -197,7 +197,7 @@
   color: var(--cv-text);
   background: var(--cv-panel-2);
   border: 1px solid var(--cv-line);
-  border-radius: 5px;
+  border-radius: var(--cv-radius-sm);
 }
 
 /* 生成键：截图里是一个白色圆形按钮 */
@@ -278,14 +278,14 @@
   text-align: left;
   background: transparent;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--cv-radius);
   cursor: pointer;
 }
 /* globals 的 `button:not(.secondary):not(.subtle):not(:disabled)` 给所有按钮一条
    inset 内高光（specificity 0-3-1，比 .cv-menu-item 高）—— 就是它让每行看起来
    像张凸起的小卡。这里照抄它的 :not 链再垫一层 .cv-menu，稳压一头。 */
 .cv-menu .cv-menu-item:not(.secondary):not(.subtle):not(:disabled) { box-shadow: none; }
-.cv-menu.add-nodes .cv-menu-item { height: 44px; font-size: var(--cv-fs-4); border-radius: 10px; }
+.cv-menu.add-nodes .cv-menu-item { height: 44px; font-size: var(--cv-fs-4); border-radius: var(--cv-radius-lg); }
 .cv-menu.add-nodes .cv-menu-item .cv-menu-text { font-size: var(--cv-fs-4); }
 .cv-menu-item:hover { background: var(--cv-panel-2); }
 .cv-menu-item .cv-menu-glyph { display: grid; place-items: center; width: 20px; color: var(--cv-mute); }
@@ -313,7 +313,7 @@
   color: var(--cv-mute);
   background: var(--cv-panel-2);
   border: 1px solid var(--cv-line);
-  border-radius: 5px;
+  border-radius: var(--cv-radius-sm);
 }
 /*
  * 只有图标的行（「添加节点」那一栏）。
@@ -350,7 +350,7 @@
   padding: 0;
   background: transparent;
   border: 1px solid var(--cv-line-strong);
-  border-radius: 4px;
+  border-radius: var(--cv-radius-sm);
   cursor: pointer;
   transition: box-shadow 0.12s ease;
 }
@@ -369,4 +369,4 @@
   appearance: none;
 }
 .cv-swatch.pick::-webkit-color-swatch-wrapper { padding: 0; }
-.cv-swatch.pick::-webkit-color-swatch { border: 0; border-radius: 3px; }
+.cv-swatch.pick::-webkit-color-swatch { border: 0; border-radius: var(--cv-radius-sm); }

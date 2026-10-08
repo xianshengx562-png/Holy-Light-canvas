@@ -3,7 +3,7 @@ import { api, apiUser, ApiError, checkOrigin, jsonBody } from '@/lib/api';
 import {
   PromptAssistantError, PROMPT_ASSISTANT_MAX, loadSkillForPrompt, optimizePrompt,
 } from '@/lib/promptAssistant';
-import { buildOptimizeInstruction } from '@/lib/optimizeOptions';
+import { buildOptimizeInstruction, isFreeformSkill } from '@/lib/optimizeOptions';
 import { recordCall } from '@/lib/providers/keys';
 
 /**
@@ -26,6 +26,10 @@ const schema = z.object({
    * 技能 id（就是目录名 slug，dock 上「优化提示词」旁边选的那个）。
    * 给了就把那个技能的写法规范一起塞进 system —— 优化出来的提示词得是**那个技能**
    * 要的格式，不然用户选它干嘛。
+   *
+   * 🔴 留空与哨兵 `__free__` 是**两档**（2026-10-08 徐先）：留空 = 不指定技能，
+   * 但仍走通用写法那套补全规矩；哨兵 = 连那套规矩也不套，只按「补充要求」写。
+   * 见 `lib/optimizeOptions.ts` 里 `OPTIMIZE_SKILL_FREE` 那条注释。
    */
   skillId: z.string().trim().max(160).optional(),
   /**
@@ -58,16 +62,28 @@ export async function POST(request: Request) {
     if (!parsed.success) throw new ApiError(400, parsed.error.issues[0]?.message || '请求体格式不对。');
     const startedAt = Date.now();
     try {
+      /*
+       * 「什么都不填」那一档（2026-10-08）：`skillId` 里装的是哨兵值，它**不是**一个技能。
+       * 直接喂给 `loadSkillForPrompt` 也能跑（拿不到技能就退回通用写法），
+       * 但那样就把「用户明确选了什么都不填」这个信息丢了 —— 必须先在这里认出来。
+       */
+      const freeform = isFreeformSkill(parsed.data.skillId);
       const result = await optimizePrompt(
         user.id,
         parsed.data.prompt,
         parsed.data.provider,
-        loadSkillForPrompt(parsed.data.skillId),
+        loadSkillForPrompt(freeform ? undefined : parsed.data.skillId),
         {
           keepAliveSeconds: parsed.data.keepAlive,
+          freeform,
           /* 拼成一段指令在这里做：**只写一份**（`lib/optimizeOptions.ts`），
-             界面与后端看到的是同一句话，不会出现「界面说是轻度、发出去的是标准」。 */
-          instruction: buildOptimizeInstruction({ strength: parsed.data.strength, note: parsed.data.note }),
+             界面与后端看到的是同一句话，不会出现「界面说是轻度、发出去的是标准」。
+             🔴 freeform 时**不传 strength**：强度那句本身就是一套「补全 / 扩写」的
+             写法规矩，留着它这一档就等于没选 —— 只留补充要求。 */
+          instruction: buildOptimizeInstruction({
+            strength: freeform ? undefined : parsed.data.strength,
+            note: parsed.data.note,
+          }),
         },
       );
       /*

@@ -2,6 +2,14 @@
    主界面 - 简约风格重构
    ============================================================ */
 
+/* ⚠️ 必须显式钉在第 2 列。`.sidebar` 改成 fixed 之后就**脱离了 grid**、不再是 grid item ——
+   于是 `.workspace` 成了唯一的 item，被自动放进第 1 列（248px 那一列），
+   而那一列正好被 fixed 侧栏（z-index 20、不透明底）整个盖住 ——
+   表现是「左侧菜单正常、右侧主内容完全空白」，且**不报任何错**。
+   （globals.css 里那条 `.shell:not(.home-shell) .workspace` 故意把首页排除在外，
+    所以这里必须自己写一遍，别指望那边兜底。） */
+.home-shell .workspace { grid-column: 2; }
+
 .content.home { max-width: 1400px; }
 
 /* ============================================================
@@ -147,7 +155,7 @@
 }
 
 /* ============================================================
-   骨架屏
+   骨架屏（2026-10-07 重做）
    ============================================================ */
 .home-skeleton {
   padding: 24px 0;
@@ -175,23 +183,55 @@
   gap: 12px;
 }
 
+/*
+ * ⚠️ 这两块原来写的是 `background: var(--bg)` —— **两档下都看不见**（见 globals.css
+ *    `--skeleton` 那段：深档 1.07:1 且方向反了，亮档是同一个白色 0 对比）。
+ *    改读 `--skeleton` 令牌，两档自动都对。
+ *
+ * 那道微光：`background-image` 是一条「透明 → 微光 → 透明」的带子，
+ * 动画只改 `background-position`（不动 transform / 不碰尺寸），让它自己从左走到右。
+ */
+.home-skeleton-thumb,
+.home-skeleton-line {
+  display: block;
+  background-color: var(--skeleton);
+  background-image: linear-gradient(90deg, transparent, var(--skeleton-sheen), transparent);
+  background-repeat: no-repeat;
+  background-size: 55% 100%;
+  background-position: -60% 0;
+  animation: sk-sheen 1.5s ease-in-out infinite;
+}
+
+@keyframes sk-sheen {
+  from { background-position: -60% 0; }
+  to { background-position: 160% 0; }
+}
+
+/* 三张卡错开相位 —— 一起闪像整块在抖，错开才像「在往下读」。 */
+.home-skeleton-card:nth-child(2) .home-skeleton-thumb,
+.home-skeleton-card:nth-child(2) .home-skeleton-line { animation-delay: 0.18s; }
+.home-skeleton-card:nth-child(3) .home-skeleton-thumb,
+.home-skeleton-card:nth-child(3) .home-skeleton-line { animation-delay: 0.36s; }
+
 .home-skeleton-thumb {
   width: 100%;
   height: 160px;
-  background: var(--bg);
   border-radius: 8px;
-  display: block;
 }
 
 .home-skeleton-line {
   height: 16px;
-  background: var(--bg);
   border-radius: 4px;
   width: 60%;
 }
 
 .home-skeleton-line.wide {
   width: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-skeleton-thumb,
+  .home-skeleton-line { animation: none; background-image: none; }
 }
 
 /* ============================================================

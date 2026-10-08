@@ -19,19 +19,37 @@ import { chatText, isLocalTextProvider, resolveTextCredentials, type TextCredent
 import { getLlmSettings, withLocalModel } from '@/lib/local-llm';
 import type { PromptImage } from '@/lib/promptMedia';
 
+/*
+ * 两份 system 都是「身份 + 写法规矩 + 输出格式」三句（AIFISHER 的 `gWe` / `mWe`），
+ * 拆成三份常量是因为「写法」那一栏里有一档要**只留首尾两句**（见下面 `*_FREE`）。
+ * 各写一份整串的话，改其中一句必然漏改另一串 —— 而这两串漏改了不会报错，
+ * 只是「优化改了、反推没改」这类最难查的差异。
+ */
+const OPTIMIZE_ROLE = '你是专业的 AI 视觉提示词工程师。';
+const OPTIMIZE_STYLE = '保留用户原意，补全主体、动作、环境、构图、镜头、光线、色彩、材质、风格和氛围。';
+const OPTIMIZE_OUTPUT = '输出一段可直接用于图片或视频生成的中文提示词，不添加解释、标题或引号。';
+
 /** 优化提示词（AIFISHER 的 `gWe`）。 */
-export const PROMPT_OPTIMIZE_SYSTEM = [
-  '你是专业的 AI 视觉提示词工程师。',
-  '保留用户原意，补全主体、动作、环境、构图、镜头、光线、色彩、材质、风格和氛围。',
-  '输出一段可直接用于图片或视频生成的中文提示词，不添加解释、标题或引号。',
-].join('');
+export const PROMPT_OPTIMIZE_SYSTEM = [OPTIMIZE_ROLE, OPTIMIZE_STYLE, OPTIMIZE_OUTPUT].join('');
+
+/**
+ * 「什么都不填」那一档用的版本（2026-10-08 徐先）：**只留身份与输出格式**，
+ * 中间那句「补全主体、动作、环境…」拿掉。
+ *
+ * 🔴 那句话不是客套 —— 它就是在规定「每个提示词都得有构图、镜头、光线、色彩…」，
+ * 留着它，用户选「什么都不填」得到的东西跟不选一模一样。
+ */
+export const PROMPT_OPTIMIZE_SYSTEM_FREE = [OPTIMIZE_ROLE, OPTIMIZE_OUTPUT].join('');
+
+const DESCRIBE_ROLE = '你是专业的视觉描述与生成提示词助手。';
+const DESCRIBE_STYLE = '准确描述主体、动作、环境、构图、镜头、光线、色彩、材质、风格和氛围。';
+const DESCRIBE_OUTPUT = '输出可以直接用于图片或视频生成的中文提示词，不添加分析过程或标题。';
 
 /** 看图写提示词（AIFISHER 的 `mWe`）。 */
-export const PROMPT_DESCRIBE_SYSTEM = [
-  '你是专业的视觉描述与生成提示词助手。',
-  '准确描述主体、动作、环境、构图、镜头、光线、色彩、材质、风格和氛围。',
-  '输出可以直接用于图片或视频生成的中文提示词，不添加分析过程或标题。',
-].join('');
+export const PROMPT_DESCRIBE_SYSTEM = [DESCRIBE_ROLE, DESCRIBE_STYLE, DESCRIBE_OUTPUT].join('');
+
+/** 与上面同一件事的反推版（「什么都不填」时不规定描述哪几项）。 */
+export const PROMPT_DESCRIBE_SYSTEM_FREE = [DESCRIBE_ROLE, DESCRIBE_OUTPUT].join('');
 
 /** 与 AIFISHER 同一个上限（它那边 `oie(prompt, "提示词", 8000)`）。 */
 export const PROMPT_ASSISTANT_MAX = 8000;
@@ -107,15 +125,16 @@ export async function optimizePrompt(
   raw: string,
   preferred?: string,
   skill?: { title: string; body: string } | null,
-  /**
-   * 走本地模型时才用得上：跑完**卸不卸**、什么时候卸（2026-09-26）。
-   * 不传 = 跟着设置里的「保活秒数」；`-1` = 一直装载，等用户手动卸载。
-   */
-  /**
-   * 附加在 system 末尾的一段指令（2026-09-29：节点上的「改写强度」与「补充要求」）。
-   * 空串 / 不给 = 和加这个功能之前一模一样，一个字都不追加。
-   */
-  options?: { keepAliveSeconds?: number; instruction?: string },
+  options?: {
+    /** 走本地模型时才用得上：跑完**卸不卸**、什么时候卸（2026-09-26）。
+     *  不传 = 跟着设置里的「保活秒数」；`-1` = 一直装载，等用户手动卸载。 */
+    keepAliveSeconds?: number;
+    /** 附加在 system 末尾的一段指令（2026-09-29：节点上的「改写强度」与「补充要求」）。
+     *  空串 / 不给 = 和加这个功能之前一模一样，一个字都不追加。 */
+    instruction?: string;
+    /** 「什么都不填」那一档（2026-10-08）：system 换成不带通用写法规矩的那一版。 */
+    freeform?: boolean;
+  },
 ): Promise<OptimizeResult> {
   const prompt = String(raw ?? '').trim().slice(0, PROMPT_ASSISTANT_MAX);
   if (!prompt) throw new PromptAssistantError('请输入需要优化的提示词。');
@@ -129,7 +148,8 @@ export async function optimizePrompt(
   }
   /* 顺序：本职 → 技能规范 → 节点上那几项参数。技能规范放中间：它是「格式」的规矩，
      用户那两项是「幅度 / 内容」的规矩，先定格式再定幅度，模型不容易顾此失彼。 */
-  const system = PROMPT_OPTIMIZE_SYSTEM + skillInstruction(skill) + String(options?.instruction || '');
+  const base = options?.freeform ? PROMPT_OPTIMIZE_SYSTEM_FREE : PROMPT_OPTIMIZE_SYSTEM;
+  const system = base + skillInstruction(skill) + String(options?.instruction || '');
   const call = () => chatText(creds, { system, user: prompt, temperature: 0.7 });
   /*
    * 本地这一档 = **按需装卸**（2026-09-27，徐先要的「先装载、优化完卸载，减少显存占用」）。
@@ -215,8 +235,9 @@ export async function describePrompt(
   images: PromptImage[],
   preferred?: string,
   skill?: { title: string; body: string } | null,
-  /** `keepAliveSeconds` 与优化那条同一套语义（只有本地模型用得上）。 */
-  options?: { keepAliveSeconds?: number; note?: string; video?: boolean },
+  /** `keepAliveSeconds` 与优化那条同一套语义（只有本地模型用得上）。
+   *  `freeform` 同上：反推这边同样可以是「什么都不填、只按补充要求走」。 */
+  options?: { keepAliveSeconds?: number; note?: string; video?: boolean; freeform?: boolean },
 ): Promise<OptimizeResult> {
   const shots = (images || []).filter(item => item && String(item.base64 || '').trim());
   if (!shots.length) throw new PromptAssistantError('没有拿到这份媒体的字节，反推不了。');
@@ -245,7 +266,11 @@ export async function describePrompt(
     );
   }
   const note = String(options?.note || '').trim();
-  const system = PROMPT_DESCRIBE_SYSTEM + (isVideo ? DESCRIBE_VIDEO_HINT : '') + skillInstruction(skill);
+  /* 反推这边的「什么都不填」同上：不规定「描述哪几项」，只留身份与输出格式。
+     ⚠️ 视频那句来历说明**照旧**：它不是写法规矩，是「这几张图是同一段视频的帧」，
+        去掉它模型会退化成逐张解说。 */
+  const base = options?.freeform ? PROMPT_DESCRIBE_SYSTEM_FREE : PROMPT_DESCRIBE_SYSTEM;
+  const system = base + (isVideo ? DESCRIBE_VIDEO_HINT : '') + skillInstruction(skill);
   const ask = [isVideo
     ? '就看这几帧（同一段视频按顺序抽出来的），输出一段可以直接用于视频生成的中文提示词。'
     : '就看这张图，输出一段可以直接用于图片或视频生成的中文提示词。']

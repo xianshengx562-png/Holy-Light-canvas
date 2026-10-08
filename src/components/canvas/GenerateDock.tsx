@@ -56,6 +56,7 @@ import {
 import type { UpscaleMode, UpscaleSource } from './nodeMeta';
 /* 老画布上可能在生成节点上选着一份 RunningHub 应用 —— 那一行要说得出它是什么（2026-10-04）。 */
 import { isRunningHubAppWorkflowId } from '@/lib/workflows/runninghubApp';
+import { OPTIMIZE_SKILL_FREE, isFreeformSkill } from '@/lib/optimizeOptions';
 import type { ParamRow } from '@/lib/workflows/configuration';
 import DockCombo from './DockCombo';
 
@@ -602,7 +603,9 @@ export default function GenerateDock({ data, nodeId, anchor, inspector = false }
         ...(localEffective ? { keepAlive: localLoadMode === 'keep' ? -1 : 0 } : {}),
       });
       data.onText?.(result.optimizedPrompt);
-      data.onNotice?.(promptSkillValue ? '已按所选技能的写法改写提示词' : '已用文本模型改写提示词');
+      data.onNotice?.(isFreeformSkill(promptSkillValue)
+        ? '已按原话改写（没套任何写法规范）'
+        : promptSkillValue ? '已按所选技能的写法改写提示词' : '已用文本模型改写提示词');
     } catch (error) {
       data.onNotice?.(error instanceof Error ? error.message : '提示词优化失败。');
     } finally {
@@ -1161,6 +1164,12 @@ export default function GenerateDock({ data, nodeId, anchor, inspector = false }
               onChange={event => data.onField?.('promptSkill', event.target.value)}
             >
               <option value="">不指定（只按通用写法扩写）</option>
+              {/*
+                「什么都不填」—— 与「优化提示词」节点那个下拉同一档、同一个哨兵值
+                （2026-10-08 徐先）。这里没有「补充要求」那格，所以文案里只说
+                「不套写法规范」，不提补充要求。
+              */}
+              <option value={OPTIMIZE_SKILL_FREE}>什么都不填（不套任何写法规范）</option>
               {optimizeSkills.map(item => (
                 <option key={item.id} value={item.id}>{item.title}</option>
               ))}

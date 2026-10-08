@@ -40,6 +40,8 @@ import DirectorPanel from './DirectorPanel';
 import RunClock, { type RunClockState } from './RunClock';
 import GenerateDock, { type DockAnchor } from './GenerateDock';
 import NodeInspector from './NodeInspector';
+/* 「右侧参数栏开着吗」—— 卡片下方那条参数浮条要按它收放（见文件头那段规矩）。 */
+import { ParamPanelOpenContext } from './paramPanelMode';
 import { LOGO_DATA_URI } from '@/lib/logo';
 import { ConfirmDialog } from '@/components/ui/ContextMenu';
 import { collectRuns } from './collectRuns';
@@ -4638,6 +4640,12 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
   /** 选中节点的数据要用 React Flow 真正在渲染的那一份（hydrated），
    *  否则底部提示条拿到的 label / kind 会和画布上看到的不一致。 */
   const [inspectorOpen, setInspectorOpen] = useState(true);
+  /**
+   * 「参数栏**真的看得见**吗」—— 开关开着但进了无遮挡模式时它是不渲染的，
+   * 那种状态下参数得退回卡片下方那条浮条（否则这个节点一个改参数的地方都没有）。
+   * 卡片（`NodeCard`）与生成对话框（`GenerateDock`）都按这一条收放，别再各算一套。
+   */
+  const paramPanelOpen = inspectorOpen && !zen;
   const current = hydrated.find(node => node.id === selected) || null;
   /**
    * 生成节点（图片 / 视频）选中时，参数改在**挂在它下方那个对话框**里（`GenerateDock`），
@@ -5061,6 +5069,9 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         {/* 背景图必须垫在 React Flow **底下**：它是墙纸，不是画布内容。
             真正的缘故见 CanvasWallpaper 里的注释：塞进 .react-flow 里会跟着画布一起缩放。 */}
         <CanvasWallpaper />
+        {/* 卡片下方的参数浮条按「右侧参数栏开没开」收放 —— 开着就只在参数栏改，
+            关掉（含无遮挡模式）才回到卡片下方。见 `paramPanelMode.ts` 那段规矩。 */}
+        <ParamPanelOpenContext.Provider value={paramPanelOpen}>
         <ReactFlow
           nodes={hydrated}
           edges={displayEdges}
@@ -5158,6 +5169,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
           <Background variant={BackgroundVariant.Dots} gap={40} size={2.4} />
           {miniMap && <MiniMap position="bottom-right" pannable zoomable />}
         </ReactFlow>
+        </ParamPanelOpenContext.Provider>
         {/* 左侧工具条、左下视口控制条、右下外观入口：三块都是浮层，
             放进 cv-stage 里当 React Flow 的兄弟节点，滚动与 transform 都影响不到它们。 */}
         <CanvasRail
@@ -5327,13 +5339,23 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
             选中时的说明**保留**：它讲的是"你现在选中的是什么、怎么往下接"，
             属于即时信息而不是说明书。 */}
         {!dockNode && !!selected && <div className="cv-hint">
-          {`已选中「${String(displayLabelOf(current?.data || {}) || NODE_META[(current?.data.kind || 'text') as NodeKind].label)}」· ${connectionHint(current?.data.kind)}${current?.data.kind === 'text' ? (current?.data.textFrom ? ' · 这段来自上游，改一下就归它自己（会断开那条线）' : ' · 直接点文字框就能改') : ' · 参数在卡片下方'}`}
+          {`已选中「${String(displayLabelOf(current?.data || {}) || NODE_META[(current?.data.kind || 'text') as NodeKind].label)}」· ${connectionHint(current?.data.kind)}${current?.data.kind === 'text' ? (current?.data.textFrom ? ' · 这段来自上游，改一下就归它自己（会断开那条线）' : ' · 直接点文字框就能改') : (paramPanelOpen ? ' · 参数在右侧' : ' · 参数在卡片下方')}`}
         </div>}
         {notice && <div className="cv-notice">{notice}</div>}
         {dropping && <div className="cv-drop-hint">松手即添加图片输入节点并自动连线</div>}
         {/* 画布本体就这一块，右边不再有固定宽度的属性栏 —— 节点自己的参数在选中时浮在卡片下方
             （文本节点则是直接在正面写），这里只留一个浮动小面板放「不跟着节点走」的 Latent 包与生成记录。 */}
       </div>
+      {/*
+        预设侧边栏（风格 / 滤镜 / 运镜）的**落点**。
+        `CreativePresetPicker` 是 portal 出来的：它挂在 `GenerateDock` 里，而那东西在
+        `.cv-stage` 内部 —— React Flow 的节点外层带 `transform`，是 `position: fixed`
+        的包含块，留在原处的话整栏会跟着画布缩放平移一起漂。
+        `display: contents` 让 portal 进来的那一栏直接成为 `.cv-body` 的 flex 子项，
+        于是三块并排：**画布 │ 预设栏 │ 节点参数**。不开预设时这个 div 不产生盒子，布局零影响。
+        🔴 位置必须在 `<NodeInspector>` **之前** —— DOM 顺序就是并排顺序，不用 `order` 去绕。
+      */}
+      <div className="cv-preset-slot" />
       {inspectorOpen && !zen && <NodeInspector node={current} onClose={() => setInspectorOpen(false)} />}
     </div>
 
