@@ -51,6 +51,72 @@ const SOURCE_FILE = 'update-source.json';
  */
 export const DEFAULT_UPDATE_SOURCE = 'https://github.com/xianshengx562-png/Holy-Light-canvas/releases/latest/download/';
 
+/*
+ * 🔴 默认源**不走 generic**（2026-10-08 修：徐先「检测更新好像有点问题」）。
+ *
+ *   `github.com/<owner>/<repo>/releases/latest/download/` 是 GitHub 的**网页**下载路径，
+ *   在很多网络下（本机实测）会一直连到 21 秒超时，界面上就是「正在检查更新…」转半天，
+ *   最后甩一句 `net::ERR_CONNECTION_TIMED_OUT`。而**同一台机器上 `api.github.com` 是通的**
+ *   （0.6 秒回）。所以默认源改走 electron-updater 的 `github` provider ——
+ *   它问的正是 `api.github.com`；generic 那条路留给 `update-source.json` 里填的自定义源。
+ *
+ *   ⚠️ 两个 provider 读的都是 release 里的 `latest.yml`，产物不用重新出。
+ *   ⚠️ 别把这段简写成"直接把 url 换成 api.github.com"：api 不提供 `latest.yml` 这种
+ *      静态文件路径，generic 拼 `url + 'latest.yml'` 出来的地址必然 404。
+ */
+const GITHUB_OWNER = 'xianshengx562-png';
+const GITHUB_REPO = 'Holy-Light-canvas';
+
+/** 一次检查最多等这么久。超时就报错、把按钮放出来 —— 宁可让用户重试，也别一直转圈。 */
+const CHECK_TIMEOUT_MS = 20000;
+
+/**
+ * 这个地址是不是「本项目在 GitHub 上的 releases」。
+ *
+ * ⚠️ 判形态不判字符串相等：`update-source.json` 里是同一串地址时两者才相等，
+ *    写成不带尾斜杠、带 `www.`、或大小写不一样就悄悄走回 generic ——
+ *    而 generic 正是那条连不通的路。认形态就能都接住。
+ */
+const GITHUB_FEED_RE = new RegExp(
+  '^https?://(?:www\\.)?github\\.com/' + GITHUB_OWNER + '/' + GITHUB_REPO + '/releases',
+  'i',
+);
+
+/** 按当前更新源挑 provider：本项目在 GitHub 上的那份走 API，其余照旧走 generic。 */
+function feedFor(source: string):
+  | { provider: 'github'; owner: string; repo: string }
+  | { provider: 'generic'; url: string } {
+  if (GITHUB_FEED_RE.test(source)) {
+    return { provider: 'github', owner: GITHUB_OWNER, repo: GITHUB_REPO };
+  }
+  return { provider: 'generic', url: source };
+}
+
+/**
+ * 给「问一次有没有新版」套一个超时。
+ *
+ * ⚠️ electron-updater **没有**超时选项 —— 源不可达时它就这么挂着，
+ *    界面上一路是「正在检查更新…」，三个按钮全是灰的，看着像死了。
+ *    这里不是要"取消"那次请求（挂起的 promise 取消不掉），而是**先给用户一句人话**；
+ *    真要是慢但能通，迟到的事件照样会盖掉这条错误（`available` / `not-available` 都行）。
+ */
+async function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  /* 🔴 迟到的 rejection 得自己吞掉：超时之后没人再接这个 promise，
+     主进程里会冒一条 unhandled rejection 日志 —— 看着像又崩了一次。 */
+  work.catch(() => {});
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('ETIMEDOUT')), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 type Listener = (state: UpdateState) => void;
 
 let state: UpdateState = { ...INITIAL_UPDATE_STATE };
@@ -102,6 +168,14 @@ function errorText(error: unknown): string {
      其余原样保留 —— 诊断时那串原文才是线索。 */
   if (/ENOTFOUND|EAI_AGAIN|getaddrinfo/i.test(message)) return '连不上更新源，检查一下地址或网络。';
   if (/ECONNREFUSED/i.test(message)) return '更新源那台机器没响应（地址的端口上没人听），检查地址与服务是不是开着。';
+  /* 🔴 `net::ERR_CONNECTION_TIMED_OUT` 是 Chromium 自己的错误码（2026-10-08 加）：
+     源不可达时 electron-updater 甩出来的就是它，原样显示等于没说。 */
+  if (/ETIMEDOUT|ERR_CONNECTION_TIMED_OUT|TIMED_OUT|timeout/i.test(message)) {
+    return '连不上更新源（等了太久，连接超时）。检查网络，或者过一会儿再试。';
+  }
+  if (/403|429|rate limit/i.test(message)) {
+    return '更新源这会儿不接受查询（同一网络短时间内问太多次会被限流），过一会儿再试。';
+  }
   if (/404|Not Found/i.test(message)) return '更新源上没有 latest.yml，检查地址是不是填对了。';
   if (/certificate|SSL|unable to verify/i.test(message)) return '更新源的 HTTPS 证书有问题，无法确认来源。';
   if (/ERR_UNSAFE_PORT|unsafe port/i.test(message)) return '这个端口被浏览器禁用了，换一个普通端口。';
@@ -197,10 +271,14 @@ export async function checkForUpdate(): Promise<UpdateState> {
   if (state.phase === 'unsupported' || state.phase === 'unconfigured') return state;
   if (state.phase === 'checking' || state.phase === 'downloading') return state;
   try {
-    autoUpdater.setFeedURL({ provider: 'generic', url: state.source });
-    await autoUpdater.checkForUpdates();
+    autoUpdater.setFeedURL(feedFor(state.source));
+    await withTimeout(autoUpdater.checkForUpdates(), CHECK_TIMEOUT_MS);
   } catch (error) {
-    emit({ kind: 'error', message: errorText(error) });
+    /* 🔴 迟到的超时不算数：electron-updater 的结果常常是**事件**先给的
+       （`available` / `not-available` / `error`），而那个 promise 还挂在那儿没落地。
+       这时候再甩一句「连接超时」，会把已经出来的正确结果盖掉 ——
+       「明明刚说已经是最新版，一转眼又变成连不上」。所以只在**确实还没有结果**时才报。 */
+    if (updaterState().phase === 'checking') emit({ kind: 'error', message: errorText(error) });
   }
   return state;
 }
@@ -215,15 +293,18 @@ export async function downloadUpdate(): Promise<UpdateState> {
     if (phase === 'error') {
       /* 上一步失败过，重新问一次再下 —— 不然 `downloadUpdate()` 会因为
          「electron-updater 自己不记得有可用更新」而静默什么都不做。 */
-      autoUpdater.setFeedURL({ provider: 'generic', url: state.source });
-      await autoUpdater.checkForUpdates();
+      autoUpdater.setFeedURL(feedFor(state.source));
+      await withTimeout(autoUpdater.checkForUpdates(), CHECK_TIMEOUT_MS);
       /* ⚠️ 重新读一次（`updaterState()`），不要用上面那个 `phase`：
          它在这句之前是 'error'，而 `checkForUpdates()` 已经把状态推成别的了。 */
       if (updaterState().phase !== 'available') return state;
     }
     await autoUpdater.downloadUpdate();
   } catch (error) {
-    emit({ kind: 'error', message: errorText(error) });
+    /* 同上：状态已经被推走（多半是 'available'）时，别拿一句超时盖掉它。 */
+    if (updaterState().phase === 'downloading' || updaterState().phase === 'checking') {
+      emit({ kind: 'error', message: errorText(error) });
+    }
   }
   return state;
 }

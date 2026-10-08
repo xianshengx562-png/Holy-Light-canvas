@@ -1483,3 +1483,49 @@ WORST overall = 4.82 (need >= 4.5)
   但**没修根**。要修就是在 `.canvas-studio` 层补一句
   `--cv-node-field: var(--cv-node-field-custom, var(--cv-field))`（原设计意图）——
   ⚠️ 那会让节点内一批本来是"透明"的输入框/底变成 `#212225`，**视觉面较大，别顺手改**。
+
+## 追加（2026-10-08 13:00）检测更新：默认源改走 GitHub API，另加超时兜底
+
+**症状**（他原话「检测更新好像有点问题」）：点「检查更新」→ 界面卡在「正在检查更新…」约 8 秒、
+三个按钮全灰 → 最后甩一句 `检查更新失败：net::ERR_CONNECTION_TIMED_OUT`。
+
+**真因不是代码写错，是那条路本身走不通**：默认源走的是
+`github.com/<owner>/<repo>/releases/latest/download/` —— 这是 GitHub 的**网页下载**路径，
+本机实测连到 21 秒超时；而**同一台机器上的 `api.github.com` 是通的**（0.6 秒回）。
+删 release、查 release、push 走的都是后者，所以平时感觉网络是好的，只有检查更新一直失败。
+
+**改法（`electron/main/updater.ts` 三处）**：
+
+1. `feedFor()` —— 按**地址形态**（`GITHUB_FEED_RE`）判断是不是本项目在 GitHub 上的 releases：
+   是 → `provider: 'github'`（问的正是 `api.github.com`）；否则照旧 `generic`（自定义源那一路留着）。
+   ⚠️ 判形态**不判字符串相等**：`update-source.json` 里少了尾斜杠、多了 `www.`、大小写不一样，
+   严格相等就悄悄走回 generic —— 而 generic 正是那条连不通的路。
+   ⚠️ 别简写成「把 url 换成 api.github.com」：api 不提供 `latest.yml` 这种静态文件路径，
+   generic 拼 `url + 'latest.yml'` 必然 404。两个 provider 读的都是 release 里的 `latest.yml`，产物不用重出。
+2. `withTimeout()` —— electron-updater **没有超时选项**，源不可达就一直挂着，
+   界面上一路「正在检查…」+ 三按钮全灰，看着像死了。套 20 秒。
+   🔴 两个连带的小坑：① 迟到的 rejection 要自己 `work.catch(() => {})` 吞掉（否则主进程冒
+   unhandled rejection 日志）；② **超时之后不能无脑报错** —— electron-updater 的结果常常是
+   **事件**先给（`available` / `not-available` / `error`），那个 promise 还挂着，
+   20 秒后再甩一句「连接超时」会把已经出来的正确结果盖掉
+   （「明明刚说已经是最新版，一转眼又变成连不上」）→ 只在 `updaterState().phase` **还停在
+   `checking` / `downloading`** 时才 emit 错误。
+3. `errorText()` 补两句中文：`ETIMEDOUT|ERR_CONNECTION_TIMED_OUT|TIMED_OUT|timeout`、
+   `403|429|rate limit`。原文那串是 Chromium 的错误码，直接给用户看等于没说。
+
+**真机复验证据**（`dist\win-unpacked` 真机，不注入）：
+
+| 场景 | 修好前 | 修好后 |
+| --- | --- | --- |
+| 手动点「检查更新」 | 卡 8~10 秒 → `net::ERR_CONNECTION_TIMED_OUT` | 1ms 起「正在检查…」、**459ms** 落到「已经是最新版了。」 |
+| 启动后自动检查 | 同上 | 8 秒触发后约 0.5 秒给出「已经是最新版了。」 |
+| 源不可达（临时指向 192.0.2.1） | 一直转圈 | **20.2 秒**给出「连不上更新源（等了太久，连接超时）。检查网络，或者过一会儿再试。」，按钮恢复可点 |
+
+**仍未做 / 留给下一棒**：
+- 启动 8 秒后才自动检查（`index.ts:393` 那个 `setTimeout(…, 8000)`）是旧节奏，
+  现在检查本身只要 0.5 秒，这个延迟没理由这么长 —— 但改它会让「一开应用就去问 GitHub」，
+  等他定。
+- 失败态下「下载更新」按钮是可点的（`canDownload` 放行 `error`），点了会先重新问一次再下。
+  这是 10-01 刻意的设计，不是漏的。
+- 更新源**界面上没有入口**（10-01 收掉了），只能改数据目录里的 `update-source.json`。
+  这轮验证就是靠临时改它做的，跑完已恢复原样并 diff 校验过。
