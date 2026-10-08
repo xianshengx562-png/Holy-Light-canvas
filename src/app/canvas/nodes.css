@@ -384,6 +384,8 @@
 .cv-node[data-kind='params'] { --cv-node-kind: #c2a184; }
 .cv-node[data-kind='app-generate'] { --cv-node-kind: #8fb0bd; }
 .cv-node[data-kind='director'] { --cv-node-kind: #9aa0aa; }
+/* D站标签 = 蓝族里靠青的那支（与 NODE_META.danbooru-tags 同一个值，改要两边一起改）。 */
+.cv-node[data-kind='danbooru-tags'] { --cv-node-kind: #93b0c4; }
 
 .cv-node-frame {
   position: relative;
@@ -467,6 +469,25 @@
   pointer-events: none;
 }
 .cv-node-textbox.live { pointer-events: auto; }
+/* D站标签节点正面（2026-10-08）：摆这一轮抽出来的串。
+   只读 —— 改标签要去面板里改选择，这里能打字的话「改了没生效」是最自然的误解。 */
+.cv-node-tagface {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  padding: 2px 0;
+}
+.cv-node-tagstr {
+  margin: 0;
+  font-size: var(--cv-fs-3);
+  line-height: 1.6;
+  color: var(--cv-text);
+  /* 长串在卡片里换行显示，超过卡片高度的部分让画框自己裁 ——
+     不写 overflow 的话字会顶出卡片压到下面的节点上。 */
+  word-break: break-word;
+}
+.cv-node-tagface .cv-node-tagstr:empty::after { content: ''; }
 .cv-node-textarea {
   display: block;
   width: 100%;

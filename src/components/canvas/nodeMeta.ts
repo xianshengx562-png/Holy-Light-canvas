@@ -20,6 +20,8 @@ import { VIDEO_API_DEFAULTS } from '@/lib/workflows/videoApiParams';
 import { DEFAULT_VIDEO_ENGINE } from '@/lib/workflows/videoEngine';
 import { ASPECT_RATIOS, DEFAULT_RATIO, defaultImageRatioForEngine, IMAGE_DEFAULTS } from '@/lib/workflows/imageParams';
 import { initialDirectorScene } from '@/lib/director';
+/* D站标签：空选择的那一份由纯函数层给（新建节点与「清空」必须是同一个形状）。 */
+import { emptyTagSelection } from './danbooruTags';
 import { isRunningHubAppWorkflowId } from '@/lib/workflows/runninghubApp';
 /* 文本链那条取值规则在 `./textChain`（纯函数层），「哪些节点算文本」是它的一部分。 */
 import { isTextValueKind } from './textChain';
@@ -247,7 +249,7 @@ export type { NodeData, InputSlot, LatentRecord, ParamRow, WorkflowOption } from
 
 export type NodeKind = 'text' | 'image' | 'latent' | 'latent-relay' | 'pinned-upload' | 'workflow' | 'params'
   | 'video-generate' | 'image-generate' | 'video' | 'video-input' | 'audio-input' | 'image-out' | 'frame-extract'
-  | 'director' | 'app-generate' | 'prompt-optimize';
+  | 'director' | 'app-generate' | 'prompt-optimize' | 'danbooru-tags';
 
 /**
  * 🔴 2026-10-07 整套 `color` 换过一次（徐先：「高级灰渐变色」，方向 D · 玻璃工坊）。
@@ -334,6 +336,15 @@ export const NODE_META: Record<NodeKind, {
    * 一键运行时它排在下游生成节点之前，否则下游拿到的还是优化前的那句。
    */
   'prompt-optimize': { label: '优化提示词', tag: 'OPTIMIZE', color: '#a6b3c9', input: 'text', output: '优化后的提示词' },
+  /**
+   * D站标签选择器（2026-10-08）：从内置的 Danbooru 标签库里挑角色 / 姿势 / 环境 / 画师，
+   * 运行时在那几个候选之间随机抽，拼成一段标签串交给下游的提示词。
+   *
+   * 它**不吃上游**（`ACCEPTS` 给空数组）—— 它的输入是用户在面板里挑的那批条目，
+   * 不是别的节点给的一段字。要和手写提示词组合，就把**两个节点都连到生成节点上**：
+   * 文本链会把它们按连线先后拼起来，这比让标签节点再吃一路文本好懂得多。
+   */
+  'danbooru-tags': { label: 'D站标签', tag: 'TAGS', color: '#93b0c4', output: '标签串' },
 };
 
 /** Kinds offered by the toolbar and the right-click menu (legacy kinds are excluded). */
@@ -350,7 +361,7 @@ export const NODE_META: Record<NodeKind, {
  * 其余按「先素材、后生成」排下去。改这里之前先想清楚菜单长什么样：
  * 这一列是让用户从上往下扫的，前三屏之外的东西等于不存在。
  */
-export const CREATE_KINDS: NodeKind[] = ['text', 'image-generate', 'video-generate', 'prompt-optimize', 'frame-extract', 'latent', 'latent-relay', 'pinned-upload', 'params', 'app-generate', 'image-out', 'director'];
+export const CREATE_KINDS: NodeKind[] = ['text', 'image-generate', 'video-generate', 'prompt-optimize', 'danbooru-tags', 'frame-extract', 'latent', 'latent-relay', 'pinned-upload', 'params', 'app-generate', 'image-out', 'director'];
 
 /** Kept only so that older canvases keep rendering: the video output and the workflow picker
  *  both live on the generator node now. */
@@ -370,6 +381,8 @@ export function newNodeData(kind: NodeKind): NodeData {
   const label = NODE_META[kind].label;
   /** 优化提示词：只带一个默认标签 —— 它没有工作流 / 步数 / 比例那一套。 */
   if (kind === 'prompt-optimize') return { kind, label };
+  /** D站标签：带一份空选择，**不给 `tagText`** —— 什么都没挑的时候串就是空的，这是实话。 */
+  if (kind === 'danbooru-tags') return { kind, label, tagSelection: emptyTagSelection() };
   /** 视频输入 / 音频输入节点不需要任何生成参数，只带一个默认标签。 */
   if (kind === 'video-input' || kind === 'audio-input' || kind === 'image-out') return { kind, label };
   /** 首尾帧：默认两张都给下游（续拍最常用的是「尾帧接下一段」，但首帧留着能当起手图）。 */
@@ -445,8 +458,9 @@ export function engineSwitchPatch(data: NodeData, nextEngine: string): Partial<N
 
 /** Which upstream node kinds each node accepts. Output nodes only take the media they can render. */
 export const ACCEPTS: Record<NodeKind, NodeKind[]> = {
-  /* 文本节点能再接文本 / 优化节点：下游那个文本节点要展示上游优化后的结果。 */
-  text: ['text', 'prompt-optimize'],
+  /* 文本节点能再接文本 / 优化节点：下游那个文本节点要展示上游优化后的结果。
+     2026-10-08 加上标签节点 —— 接上就能在文本框里看到「标签 + 自己写的那句」拼完的样子。 */
+  text: ['text', 'prompt-optimize', 'danbooru-tags'],
   image: [],
   latent: [],
   /*
@@ -473,7 +487,7 @@ export const ACCEPTS: Record<NodeKind, NodeKind[]> = {
    * ⚠️ 走的是**视频输入**这条路，不是参考图：生成节点身上只存了整段视频的地址，
    * 没有封面帧，塞进参考图位等于把一段视频交到「图」的槽里 —— 那是静默的坏结果。
    */
-  'video-generate': ['text', 'prompt-optimize', 'image', 'video-input', 'audio-input', 'frame-extract', 'latent', 'latent-relay', 'pinned-upload', 'workflow', 'params', 'image-generate', 'image-out', 'director', 'video-generate'],
+  'video-generate': ['text', 'prompt-optimize', 'danbooru-tags', 'image', 'video-input', 'audio-input', 'frame-extract', 'latent', 'latent-relay', 'pinned-upload', 'workflow', 'params', 'image-generate', 'image-out', 'director', 'video-generate'],
   // 出图不吃 latent：接续是视频链路的概念，图片工作流里没有对应的参数位。
   // 视频输入节点的首帧图也能当图生图的参考图一并发走（需已上传完成）。
   /*
@@ -481,7 +495,7 @@ export const ACCEPTS: Record<NodeKind, NodeKind[]> = {
    * 下游拿它当**参考图**：这两个 kind 本来就在 `isReferenceSource` 里，
    * 提交时 `imageUrls` 自动收，连线一拉上就生效，不用额外配置。
    */
-  'image-generate': ['text', 'prompt-optimize', 'image', 'video-input', 'frame-extract', 'pinned-upload', 'workflow', 'params', 'director', 'image-generate', 'image-out'],
+  'image-generate': ['text', 'prompt-optimize', 'danbooru-tags', 'image', 'video-input', 'frame-extract', 'pinned-upload', 'workflow', 'params', 'director', 'image-generate', 'image-out'],
   /*
    * 应用节点：吃提示词、参考图、整段视频，**以及音频**（它的参数位由应用自己公开），
    * 但不吃 latent —— 接续是视频链路的概念。
@@ -492,7 +506,7 @@ export const ACCEPTS: Record<NodeKind, NodeKind[]> = {
    * （见 `CanvasEditor` 里那段收集），RunningHub 应用里也确实有音频参数位
    * （`RunningHubWebAppField` 的 audio 字段），偏偏连线这一步不放行。
    */
-  'app-generate': ['text', 'prompt-optimize', 'image', 'video-input', 'audio-input', 'frame-extract', 'pinned-upload', 'workflow', 'params', 'director'],
+  'app-generate': ['text', 'prompt-optimize', 'danbooru-tags', 'image', 'video-input', 'audio-input', 'frame-extract', 'pinned-upload', 'workflow', 'params', 'director'],
   /*
    * 优化节点原来只接**文本**：上游文本节点，或者串在前面的另一个优化节点。
    *
@@ -516,6 +530,8 @@ export const ACCEPTS: Record<NodeKind, NodeKind[]> = {
   'frame-extract': ['video-input', 'video-generate'],
   /* 导演台不接上游：它的输入是用户在舞台上手摆的，不是别的节点给的。 */
   director: [],
+  /* D站标签不接上游：它挑的是内置标签库里的条目，接一路文本进来没有可解释的行为。 */
+  'danbooru-tags': [],
 };
 
 /**

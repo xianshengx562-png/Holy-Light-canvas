@@ -24,6 +24,14 @@ import {
   type PresetImportManifest,
 } from './preset-import';
 import {
+  importTagFiles, readCustomCategories, writeCustomCategories,
+  type CustomTagFile,
+} from './danbooru-cats';
+import {
+  importMinePresets, readMine, writeMine,
+  type MineFile as PresetMineFile,
+} from './preset-mine';
+import {
   checkForUpdate, downloadUpdate, initUpdater, installDownloadedOnQuit, installUpdate,
   setUpdaterSource, updaterState,
 } from './updater';
@@ -732,6 +740,65 @@ ipcMain.handle(
 ipcMain.handle('preset-import:list', (): PresetImportManifest => readManifest());
 
 ipcMain.handle('preset-import:remove', (_event, groupId: string) => removePresetGroup(groupId));
+
+/*
+ * 自定义标签分类（2026-10-08，见 `danbooru-cats.ts`）。
+ *
+ * 三条通道都是「用户点了才发生」：`load` 在面板打开时读一次，`save` 在每次改动后整份写回，
+ * `import` 只**读**用户选的文件、把条目交回去 —— 收不收进哪个分类由渲染进程决定，
+ * 所以「点了导入又反悔」不会在磁盘上留下任何东西。
+ *
+ * ⚠️ `save` 收的是**整份清单**（不是增量 patch）：分类数量是几条的量级，
+ *    整份写回比对账省事得多，也不会出现「两条通道同时改、后写的把先写的吃掉」。
+ */
+ipcMain.handle('danbooru-cats:load', (): CustomTagFile => readCustomCategories());
+
+ipcMain.handle('danbooru-cats:save', (_event, payload: CustomTagFile) => {
+  const list = Array.isArray(payload?.categories) ? payload.categories : [];
+  return writeCustomCategories({ version: 1, categories: list });
+});
+
+ipcMain.handle('danbooru-cats:import', (_event, payload: { files?: string[] }) => {
+  try {
+    return importTagFiles(payload?.files || []);
+  } catch (e) {
+    return {
+      ok: false,
+      message: '读文件失败：' + String((e as Error)?.message || e),
+      entries: [], files: 0, skipped: [],
+    };
+  }
+});
+
+/*
+ * 自建的创作预设：档 / 分类 / 条目（2026-10-08，见 `preset-mine.ts`）。
+ *
+ * 与 `danbooru-cats:*` 完全同构：`load` 读一次、`save` 整份写回、`import` 只读文件。
+ * 分开两套通道而不是共用一条，是因为两边存的形状完全不同（这边要带 prompt / preview），
+ * 硬凑一个「万能清单」只会让两边都得判空。
+ */
+ipcMain.handle('preset-mine:load', (): PresetMineFile => readMine());
+
+ipcMain.handle('preset-mine:save', (_event, payload: PresetMineFile) => {
+  return writeMine({
+    version: 1,
+    kinds: Array.isArray(payload?.kinds) ? payload.kinds : [],
+    categories: Array.isArray(payload?.categories) ? payload.categories : [],
+    presets: Array.isArray(payload?.presets) ? payload.presets : [],
+  });
+});
+
+ipcMain.handle('preset-mine:import', (_event, payload: { files?: string[] }) => {
+  try {
+    return importMinePresets(payload?.files || []);
+  } catch (e) {
+    return {
+      ok: false,
+      message: '读文件失败：' + String((e as Error)?.message || e),
+      entries: [], files: 0, skipped: [],
+    };
+  }
+});
 
 /*
  * 在系统文件管理器里打开一个目录。

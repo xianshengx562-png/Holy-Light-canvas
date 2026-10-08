@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Handle, NodeResizeControl, Position, useNodeId, useStore } from '@xyflow/react';
-import { Move3d, Play, Sparkles, TriangleAlert } from 'lucide-react';
+import { Move3d, Play, RefreshCw, Sparkles, Tags, TriangleAlert } from 'lucide-react';
 import type { NodeData, ParamRow } from './types';
 import { nodeTintVars } from '@/lib/appearance';
 /* 创作预设（2026-10-06）：卡片上那几颗「已选」角标。 */
@@ -124,6 +124,8 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
     : null;
   const outputImage = resultImage || String(data.passthroughImage || '');
   const text = String(data.text || '').trim();
+  /** D站标签节点：本轮抽出来的那段串（抽签结果，不是选择本身 —— 详见 `types.ts` 的 `tagText`）。 */
+  const tagText = String(data.tagText || '').trim();
   const paramRows = (data.paramRows || []) as ParamRow[];
   const paramOn = paramRows.filter(row => row.enabled && row.value);
   const upstreamStatus = String(data.upstreamStatus || 'idle');
@@ -696,6 +698,38 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
           </button>
         )}
         {/*
+          D站标签节点的两颗按钮（2026-10-08）。同样**常驻**：这个节点存在的唯一理由就是
+          「挑一批标签、抽出来给下游」，藏起来等于把节点变空。
+          「换一批」单独一颗：固定模式下它是**唯一**能改这一批的入口，塞进面板里
+          就得先开面板才能换，而换一批是最常按的那一下。
+        */}
+        {kind === 'danbooru-tags' && (
+          <>
+            <button
+              type="button"
+              className="cv-node-director nodrag"
+              title="打开 D站标签选择器，挑角色 / 姿势 / 环境 / 画师"
+              aria-label="打开标签选择器"
+              data-tags-open=""
+              onClick={event => { event.stopPropagation(); data.onOpenTags?.(); }}
+            >
+              <Tags size={13} strokeWidth={2} aria-hidden />
+              <span>标签</span>
+            </button>
+            <button
+              type="button"
+              className="cv-node-director nodrag"
+              title="现在就重抽一批（挑中的那批不变）"
+              aria-label="换一批"
+              data-tags-reroll=""
+              onClick={event => { event.stopPropagation(); data.onRerollTags?.(); }}
+            >
+              <RefreshCw size={12} strokeWidth={2} aria-hidden />
+              <span>换一批</span>
+            </button>
+          </>
+        )}
+        {/*
           优化提示词节点的「运行」按钮（2026-09-29）。
           🔴 **常驻**，不像「超清」那样悬停才显形：这个节点存在的唯一理由就是跑一次改写，
              藏起来等于把节点变空（改之前得先选中它、再在参数条里找那个按钮）。
@@ -761,6 +795,17 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
               title={linkedText ? `这段来自上游「${String(data.textFrom || '')}」—— 按连线先后拼起来、中间空一行；打下第一个字就会断开上游连线，这句从此归它自己` : undefined}
               onChange={event => data.onText?.(event.target.value, { detachUpstream: linkedText })}
             />
+          </div>
+        ) : kind === 'danbooru-tags' ? (
+          /*
+           * D站标签：正面就摆**这一轮抽出来的串**。
+           *
+           * 为什么不是「已选 3 个角色」这种摘要：这个节点交出去的就是这一串字，
+           * 抽到谁才是他真正要确认的东西 —— 写摘要等于把最关键的那行藏起来。
+           * 没挑时照实说「还没挑」，别留一片空白（空白会被当成卡片坏了）。
+           */
+          <div className="cv-node-tagface nodrag">
+            <p className="cv-node-tagstr" title={tagText || undefined}>{tagText || '还没挑 —— 点上面「标签」挑一批'}</p>
           </div>
         ) : preview}
         {!mediaFace && outputHandle}

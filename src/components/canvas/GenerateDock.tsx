@@ -27,16 +27,18 @@
  *    「面板里有没有这个控件」的判断依据 —— 判断控件存在与否照常用 DOM 查询，
  *    但「可不可点」要看它当前是不是开着的。
  */
-import { useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { apiPost } from '@/lib/client';
 import { useApi } from '@/lib/client';
 import { customEngineVisible } from '@/lib/providers/custom-visible';
 import { ArrowUp, ChevronDown, Download, Loader, Plus, SlidersHorizontal, Sparkles, Wand2, X } from 'lucide-react';
 import type { NodeData } from './types';
 import {
-  CREATIVE_KIND_LABEL, creativeKindsFor, creativePicksFrom, picksOf, picksOfKind, togglePickIn,
-  type CreativePreset, type CreativePresetKind,
+  CREATIVE_KIND_LABEL, creativeKindsFor, creativePicksFrom, kindLabelOf, picksOf, picksOfKind,
+  togglePickIn, type CreativePreset, type CreativePresetKind,
 } from './creativePresets';
+/* 自建的档 / 分类（2026-10-08）：这一排按钮也得把它们列出来。 */
+import { loadMine, mineNow, subscribeMine } from '@/lib/presetMine';
 import CreativePresetPicker from './CreativePresetPicker';
 import { readPresetFavorites, writePresetFavorites } from '@/lib/creativePresetStore';
 import {
@@ -84,7 +86,7 @@ export type DockAnchor = {
 /** 槽位在行里的排序：提示词在最前，然后是图，最后是 latent / 工作流 / 参数块。 */
 const SLOT_ORDER: Record<string, number> = {
   /* 「指定节点上传」交的是一份图 / 视频，跟图那一排站一起（2026-10-05）。 */
-  text: 0, 'prompt-optimize': 0, image: 1, 'video-input': 1, 'frame-extract': 1, 'pinned-upload': 1,
+  text: 0, 'prompt-optimize': 0, 'danbooru-tags': 0, image: 1, 'video-input': 1, 'frame-extract': 1, 'pinned-upload': 1,
   latent: 2, 'latent-relay': 2, workflow: 3, params: 4, 'audio-input': 5,
 };
 
@@ -148,11 +150,19 @@ function presetThumbSrc(preset: CreativePreset): string {
   return preview;
 }
 
-export default function GenerateDock({ data, nodeId, anchor, inspector = false }: {
+export default function GenerateDock({ data, nodeId, anchor, presetAnchor, inspector = false }: {
   data: NodeData;
   /** 挂在哪个节点上 —— 只给探针 / 排查看，业务逻辑一概不用它。 */
   nodeId?: string;
   anchor?: DockAnchor;
+  /**
+   * 预设栏（风格 / 滤镜 / 运镜）点开之后该浮在哪儿。
+   *
+   * 给 = **浮动态**：贴着这块对话框的右边（位置由 `CanvasEditor` 算，只有那边拿得到
+   * 画布宽度和「界面大小」乘数）。不给 = 并排那一栏（参数栏开着时的形态）。
+   * 这里只负责往下传 —— 自己不去算，理由跟 `anchor` 那条一样：第二份真值。
+   */
+  presetAnchor?: DockAnchor;
   inspector?: boolean;
 }) {
   const kind = (data.kind || 'image-generate') as DockKind;
@@ -168,8 +178,18 @@ export default function GenerateDock({ data, nodeId, anchor, inspector = false }
    *
    * 🔴 这一排按钮**只在生成节点上出现**（`creativeKindsFor` 给空数组的节点一个都不显示）——
    * 参数条里没有的位置它也不该有。运镜只对视频生成节点开放。
+   *
+   * 🔴 自建的档（2026-10-08）也要算进来：它们是**用户自己**的档，对生成节点一律开放
+   *    （不像运镜那样只对视频开放 —— 那是内置三档各自的规矩，套不到用户的档上）。
    */
-  const presetKinds = creativeKindsFor(kind);
+  const [mineKinds, setMineKinds] = useState<string[]>([]);
+  useEffect(() => {
+    const pull = () => setMineKinds(mineNow().kinds.map(item => item.id));
+    pull();
+    void loadMine().then(pull);
+    return subscribeMine(pull);
+  }, []);
+  const presetKinds = creativeKindsFor(kind, mineKinds);
   const presetPicks = creativePicksFrom(data);
   /*
    * 已选的那几档，**按固定顺序**（风格 → 滤镜 → 运镜）—— 提示词框里那排标签就照这个顺序排。
@@ -1586,13 +1606,13 @@ export default function GenerateDock({ data, nodeId, anchor, inspector = false }
                       type="button"
                       className="cv-dock-ptag-main"
                       data-dock-ptag-main={preset.kind}
-                      title={`${CREATIVE_KIND_LABEL[preset.kind]}：${preset.name}\n${String(preset.prompt || '').trim() || '（这条没有附加文字）'}\n—— 点开可以继续加 / 换一条`}
+                      title={`${kindLabelOf(preset.kind)}：${preset.name}\n${String(preset.prompt || '').trim() || '（这条没有附加文字）'}\n—— 点开可以继续加 / 换一条`}
                       onClick={() => setPresetOpen(preset.kind)}
                     >
                       {thumb
                         ? <img className="cv-dock-ptag-thumb" src={thumb} alt="" draggable={false} />
                         : <Wand2 size={11} strokeWidth={1.8} aria-hidden />}
-                      <span className="cv-dock-ptag-kind">{CREATIVE_KIND_LABEL[preset.kind]}</span>
+                      <span className="cv-dock-ptag-kind">{kindLabelOf(preset.kind)}</span>
                       <span className="cv-dock-ptag-name">{preset.name}</span>
                     </button>
                     <button
@@ -1600,7 +1620,7 @@ export default function GenerateDock({ data, nodeId, anchor, inspector = false }
                       className="cv-dock-ptag-x"
                       data-dock-ptag-x={preset.kind}
                       data-dock-ptag-x-id={preset.id}
-                      aria-label={`去掉${CREATIVE_KIND_LABEL[preset.kind]}：${preset.name}`}
+                      aria-label={`去掉${kindLabelOf(preset.kind)}：${preset.name}`}
                       title={`去掉「${preset.name}」（其余标签和正文都不动）`}
                       /*
                         🔴 点 × 是**去掉这一条**，不是把这一档清空：风格可以叠好几条，
@@ -1688,12 +1708,12 @@ export default function GenerateDock({ data, nodeId, anchor, inspector = false }
                   data-dock-preset-count={list.length}
                   aria-haspopup="dialog"
                   title={picked
-                    ? `${CREATIVE_KIND_LABEL[item]}：${list.map(x => x.name).join('、')} —— 点开可以继续加 / 换一条`
-                    : `挑一条${CREATIVE_KIND_LABEL[item]}预设，拼进这句提示词`}
+                    ? `${kindLabelOf(item)}：${list.map(x => x.name).join('、')} —— 点开可以继续加 / 换一条`
+                    : `挑一条${kindLabelOf(item)}预设，拼进这句提示词`}
                   onClick={() => setPresetOpen(item)}
                 >
                   <Wand2 size={12} strokeWidth={1.8} aria-hidden />
-                  <span>{picked ? `${CREATIVE_KIND_LABEL[item]} · ${picked.name}${more ? ` +${more}` : ''}` : CREATIVE_KIND_LABEL[item]}</span>
+                  <span>{picked ? `${kindLabelOf(item)} · ${picked.name}${more ? ` +${more}` : ''}` : kindLabelOf(item)}</span>
                 </button>
               );
             })}
@@ -1860,6 +1880,9 @@ export default function GenerateDock({ data, nodeId, anchor, inspector = false }
           }}
           onClear={(presetKind: CreativePresetKind) => data.onCreativePresets?.(presetKind, [])}
           onClose={() => setPresetOpen(null)}
+          /* 参数栏里那一份（`inspector`）**永远不给锚点** —— 它就长在右栏里，
+             再浮出来一块会跟参数栏自己叠在一起。 */
+          anchor={inspector ? undefined : presetAnchor}
         />
       )}
     </div>

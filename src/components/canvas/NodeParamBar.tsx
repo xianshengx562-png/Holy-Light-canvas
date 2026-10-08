@@ -25,7 +25,7 @@ import LatentSlotPicker from './LatentSlotPicker';
 import Link from 'next/link';
 
 /** Slot display order inside the parameter bar: prompt first, then reference images, then the rest. */
-const SLOT_ORDER: Record<string, number> = { text: 0, 'prompt-optimize': 0, image: 1, 'video-input': 1, 'frame-extract': 1, 'audio-input': 5, latent: 2, 'latent-relay': 2, workflow: 3, params: 4, 'pinned-upload': 1 };
+const SLOT_ORDER: Record<string, number> = { text: 0, 'prompt-optimize': 0, 'danbooru-tags': 0, image: 1, 'video-input': 1, 'frame-extract': 1, 'audio-input': 5, latent: 2, 'latent-relay': 2, workflow: 3, params: 4, 'pinned-upload': 1 };
 
 /*
  * 参数区是一层**浮在卡片下方的浮层**（选中节点时出现），和改动之前一致。

@@ -40,8 +40,34 @@ export default function CanvasBrowserPanel() {
     const el = slotRef.current;
     if (!el) return null;
     const r = el.getBoundingClientRect();
+    /*
+     * 🔴 报出去的必须是**静止位置**，不是「此刻看上去的位置」。
+     *
+     * 抽屉的进出场是 transform 动画（`translateX(100%)` → 0，见 nodes.css 的 `cv-drawer-in`）。
+     * 挂载那一帧量，`getBoundingClientRect()` 给的是**起点**（整个抽屉还在屏幕右边外面）——
+     * 主进程拿到就照着摆，而 `clampBrowserBounds` 里
+     * `width = min(w, host.width - left)` 会顺手把宽度也切成「窗口右边缘减去那个 x」，
+     * 于是网页视图正好落在右侧那一栏上。
+     *
+     * 把抽屉当前的位移减掉，拿到的才是它真正待着的地方。
+     * 动画演完 `transform` 回到 `none`，这里就是零，没有额外开销。
+     */
+    const drawer = el.closest('.cv-drawer') as HTMLElement | null;
+    let dx = 0;
+    let dy = 0;
+    const transform = drawer ? getComputedStyle(drawer).transform : 'none';
+    if (transform && transform !== 'none') {
+      const matrix = new DOMMatrixReadOnly(transform);
+      dx = matrix.m41;
+      dy = matrix.m42;
+    }
     /* 取整：小数坐标来回上报会让视图每帧抖一次（亚像素累积）。 */
-    return { x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) };
+    return {
+      x: Math.round(r.left - dx),
+      y: Math.round(r.top - dy),
+      width: Math.round(r.width),
+      height: Math.round(r.height),
+    };
   }, []);
 
   /*
@@ -58,7 +84,7 @@ export default function CanvasBrowserPanel() {
     const off = onBrowserState(setState);
 
     /*
-     * 尺寸跟随。**只 observe 占位区本身**而不是整个面板：面板宽高变化时占位区一定跟着变，
+     * 位置 / 尺寸跟随。**只 observe 占位区本身**而不是整个面板：面板宽高变化时占位区一定跟着变，
      * 而反过来（比如工具条里出现加载动画）占位区没变，就不必白报一次。
      */
     const observer = new ResizeObserver(() => {
@@ -66,6 +92,24 @@ export default function CanvasBrowserPanel() {
       if (next) setBrowserBounds(next);
     });
     if (slotRef.current) observer.observe(slotRef.current);
+
+    /*
+     * 🔴 **还要盯住画布那一块（`.cv-stage`）** —— 2026-10-08 徐先报的「打开浏览器会出现重叠」。
+     *
+     * 抽屉是贴着 `.cv-stage` 右边缘的。右侧那几栏（创作预设 / D站标签 / 节点参数）出现或
+     * 消失时，`.cv-stage` 变窄变宽，**抽屉整个横着挪一段**（那是布局变化，不是动画，一帧内到位）。
+     * 可抽屉自己的**尺寸一点没变**：
+     *   · `ResizeObserver` 盯的是占位区尺寸 —— 不响；
+     *   · `window.resize` —— 窗口没动，不响；
+     *   · `animationend` —— 入场动画早就演完了，不会再响。
+     * 于是没人通知主进程，网页视图就留在原地：**左边露出占位区的黑底，右边盖在后出来的面板上**。
+     *
+     * 复现（2026-10-08 实测）：1440 宽的窗口，先开浏览器（抽屉 455~1060），
+     * 再开 D站面板 → `.cv-stage` 从 1060 缩到 700 → 抽屉滑到 95~700，
+     * 而视图还停在 455~1060，占位区左侧漏出一条 **360px** 的黑边（正是那一栏的宽度）。
+     */
+    const stage = slotRef.current?.closest('.cv-stage');
+    if (stage) observer.observe(stage);
 
     /* 窗口缩放时占位区的 rect 也会变，但 ResizeObserver **不保证**在这种情况下触发
        （元素相对窗口的位置变了，尺寸可能没变）—— 所以补一个 window resize。 */

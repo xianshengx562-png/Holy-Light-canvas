@@ -12,6 +12,7 @@ import {
   Layers,
   Move3d,
   Music,
+  Tags,
   Type,
   Video,
   Wand2,
@@ -54,6 +55,8 @@ export const NODE_ICON: Record<NodeKind, LucideIcon> = {
   director: Move3d,
   /* 优化提示词 = 一句话被「点一下」变成另一段：魔法棒最贴切（星星那颗太抽象）。 */
   'prompt-optimize': Wand2,
+  /* D站标签 = 一串标签：Tag 那颗最贴切（这是唯一一个「输出就是一堆词」的节点）。 */
+  'danbooru-tags': Tags,
 };
 
 export function NodeGlyph({ kind, size = 13 }: { kind: NodeKind; size?: number }) {

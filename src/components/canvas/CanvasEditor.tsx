@@ -38,6 +38,7 @@ import CanvasResultsPanel from './CanvasResultsPanel';
 import DirectorPanel from './DirectorPanel';
 /* 右上角的运行计时（2026-09-28）。走字关在它自己里面 —— 画布不跟着每秒重渲染。 */
 import RunClock, { type RunClockState } from './RunClock';
+import ComfyStatusDot from './ComfyStatusDot';
 import GenerateDock, { type DockAnchor } from './GenerateDock';
 import NodeInspector from './NodeInspector';
 /* 「右侧参数栏开着吗」—— 卡片下方那条参数浮条要按它收放（见文件头那段规矩）。 */
@@ -92,6 +93,16 @@ import {
   type CreativePreset, type CreativePresetKind,
 } from './creativePresets';
 import { validateImageParams } from '@/lib/workflows/imageParams';
+/* D站标签选择器（2026-10-08）：抽签与组装都在纯函数层，这里只负责「什么时候抽、抽完写哪」。 */
+import {
+  freshSeed, loadDanbooruData, normalizeTagSelection, rollTagText, type TagSelection,
+} from './danbooruTags';
+import DanbooruTagPicker from './DanbooruTagPicker';
+/*
+ * 用户自己建的标签分类（2026-10-08）。抽签要能把它们接上去，所以这里也得拿到那份清单 ——
+ * 面板**没开**的时候也在抽（「启动」时会重抽），所以不能只让面板持有。
+ */
+import { customCategoriesNow, loadCustomCategories } from '@/lib/danbooruCats';
 /*
  * 参考图 / 视频 / 音频的槽位上限**与配置页能绑的绑定数同源**：
  * 两边不一致会出现「配置页绑得到第 12 张、提交时却只认前 9 张」这种谁也不报错的错。
@@ -137,6 +148,65 @@ const RESULTS_DRAWER_WIDTH = 420;
 const DOCK_WIDTH = 680;
 const DOCK_MIN_W = 320;
 /**
+ * 两块「挑东西」的面板（预设栏 / D站标签栏）的宽度。
+ *
+ * 🔴 与 `panels.css` 里 `.cv-cpk-sidebar` 的 `calc(360px * var(--ui))` **是同一个数**：
+ *    那一条管并排栏，这一条管浮动态算 `left` 时的占位。改一处必须改两处，
+ *    不然浮动那一版会算错一边（右边留白、或者压在别的东西上）。
+ */
+const PICKER_PANEL_W = 360;
+/** 浮动面板贴节点/参数框留的空隙，与 `DOCK_GAP` 同一个数。 */
+const FLOAT_GAP = 12;
+/**
+ * 浮动挑选面板的高度上限。比对话框（460）高一点 —— 它里面是**列表**，
+ * 一屏能扫多少行直接决定好不好挑；对话框里是固定几组参数，再高是浪费。
+ */
+const FLOAT_PICKER_MAX_H = 560;
+/** 再挤也留这么多：低于这个高度列表只剩两三行，不如让节点往上挪一点。 */
+const FLOAT_PICKER_MIN_H = 240;
+
+/**
+ * 浮动挑选面板实际给多高。
+ *
+ * 🔴 这一条与对话框的规矩**故意不一样**，别顺手统一：
+ *    对话框是「高度不变、装不下就往下伸出画布」（徐先 2026-10-02 定的），
+ *    理由是它**常驻**在那儿、位置不能跳，伸出去丢的是底部操作排，把节点往上挪一下就全回来了。
+ *    这两块面板不一样 —— 它们是点一下才出来的，底部丢的是**列表和那行预览串**，
+ *    也就是它唯一的内容；而它又是「伸出去就再也够不着」的那种（滚动条都在外面）。
+ *    所以能塞就塞满，塞不下就按「节点下沿到画布底」压，但不低于 `FLOAT_PICKER_MIN_H`。
+ *    ⚠️ 真机实测（2026-10-08）：节点在下半屏时 460 高的面板有 **155px 落在窗口外面**，
+ *       用户根本滚不到 —— 不是「伸出画布一点」那么轻。
+ */
+function pickerMaxHeight(top: number, stageH: number): number {
+  if (!stageH) return FLOAT_PICKER_MAX_H;
+  const room = stageH - top - FLOAT_GAP - DOCK_EDGE;
+  return Math.max(FLOAT_PICKER_MIN_H, Math.min(FLOAT_PICKER_MAX_H, Math.round(room)));
+}
+
+/**
+ * 读一下「界面大小」那个乘数（`globals.css` `:root` 上的 `--ui`）。
+ *
+ * ⚠️ 只有在**必须自己算 px 再交给 JS 布局**时才用它：CSS 那边一律写
+ *    `calc(Npx * var(--ui))`，别把这个函数搬进样式里 —— 那等于把缩放算两遍。
+ *    这里之所以绕一下，是因为浮动态的 `left` 得先在 JS 里跟画布宽度比一次大小。
+ *
+ * ⚠️ 带 300ms 的结果缓存：画布那一层每帧都可能重渲染，每帧读一次
+ *    `getComputedStyle` 是典型的「读一下、写一下」节流（style recalc 会被拖着走）。
+ *    代价是用户改了「界面大小」之后最多 0.3 秒内算的是旧值 —— 浮动面板下一次跟着节点
+ *    动一下就跳正，而 `--ui` 本身是**随时可读的**，不会被我们写坏。
+ */
+let uiScaleCache = { value: 1, at: 0 };
+
+function uiScale(): number {
+  if (typeof window === 'undefined') return 1;
+  const now = Date.now();
+  if (now - uiScaleCache.at < 300) return uiScaleCache.value;
+  const raw = getComputedStyle(document.documentElement).getPropertyValue('--ui');
+  const value = Number.parseFloat(raw);
+  uiScaleCache = { value: Number.isFinite(value) && value > 0 ? value : 1, at: now };
+  return uiScaleCache.value;
+}
+/**
  * 高度上限：展开「自定义参数」之后很长，没上限会把画布整个吃掉。
  *
  * 🔴 这是**唯一还在管高度的数** —— 面板多高由它自己内容决定，只在这里封顶。
@@ -168,6 +238,17 @@ const DOCK_FALLBACK_H = 150;
  * ⚠️ 没有 `height` —— 面板已经不做上下夹取了，画布多高跟它没关系（见下面第二条）。
  */
 type DockFrame = { x: number; y: number; zoom: number; width: number };
+
+/**
+ * 「启动」的两档跑法（2026-10-08 徐先要的「两张模式」）。
+ *
+ *   `skip` —— 绕过已经生成过结果的节点（默认那一档）。
+ *   `all`  —— 全部运行：有结果的也重新提交一遍。
+ *
+ * ⚠️ 两档的差别**只有「跳过名单」一处**，别让它长成两条并行的循环 ——
+ *    预检、依赖顺序、等渲染、停止这几件事一旦分叉，两边迟早各修各的。
+ */
+type RunMode = 'skip' | 'all';
 
 /**
  * 对话框该钉在哪儿 —— **纯函数**，好读也好改。
@@ -204,6 +285,11 @@ function dockAnchorFor(
    * 拿它算高度就会把面板贴进卡片中间。实测值优先，量不到才退回 `measured`。
    */
   size?: { w: number; h: number } | null,
+  /**
+   * 想要多宽。默认是对话框那个 680；D站标签栏浮动态传它自己的 360（见 `PICKER_PANEL_W`）。
+   * 下界仍是 `DOCK_MIN_W` —— 比 320 还窄的列表读不出两行字。
+   */
+  preferredW = DOCK_WIDTH,
 ): DockAnchor {
   const zoom = frame.zoom || 1;
   /* 画布还没量出来（首帧 width 是 0）时按窗口算 —— 不然会蹦到左上角一下。 */
@@ -213,7 +299,7 @@ function dockAnchorFor(
   const boxW = (size?.w || node.measured?.width || node.width || DOCK_FALLBACK_W) * zoom;
   const boxH = (size?.h || node.measured?.height || node.height || DOCK_FALLBACK_H) * zoom;
 
-  const width = Math.max(DOCK_MIN_W, Math.min(DOCK_WIDTH, paneW - DOCK_EDGE * 2));
+  const width = Math.max(DOCK_MIN_W, Math.min(preferredW, paneW - DOCK_EDGE * 2));
   const centered = nodeLeft + boxW / 2 - width / 2;
   const left = Math.max(DOCK_EDGE, Math.min(centered, paneW - width - DOCK_EDGE));
 
@@ -825,6 +911,20 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
   const [overlayPickNode, setOverlayPickNode] = useState<string | null>(null);
   /** 正在用 3D 导演台摆机位的那个节点。null = 面板关着。 */
   const [directorFor, setDirectorFor] = useState<string | null>(null);
+  /** 正在挑 D站标签的那个节点。null = 面板关着。 */
+  const [tagPickerFor, setTagPickerFor] = useState<string | null>(null);
+  /*
+   * 面板开着期间**正在编辑的那一份选择**（2026-10-08）。
+   *
+   * 🔴 为什么非得有一份 ref：连着点两行时，第二次点击发生在 React 渲染之前 ——
+   *    无论从 props 还是从 `nodesRef` 读，拿到的都是**点第一行之前**那份，
+   *    于是第二行把第一行覆盖掉。真机实测到的症状是「点了三行，只选上一个」。
+   *    ref 在 `mutate` 里当场更新，不受渲染时机影响，连点才累积得起来。
+   *
+   * 只在面板开着时有值（打开时初始化、关闭时清掉）：节点被撤销 / 别处改动之后，
+   * 以面板里正在改的这份为准，那才是用户眼下看到的东西。
+   */
+  const tagSelRef = useRef<Map<string, TagSelection>>(new Map());
   /** 「设置」浮层里现在看的是哪一页（值就是设置页的 href）。 */
   /** 默认落在「模型服务」：设置区第一页就是它（`SETTING_TABS[0]`），两处别各说一套。 */
   const [settingsTab, setSettingsTab] = useState('/settings/model-services');
@@ -899,6 +999,15 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
   const [runProgress, setRunProgress] = useState<{ round: number; times: number; done: number; total: number } | null>(null);
   /** 运行中点一下 = 停：循环每一步都看一眼这个标记。 */
   const runAllStop = useRef(false);
+  /** 「启动」那颗旁边的下拉开着没有。 */
+  const [runMenu, setRunMenu] = useState(false);
+  /**
+   * 大遍数二次确认弹窗关掉之后要按**哪一档**跑。
+   *
+   * 用 ref 不用 state：它只在弹窗那一次读，写 state 会把整棵树跟着重渲染一遍，
+   * 而这个值在弹窗关掉之前谁都不读。
+   */
+  const pendingRunMode = useRef<RunMode>('skip');
 
   /**
    * 这一轮运行的计时（2026-09-28）。
@@ -2738,6 +2847,98 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     }
   }, []);
 
+  /*
+   * D站标签：抽一批、写回节点（2026-10-08）。
+   *
+   * 抽签的结果落在 `tagText` —— 与优化节点写 `optimizedText` 是同一个形状：
+   * 结果属于「这一轮」，节点上持久存的是**他挑了哪几个**（`tagSelection`）。
+   * 分开存才有「换一批」，也才有「改完选择还能找回原来挑的那批」。
+   *
+   * 🔴 标签库加载不出来时**什么都不写**，也不弹错：留着上一批的字，
+   *    比把节点清空好 —— 而真正该说的地方是面板里那条错误，那儿才有人在看。
+   */
+  const rollTagsInto = useCallback(async (id: string, selection: TagSelection, seed?: number) => {
+    try {
+      const data = await loadDanbooruData();
+      /* 自定义分类是外挂数据（磁盘上那份）：第一次进来要读一次，之后走模块级缓存。
+         读不出来时 `customCategoriesNow()` 给空数组 —— 抽签照跑，只是少了那几档。 */
+      await loadCustomCategories();
+      const next = seed ?? freshSeed();
+      patch(id, {
+        tagSelection: selection,
+        tagText: rollTagText(selection, data, next, customCategoriesNow()),
+        tagSeed: next,
+      });
+    } catch {
+      /* 见上面那段：静默，保持原串。 */
+    }
+  }, [patch]);
+
+  /** 卡片上那颗「换一批」：换一颗种子，挑中的那批不动。 */
+  const rerollTags = useCallback(async (id: string) => {
+    const node = nodesRef.current.find(item => item.id === id);
+    if (!node) return;
+    /* 面板开着时以面板里那份为准（它可能是刚连点选出来、还没渲染进 nodes 的）。 */
+    const selection = tagSelRef.current.get(id) || normalizeTagSelection(node.data.tagSelection);
+    await rollTagsInto(id, selection);
+  }, [nodesRef, rollTagsInto]);
+
+  /*
+   * 面板里改完选择：立刻重抽一次 —— 底栏那个预览当场就变，不用先跑一遍才知道会交出去什么。
+   *
+   * 🔴 参数是**函数式**的（拿上一份算下一份），上一份从 `tagSelRef` 读（理由见它那条注释）。
+   */
+  const applyTagSelection = useCallback(async (id: string, mutate: (prev: TagSelection) => TagSelection) => {
+    const node = nodesRef.current.find(item => item.id === id);
+    const prev = tagSelRef.current.get(id) || normalizeTagSelection(node?.data.tagSelection);
+    const next = mutate(prev);
+    tagSelRef.current.set(id, next);
+    await rollTagsInto(id, next);
+  }, [nodesRef, rollTagsInto]);
+
+  /** 开面板：顺手把「正在编辑的这一份」初始化成节点上那份。 */
+  const openTagPicker = useCallback((id: string) => {
+    const node = nodesRef.current.find(item => item.id === id);
+    tagSelRef.current.set(id, normalizeTagSelection(node?.data.tagSelection));
+    setTagPickerFor(id);
+  }, [nodesRef]);
+
+  /** 关面板：这一份编辑会话结束，ref 让位给节点上那份（下次打开重新初始化）。 */
+  const closeTagPicker = useCallback(() => {
+    setTagPickerFor(null);
+    tagSelRef.current.clear();
+  }, []);
+
+  /*
+   * 「启动」时把**随机模式**的标签节点全部重抽一遍。
+   *
+   * 🔴 抽完必须**等一次渲染**再往下跑：标签值走的是 `nodes` → `hydrated` → 生成节点那条链，
+   *    而 `patch` 之后 `nodesRef` 要等渲染才刷新。不等的话下游读到的还是上一批 ——
+   *    症状是「跑了三遍、三张图里的角色是同一个」，而界面上明明写着「每次运行抽」。
+   */
+  const rerollRandomTags = useCallback(async () => {
+    const targets = nodesRef.current.filter(node =>
+      node.data.kind === 'danbooru-tags'
+      && !node.data.bypassed
+      && normalizeTagSelection(node.data.tagSelection).mode === 'random');
+    if (!targets.length) return;
+    try {
+      const data = await loadDanbooruData();
+      await loadCustomCategories();
+      for (const node of targets) {
+        const selection = normalizeTagSelection(node.data.tagSelection);
+        const seed = freshSeed();
+        patch(node.id, {
+          tagText: rollTagText(selection, data, seed, customCategoriesNow()),
+          tagSeed: seed,
+        });
+      }
+      await waitRender(renderTick.current);
+    } catch {
+      /* 标签库加载不出来就跳过这一轮重抽：节点上那一批还在，照样跑。 */
+    }
+  }, [nodesRef, patch, waitRender]);
+
   /**
    * 生成节点的**执行顺序**（2026-09-27，「启动」按钮要用）。
    *
@@ -2873,7 +3074,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
    * （提示词没填、上游还没出图 —— 那些分支直接 return 了）。第三种必须停下来：
    * 接着跑下游，下游会拿着空上游一路「成功」下去。
    */
-  const runAllNodes = useCallback(async (confirmed = false) => {
+  const runAllNodes = useCallback(async (confirmed = false, mode: RunMode = 'skip') => {
     if (runAllBusy) return;
     const order = generationOrder();
     if (!order.length) {
@@ -2903,8 +3104,11 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       return;
     }
     const times = Math.max(1, Math.min(99, Math.round(runTimes) || 1));
-    /* 大遍数先弹确认：还没真正开跑，用户取消就一个都不发。确认后走 `runAllNodes(true)` 跳过这关。 */
+    /* 大遍数先弹确认：还没真正开跑，用户取消就一个都不发。
+       确认后走 `runAllNodes(true, <原档>)` 跳过这关 —— 档位也必须跟着带过去，
+       不然从「全部运行」点进去、确认完却按「绕过」跑了（弹窗那一趟回不到这个函数里）。 */
     if (!confirmed && times > RUN_TIMES_CONFIRM_THRESHOLD) {
+      pendingRunMode.current = mode;
       setRunTimesConfirm(times);
       return;
     }
@@ -2922,8 +3126,14 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
      *
      * 只认**生成节点**（视频 / 图片 / 音频 / 应用）：它们才是最贵的那一步。优化提示词节点照旧每轮都跑 ——
      * 它是文本模型、便宜，而且「改写没生效」这种错觉的代价比省那点 token 高得多。
+     *
+     * `mode === 'all'`（「全部运行」，2026-10-08 徐先要的第二档）时这份名单**空着** ——
+     * 已经出过结果的节点也照样提交。他要的是「同一个提示词参数再跑一遍」，
+     * 而按上面那条规矩那些节点会被整个跳过去，等于点了启动什么都不发生。
+     * ⚠️ 两档的差别**只在这一份名单**：别的（预检、顺序、等渲染、停止）一模一样 ——
+     *    另开一条循环迟早会走成两种行为。
      */
-    const settledBefore = new Set(
+    const settledBefore = mode === 'all' ? new Set<string>() : new Set(
       order.filter(id => {
         const node = nodesRef.current.find(item => item.id === id);
         if (!node || !isGeneratorKind(node.data.kind)) return false;
@@ -2939,6 +3149,13 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     let halted = '';
     try {
       for (let round = 1; round <= times && !halted; round++) {
+        /*
+         * D站标签：**每一遍**都重抽（「每次运行抽」那一档）。
+         *
+         * 放在每一遍的开头（不是整个循环外面）：跑 3 遍要的是 3 张角色不一样的图，
+         * 抽一次跑三遍等于只抽到一批 —— 而界面报的是「跑完了 3 遍」，看不出区别。
+         */
+        await rerollRandomTags();
         for (let index = 0; index < order.length; index++) {
           if (runAllStop.current) { halted = '用户停了'; break; }
           const id = order[index];
@@ -2974,9 +3191,13 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       }
       if (halted === '用户停了') setNotice('已停止。');
       else if (halted) setNotice(`${halted} —— 就停在这一步，后面的没跑（继续跑只会拿着空上游）。`);
-      /* 跳过的那几个要说出来：不然「点了启动却没见它动」看起来就像坏了。 */
+      /* 跳过的那几个要说出来：不然「点了启动却没见它动」看起来就像坏了。
+         反过来，「全部运行」这一档也要说出来 —— 它会把有结果的节点重跑一遍（真扣积分），
+         冒一句「跑完了一遍」而没说这次没跳，用户下次分不清自己是点了哪一档。 */
       else setNotice(`${times > 1 ? `跑完了 ${times} 遍` : '跑完了一遍'}`
-        + (settledBefore.size ? `（跳过了 ${settledBefore.size} 个已经有结果的节点）` : '') + '。');
+        + (mode === 'all'
+          ? '（全部运行：已经出过结果的节点也重跑了一遍）'
+          : settledBefore.size ? `（跳过了 ${settledBefore.size} 个已经有结果的节点）` : '') + '。');
     } finally {
       setRunAllBusy(false);
       setRunProgress(null);
@@ -4342,6 +4563,10 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         onRename: (name: string) => patch(node.id, { label: name.length > 0 ? name : undefined }),
         /** 导演台：打开那块舞台（按钮在卡片右上角，常驻）。 */
         onOpenDirector: node.data.kind === 'director' ? () => setDirectorFor(node.id) : undefined,
+        /** D站标签：打开选择器（按钮常驻 —— 这个节点存在的唯一理由就是挑标签）。 */
+        onOpenTags: node.data.kind === 'danbooru-tags' ? () => openTagPicker(node.id) : undefined,
+        /** D站标签：现在就重抽一批（按钮常驻，与「换一批」同一个动作）。 */
+        onRerollTags: node.data.kind === 'danbooru-tags' ? () => void rerollTags(node.id) : undefined,
         onPasteImages: isGenerator || node.data.kind === 'image'
           ? (files: File[]) => addImages(files, { nodeId: node.id })
           : undefined,
@@ -4350,7 +4575,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     };
   }), [beginGesture, collectParamRows, describeInputOf, edges, endGesture, extractFrames, frameSourceOf, generate,
     latentChainOf, latentPickOptionsOf, mediaRelayOf, openWorkflowConfig, openWorkflowPicker, runPromptNode, runOne, textChainOf,
-    archiveMedia, latents, nodes, paramWorkflowOf, patch, sources, uploadFrameVideo, uploadLatentFile, workflows]);
+    archiveMedia, latents, nodes, openTagPicker, paramWorkflowOf, patch, rerollTags, sources, uploadFrameVideo, uploadLatentFile, workflows]);
 
   /*
    * 接上视频就自动提取一次。
@@ -4692,12 +4917,77 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
   const viewY = useStore(state => state.transform[1]);
   const viewZoom = useStore(state => state.transform[2]);
   const paneW = useStore(state => state.width);
+  /* 画布**高度**：只有浮动挑选面板要用（算「下方还剩多少」，见 `pickerMaxHeight`）。
+     对话框那一套刻意不看高度 —— 它不夹上下。 */
+  const paneH = useStore(state => state.height);
   /* ⚠️ 尺寸要**跟着节点走**：量到的是上一个节点的，就宁可退回 `measured`（那至少是它自己的），
      不然换节点那一帧面板会先跳到上一个节点的高度上去。 */
   const dockAnchor = !inspectorOpen && dockNode
     ? dockAnchorFor(dockNode, { x: viewX, y: viewY, zoom: viewZoom, width: paneW },
       dockSize && dockSize.id === dockNode.id ? dockSize : null)
     : undefined;
+
+  /**
+   * D站标签栏浮动态的锚点（2026-10-08 徐先：「在没有节点参数侧边栏的模式，
+   * 标签的选择直接在节点的下方显示选择」）。
+   *
+   * 只在**参数栏关着**时给 —— 开着的时候它照旧并排第三栏（那种状态下画布已经被两条栏
+   * 夹住，再往节点下方塞一块就真正挤到没地方了）。
+   *
+   * 量的是**被挑的那个节点的**尺寸，跟 `dockSize` 不是一回事（两个镜头可以是两个节点），
+   * 所以另开一份而不是复用：合用一个 state 时后开的那个会把先开的顶掉。
+   */
+  const tagId = tagPickerFor || '';
+  const [tagSize, setTagSize] = useState<{ id: string; w: number; h: number } | null>(null);
+  useEffect(() => {
+    if (inspectorOpen || !tagId) { setTagSize(null); return; }
+    const el = document.querySelector(`.react-flow__node[data-id="${tagId}"]`);
+    if (!el) { setTagSize(null); return; }
+    const read = () => {
+      const w = (el as HTMLElement).offsetWidth;
+      const h = (el as HTMLElement).offsetHeight;
+      setTagSize(prev => (prev && prev.id === tagId && prev.w === w && prev.h === h ? prev : { id: tagId, w, h }));
+    };
+    read();
+    const observer = new ResizeObserver(read);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [tagId, inspectorOpen]);
+  const tagNode = tagPickerFor ? nodes.find(node => node.id === tagPickerFor) || null : null;
+  const tagAnchor = !inspectorOpen && tagNode
+    ? (() => {
+      const raw = dockAnchorFor(tagNode, { x: viewX, y: viewY, zoom: viewZoom, width: paneW },
+        tagSize && tagSize.id === tagNode.id ? tagSize : null,
+        Math.round(PICKER_PANEL_W * uiScale()));
+      return { ...raw, maxHeight: pickerMaxHeight(raw.top, paneH) };
+    })()
+    : undefined;
+
+  /**
+   * 预设栏（风格 / 滤镜 / 运镜）浮动态的锚点（2026-10-08 徐先：「风格选择……
+   * 从侧边栏一点到参数旁边进行选择」）。
+   *
+   * 落点 = **参数对话框的右边**，跟对话框同一水平线、同一个高度上限。
+   * 右边放不下（画布被拖窄了 / 节点在右半屏）就退到对话框左边 —— 退到右边画布外
+   * 等于用户看不见它，而这块面板是「点一下风格就出来」的东西，出来即不见最糟。
+   * 两边都放不下时贴着画布右边缘停住（宁可压住对话框一角，也不要露在画布外面）。
+   *
+   * 只有参数栏关着时才有对话框浮出来（开着时对话框在参数栏里），所以这里跟着
+   * `dockAnchor` 一起用同一个条件。
+   */
+  const presetAnchor = dockAnchor ? (() => {
+    const width = Math.round(PICKER_PANEL_W * uiScale());
+    const pane = paneW || 0;
+    const gap = Math.round(FLOAT_GAP * uiScale());
+    const rightAt = dockAnchor.left + dockAnchor.width + gap;
+    const leftAt = dockAnchor.left - width - gap;
+    const left = rightAt + width + gap <= pane
+      ? rightAt
+      : leftAt >= gap
+        ? leftAt
+        : Math.max(gap, pane - width - gap);
+    return { left, top: dockAnchor.top, width, maxHeight: pickerMaxHeight(dockAnchor.top, paneH) };
+  })() : undefined;
 
   /**
    * 给选中的节点换卡片色（2026-10-01）。
@@ -4931,6 +5221,10 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       <a className="cv-brand" href="/">{projectName || '未命名项目'}</a>
       <span className="cv-workspace-count">{nodes.length} 节点 · {edges.length} 连线</span>
       <div className="cv-spacer" />
+      {/* 本地 ComfyUI 在不在跑（2026-10-08 徐先圈的位置）。紧挨余额左边、留在这块
+          空白区里 —— 它是个**状态**，不该跟右边那排按钮混在一起看。
+          ⚠️ `--ui` 缩放下它也跟着缩（见 layout.css 那条），别在这里写死尺寸。 */}
+      <ComfyStatusDot />
       {/* 站点余额挂在这儿（全站只有一份 `SiteBalance`，它认 `[data-balance-slot]`）。
           位置选在「已保存」之前，**不是**最右 —— 最右紧挨着窗口的系统按钮，
           余额挤过去会钻到它们底下（标题栏是 `titleBarStyle:hidden`）。 */}
@@ -4945,20 +5239,57 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         一键运行（2026-09-27）。这一格原来是「工作流」链接 —— 那个入口在节点参数条
         （「打开工作流配置」）和左侧设置面板里都有，而这里是**手最常放的地方**，
         留给最高频的那个动作：把整条链跑一遍。
+
+        🔴 两档（2026-10-08 徐先：「启动分为两张模式，绕过已经生成过的节点以及全部运行」）：
+           - **主键** = 「绕过已经生成过结果的节点」。这是绝大多数时候要的那一档
+             （画布上往下改一点、只想重跑下半段），所以让它**一下就跑**；
+           - **右边小箭头** = 把两档摊开，点哪条按哪条跑。
+        ⚠️ 没有做成「先选模式、再点启动」：那样每次跑都得点两下，而这一档是压倒性的多数；
+           也没有把模式做成一个常驻开关 —— 那种开关最容易出现的错觉就是
+           「我明明点了启动，它什么都没跑」（上一轮的模式还留着）。
+        ⚠️ 跑起来了就只剩「停止」一颗（不给箭头）：那时候两档的差别已经没有意义了。
       */}
-      <button className="cv-btn primary sm" type="button" data-cv-run-all
-        title={runAllBusy
-          ? '点一下停在这一步（已经提交出去的那一次不会被打断）'
-          : '把画布上所有生成节点按依赖顺序跑一遍 —— 上游先跑，全部跑完才算一次'}
-        onClick={() => {
-          if (runAllBusy) { runAllStop.current = true; return; }
-          void runAllNodes();
-        }}>
-        {runAllBusy ? <Square size={13} aria-hidden /> : <Play size={13} aria-hidden />}
-        {runAllBusy && runProgress
-          ? `停止 ${runProgress.round}/${runProgress.times} · ${Math.min(runProgress.done + 1, runProgress.total)}/${runProgress.total}`
-          : runAllBusy ? '停止' : '启动'}
-      </button>
+      <div className={`cv-run-split${runMenu ? ' open' : ''}`} data-cv-run-split>
+        <button className="cv-btn primary sm" type="button" data-cv-run-all
+          title={runAllBusy
+            ? '点一下停在这一步（已经提交出去的那一次不会被打断）'
+            : '把画布上所有生成节点按依赖顺序跑一遍 —— 已经有结果的节点会跳过，不重复花积分'}
+          onClick={() => {
+            if (runAllBusy) { runAllStop.current = true; return; }
+            setRunMenu(false);
+            void runAllNodes();
+          }}>
+          {runAllBusy ? <Square size={13} aria-hidden /> : <Play size={13} aria-hidden />}
+          {runAllBusy && runProgress
+            ? `停止 ${runProgress.round}/${runProgress.times} · ${Math.min(runProgress.done + 1, runProgress.total)}/${runProgress.total}`
+            : runAllBusy ? '停止' : '启动'}
+        </button>
+        {!runAllBusy && (
+          <button className="cv-run-caret" type="button" data-cv-run-menu-toggle
+            aria-haspopup="menu" aria-expanded={runMenu}
+            title="换一种跑法"
+            onClick={() => setRunMenu(value => !value)}>
+            <ChevronDown size={12} strokeWidth={2.2} aria-hidden />
+          </button>
+        )}
+        {runMenu && !runAllBusy && <>
+          {/* 点空白处收起。用一层透明的整屏底 —— 菜单在顶栏里，
+              鼠标往画布上一点就走，「点开之后关不掉」是最烦人的那类小毛病。 */}
+          <div className="cv-run-backdrop" onMouseDown={() => setRunMenu(false)} />
+          <div className="cv-run-menu" role="menu" data-cv-run-menu>
+            <button className="cv-run-item" type="button" role="menuitem" data-cv-run-mode="skip"
+              onClick={() => { setRunMenu(false); void runAllNodes(false, 'skip'); }}>
+              <span className="cv-run-item-title">绕过已经生成过的节点</span>
+              <span className="cv-run-item-sub">已经有结果的生成节点不重复提交 —— 省积分，适合只改了后半段</span>
+            </button>
+            <button className="cv-run-item" type="button" role="menuitem" data-cv-run-mode="all"
+              onClick={() => { setRunMenu(false); void runAllNodes(false, 'all'); }}>
+              <span className="cv-run-item-title">全部运行</span>
+              <span className="cv-run-item-sub">每个生成节点都重新跑一遍（有结果的也跑）—— 会按节点数累计扣积分</span>
+            </button>
+          </div>
+        </>}
+      </div>
       {/* 一键运行的次数：数字框 + 上调/下调（步长 1）。
           原来右边那格是一个「遍」字，徐先要的是能点的（2026-09-27）——
           手打数字在只想加一下的时候太别扭。
@@ -4998,7 +5329,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         danger={false}
         confirmLabel="确定，开跑"
         onCancel={() => setRunTimesConfirm(null)}
-        onConfirm={() => { setRunTimesConfirm(null); void runAllNodes(true); }}
+        onConfirm={() => { setRunTimesConfirm(null); void runAllNodes(true, pendingRunMode.current); }}
         body={<p>整条流程会连着跑 {runTimesConfirm} 遍，按每个生成节点累计消耗积分。跑起来之后只能点「停止」中断，不能中途减遍数。确定要从头跑 {runTimesConfirm} 遍吗？</p>}
       />
     )}
@@ -5332,7 +5663,25 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
           —— 改参数时视线就在节点上，抬眼是画面、低头是参数。
         */}
         {/* key=节点id：换一颗节点就是一块新面板 —— 弹层 / 展开状态不跨节点残留。 */}
-        {!inspectorOpen && dockNode && <GenerateDock key={dockNode.id} data={dockNode.data} nodeId={dockNode.id} anchor={dockAnchor} />}
+        {!inspectorOpen && dockNode && <GenerateDock key={dockNode.id} data={dockNode.data} nodeId={dockNode.id} anchor={dockAnchor} presetAnchor={presetAnchor} />}
+        {/*
+          D站标签选择器（浮动形态）。
+          参数栏关着时就挂在这儿 —— 挨着它挑的那颗节点下方，跟参数对话框同一个宿主、同一套定位。
+          参数栏开着时 `tagAnchor` 是 undefined，它自己会 portal 到 `.cv-preset-slot` 变成并排那一栏
+          （宿主选择写在 `DanbooruTagPicker` 里，见那个文件顶上那段）。
+          ⚠️ 位置必须留在这个 `.cv-stage` 里面：它跟对话框一样是 absolute 定位的，
+             搬到外面（`.cv-body` 那一层）就会拿整页当包含块，跟着右栏宽度一起漂。
+        */}
+        {tagNode && (
+          <DanbooruTagPicker
+            selection={normalizeTagSelection(tagNode.data.tagSelection)}
+            preview={String(tagNode.data.tagText || '')}
+            anchor={tagAnchor}
+            onChange={mutate => void applyTagSelection(tagNode.id, mutate)}
+            onReroll={() => void rerollTags(tagNode.id)}
+            onClose={closeTagPicker}
+          />
+        )}
         {/* 对话框会盖住节点下方那一片，原来那条提示这时让位 —— 两层文字叠在一起谁也看不清。
             未选中时**整块不渲染**（2026-09-24 徐先：「这个提示可以删了」）——
             「右键空白处 / 左侧加号 / 圆点拖线」那三句是上手期的引导，用过一次就是噪音。

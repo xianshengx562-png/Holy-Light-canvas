@@ -37,7 +37,11 @@ export type TextChainPart = { id: string; label: string; value: string };
 export type TextChainNode = {
   id: string;
   /** `bypassed` = 这个节点被绕过了（2026-09-29）：它只当一根管子，不做自己那份活。 */
-  data: { kind?: string; text?: string; optimizedText?: string; label?: string; bypassed?: boolean };
+  data: {
+    kind?: string; text?: string; optimizedText?: string; label?: string; bypassed?: boolean;
+    /** D站标签节点本轮抽出来的那段串（2026-10-08）。 */
+    tagText?: string;
+  };
 };
 
 /** 连线：`source` 在上游、`target` 在下游。 */
@@ -51,7 +55,7 @@ export type TextChainEdge = { source: string; target: string };
  * 「链上认这个节点、别处不认」，而那种差异不报错，只是行为悄悄不同。
  */
 export function isTextValueKind(kind: unknown) {
-  return kind === 'text' || kind === 'prompt-optimize';
+  return kind === 'text' || kind === 'prompt-optimize' || kind === 'danbooru-tags';
 }
 
 /**
@@ -185,6 +189,19 @@ export function resolveTextChain(
       const own = String(node.data.optimizedText || '').trim();
       /* 跑出来的那份是**整段**的，不是上游那几段拼起来的 —— 所以 `parts` 给空数组，
          别让界面把「改写前的几段」当成这一段的组成部分报出来。 */
+      return done(own
+        ? { value: own, from: '', broken: null, parts: [] }
+        : { value: joined, from, broken, parts });
+    }
+    /*
+     * D站标签（2026-10-08）：交出去的是**本轮抽签拼出来的那段**（`tagText`），
+     * 跟 `optimizedText` 是同一个形状 —— 结果属于这一轮，节点上存的是「他挑了哪几个」。
+     *
+     * 它不接上游（`ACCEPTS` 给的是空数组），所以 `joined` 恒为空；这里仍然留着回落，
+     * 免得哪天放开连线之后它变成一个永远交不出值的哑节点。
+     */
+    if (node.data.kind === 'danbooru-tags') {
+      const own = String(node.data.tagText || '').trim();
       return done(own
         ? { value: own, from: '', broken: null, parts: [] }
         : { value: joined, from, broken, parts });

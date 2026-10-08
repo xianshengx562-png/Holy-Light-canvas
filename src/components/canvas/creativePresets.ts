@@ -11,9 +11,30 @@
  * （`./creativeCatalog` 只导出常量与类型，没有副作用，可以引。）
  */
 
-import type { CreativePreset, CreativePresetKind } from './creativeCatalog';
+/*
+ * `creativeCatalog.ts` 是**生成物**（285 条从 AIFISHER 抽出来的，不要手改），
+ * 所以「档」这个类型在那边只认内置三档；自建档是后来加的（2026-10-08），
+ * 宽的那份类型定义在这里 —— 全工程一律从这里拿 `CreativePresetKind` / `CreativePreset`，
+ * 别再从 `./creativeCatalog` 直接引类型（那边只有常量 `CREATIVE_PRESETS` 该被外面引）。
+ */
+import type {
+  CreativePreset as CatalogPreset,
+  CreativePresetKind as BuiltinPresetKind,
+} from './creativeCatalog';
 
-export type { CreativePreset, CreativePresetKind };
+/** 内置的档。 */
+export type PresetBuiltinKind = BuiltinPresetKind;
+
+/**
+ * 自建的档用 `k-<随机>` 这个 id（与 D站标签那边 `c-` 前缀同一个思路）：
+ * 一眼分得开「内置的」和「用户自己建的」，而且 `Record<PresetBuiltinKind, …>`
+ * 这种按字面量穷举的写法不会因为多了几个档就类型爆炸。
+ */
+export type CreativePresetKind = BuiltinPresetKind | `k-${string}`;
+
+export type CreativePreset = Omit<CatalogPreset, 'kind'> & { kind: CreativePresetKind };
+
+export type { CreativePresetKind as PresetKind };
 
 /**
  * 一个节点上选中的预设：**每一档可以选多条**（2026-10-07 徐先：「风格可以添加多个标签」）。
@@ -36,12 +57,85 @@ export type CreativePresetPick = {
 /** 空值一律当「这一档没选」，别在各处自己判。 */
 export const CREATIVE_PICK_NONE: CreativePreset[] = [];
 
-/** 三档在界面上的显示名（tab、按钮、失败提示共用一份，别各处再写一遍）。 */
-export const CREATIVE_KIND_LABEL: Record<CreativePresetKind, string> = {
+/** 内置三档在界面上的显示名（tab、按钮、失败提示共用一份，别各处再写一遍）。 */
+export const CREATIVE_KIND_LABEL: Record<BuiltinPresetKind, string> = {
   style: '风格',
   filter: '滤镜',
   motion: '运镜',
 };
+
+/*
+ * ---------------------------------------------------------------------------
+ * 自建的档（2026-10-08）
+ * ---------------------------------------------------------------------------
+ *
+ * 档的**名字**和「能选几条」是**用户数据**（存在 `<dataDir>/creative-presets/mine.json`），
+ * 而这一层是纯函数、要能单独编译跑单测 —— 所以这里放一份**注册表**，由外面
+ * （`src/lib/presetMine.ts` 读完盘之后）灌进来。跟 `danbooruCats` 那份缓存一个路子。
+ *
+ * 🔴 为什么要注册表而不是「把名字塞进每条预设里」：一个档的名字改一次，
+ *    所有条目都得跟着改；而条目在节点上还存着**快照**（改名前的那一份），
+ *    那就变成同一个档有两个名字。注册表里改一处就够了。
+ */
+type KindDef = { name: string; single: boolean };
+
+let extraKinds: Record<string, KindDef> = {};
+
+/** 灌入当前有哪些自建档（每次从磁盘读回来都调一次）。 */
+export function registerExtraKinds(list: { id: string; name: string; single: boolean }[]): void {
+  const next: Record<string, KindDef> = {};
+  for (const item of list || []) {
+    const id = String(item?.id || '').trim();
+    if (!id) continue;
+    next[id] = { name: String(item.name || '').trim() || '预设', single: item.single === true };
+  }
+  extraKinds = next;
+}
+
+/** 是不是自建的档（内置三档不是）。 */
+export function isCustomKind(kind: unknown): boolean {
+  return typeof kind === 'string' && /^k-/i.test(kind);
+}
+
+/** 档的显示名：内置查表，自建查注册表，都没有就落一个「预设」—— 别返回空串。 */
+export function kindLabelOf(kind: unknown): string {
+  const key = String(kind || '');
+  if (key === 'style' || key === 'filter' || key === 'motion') return CREATIVE_KIND_LABEL[key];
+  return extraKinds[key]?.name || '预设';
+}
+
+/**
+ * 这一档最多能选几条。
+ *
+ * 运镜 = 1：镜头怎么动只能有一个说法（见 `CreativePresetPick` 上那段注释）。
+ * 风格 / 滤镜不限：它们是叠加的定语。
+ * **自建档由建档时定的 `single` 决定**（他选的「可叠加 / 只一条」）。
+ */
+export function maxPicksFor(kind: CreativePresetKind): number {
+  if (kind === 'motion') return 1;
+  if (isCustomKind(kind)) return extraKinds[String(kind)]?.single ? 1 : Number.POSITIVE_INFINITY;
+  return Number.POSITIVE_INFINITY;
+}
+
+/**
+ * 当前一共有哪些档：**内置三档 + 自建档 + 数据里出现过但已经没定义的自建档**。
+ *
+ * 最后那一半不是多余的：节点上存的是快照，用户把某个自建档删掉之后，
+ * 老画布里那档选的预设还在 —— 顺序里没有它，`picksOf` 就会把它漏掉，
+ * 表现为「打开老工程，那一档的已选标签没了，但提示词里还有」。
+ */
+export function orderedKinds(pick?: CreativePresetPick | null): CreativePresetKind[] {
+  const out: CreativePresetKind[] = [...CREATIVE_KIND_ORDER];
+  for (const id of Object.keys(extraKinds)) {
+    if (!out.includes(id as CreativePresetKind)) out.push(id as CreativePresetKind);
+  }
+  if (pick && typeof pick === 'object') {
+    for (const key of Object.keys(pick as Record<string, unknown>)) {
+      if (isCustomKind(key) && !out.includes(key as CreativePresetKind)) out.push(key as CreativePresetKind);
+    }
+  }
+  return out;
+}
 
 /**
  * 拼装顺序：**前缀们 → 正文 → 后缀们**。
@@ -93,10 +187,13 @@ export function picksOfKind(
  *
  * 风格 / 滤镜各可能多条，摊平之后就是「风格1、风格2、滤镜1、运镜1」这个顺序。
  */
-export function picksOf(pick: CreativePresetPick | null | undefined): CreativePreset[] {
+export function picksOf(
+  pick: CreativePresetPick | null | undefined,
+  kinds?: CreativePresetKind[],
+): CreativePreset[] {
   if (!pick || typeof pick !== 'object') return [];
   const out: CreativePreset[] = [];
-  for (const kind of CREATIVE_KIND_ORDER) out.push(...picksOfKind(pick, kind));
+  for (const kind of kinds || orderedKinds(pick)) out.push(...picksOfKind(pick, kind));
   return out;
 }
 
@@ -108,16 +205,6 @@ export function picksOf(pick: CreativePresetPick | null | undefined): CreativePr
  */
 export function pickOf(pick: CreativePresetPick | null | undefined, kind: CreativePresetKind): CreativePreset | null {
   return picksOfKind(pick, kind)[0] || null;
-}
-
-/**
- * 这一档最多能选几条。
- *
- * 运镜 = 1：镜头怎么动只能有一个说法（见 `CreativePresetPick` 上那段注释）。
- * 风格 / 滤镜不限：它们是叠加的定语，用户挑几条就是想几条一起生效。
- */
-export function maxPicksFor(kind: CreativePresetKind): number {
-  return kind === 'motion' ? 1 : Number.POSITIVE_INFINITY;
 }
 
 /**
@@ -160,10 +247,11 @@ export function normalizePreset(value: unknown): CreativePreset | null {
   const name = typeof raw.name === 'string' ? raw.name.trim() : '';
   const prompt = typeof raw.prompt === 'string' ? raw.prompt : '';
   if (!id || !name) return null;
-  if (kind !== 'style' && kind !== 'filter' && kind !== 'motion') return null;
+  /* 自建档（`k-xxx`）也算合法 —— 形状的规矩是「有前缀」，不是「背得出那几个 id」。 */
+  if (kind !== 'style' && kind !== 'filter' && kind !== 'motion' && !isCustomKind(kind)) return null;
   return {
     id,
-    kind,
+    kind: kind as CreativePresetKind,
     category: typeof raw.category === 'string' ? raw.category : '',
     name,
     description: typeof raw.description === 'string' ? raw.description : '',
@@ -180,9 +268,9 @@ export function creativePicksFrom(data: unknown): CreativePresetPick {
   const raw = (data as Record<string, unknown>).creativePresets;
   if (!raw || typeof raw !== 'object') return {};
   const out: CreativePresetPick = {};
-  for (const kind of CREATIVE_KIND_ORDER) {
+  for (const kind of orderedKinds(raw as CreativePresetPick)) {
     const list = picksOfKind(raw as CreativePresetPick, kind);
-    if (list.length) out[kind] = list;
+    if (list.length) (out as Record<string, CreativePreset[]>)[kind] = list;
   }
   return out;
 }
@@ -297,9 +385,10 @@ export function composeCreativePrompt(text: string, pick: CreativePresetPick | n
  * 判据用 kind 而不是「输出类型」：`image-generate` 永远出图，
  * `video-generate` 出片（也可能出图/音频，但那不影响它能选运镜）。
  */
-export function creativeKindsFor(kind: unknown): CreativePresetKind[] {
-  if (kind === 'video-generate') return ['style', 'filter', 'motion'];
-  if (kind === 'image-generate') return ['style', 'filter'];
+export function creativeKindsFor(kind: unknown, extra: string[] = []): CreativePresetKind[] {
+  const customs = extra.filter(item => isCustomKind(item)) as CreativePresetKind[];
+  if (kind === 'video-generate') return ['style', 'filter', 'motion', ...customs];
+  if (kind === 'image-generate') return ['style', 'filter', ...customs];
   return [];
 }
 

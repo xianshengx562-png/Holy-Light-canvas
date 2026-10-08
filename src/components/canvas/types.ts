@@ -162,7 +162,7 @@ export type NodeData = {
   label?: string;
   kind?: 'text' | 'image' | 'latent' | 'latent-relay' | 'pinned-upload' | 'workflow' | 'params'
     | 'video-generate' | 'image-generate' | 'video' | 'video-input' | 'audio-input' | 'image-out' | 'frame-extract'
-    | 'director' | 'app-generate' | 'prompt-optimize';
+    | 'director' | 'app-generate' | 'prompt-optimize' | 'danbooru-tags';
   text?: string;
   /**
    * 优化提示词节点跑完之后产出的那段文本（2026-09-29）。
@@ -177,6 +177,23 @@ export type NodeData = {
   textFrom?: string;
   /** 文本链连成环了（同上，不写库）。 */
   textBroken?: 'cycle' | null;
+  /**
+   * D站标签选择器（2026-10-08）：**用户挑中的那批条目**（持久）。
+   *
+   * 存的是**名字 / id**，不是拼好的串 —— 串是抽签的结果，每次运行可能不一样；
+   * 把结果存进选择里，等于「换一批」之后就找不回他原来挑的那几个了。
+   */
+  tagSelection?: import('./danbooruTags').TagSelection;
+  /**
+   * 本轮抽签拼出来的那段标签串（落库）。
+   *
+   * 与 `optimizedText` 同构：它是**这一次抽签**的产物，选择本身在 `tagSelection` 里。
+   * 文本链读的就是这一个字段 —— 所以「抽完立刻就能在下游文本节点上看到」，
+   * 不用等运行。
+   */
+  tagText?: string;
+  /** 本轮抽签用的种子（落库）：「固定」模式下靠它复现同一批，也是「换一批」自增的那一位。 */
+  tagSeed?: number;
   /**
    * 优化节点**左边此刻连着的那份媒体**（2026-10-03，看图 / 看视频反推；`hydrated` 现算，不写库）。
    *
@@ -706,6 +723,10 @@ export type NodeData = {
   onFrameExtract?: () => void;
   /** 打开 3D 导演台。只有导演台节点带这一条（卡片右上角那个常驻按钮用它）。 */
   onOpenDirector?: () => void;
+  /** 打开 D站标签选择器面板（2026-10-08）。只有 `danbooru-tags` 节点带。 */
+  onOpenTags?: () => void;
+  /** 重抽一批标签（节点上那颗「换一批」）。抽完的结果写回 `tagText`。 */
+  onRerollTags?: () => void;
   /** Image files pasted from the clipboard while this node is selected. */
   onPasteImages?: (files: File[]) => void;
   /**

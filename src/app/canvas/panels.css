@@ -2848,6 +2848,31 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   }
 }
 
+/* ------------------------------------------------------------------
+   浮动形态（2026-10-08 徐先）
+
+   右侧「节点参数」栏**关着**的时候，这两块面板（预设栏 / D站标签栏）不再并排占一栏，
+   而是贴着**节点 / 参数对话框**浮在画布上：
+     - 预设栏 → 对话框右边（「从侧边栏一点到参数旁边进行选择」）；
+     - D站标签栏 → 被挑的那颗节点正下方（「标签的选择直接在节点的下方显示选择」）。
+   位置一律由 `CanvasEditor` 算好走行内 style（视口变换、画布宽度只有那边拿得到）。
+
+   🔴 抬升照浮层那一套：`--cv-float` 底 + `--cv-line-strong` 描边 + 最深一道阴影。
+   ⚠️ **别加 `backdrop-filter`**：半透明祖先 + 面板里几百张缩放过的缩略图，
+      在 Electron 的合成层上会被画成横纹（2026-10-06 在预设栏上栽过一次，见 DESIGN.md §6）。
+   ⚠️ 宽度由行内 style 给（跟 `--ui` 一起算），这里那条 `width: calc(360px * var(--ui))`
+      是并排形态的 —— 行内值优先级更高，覆盖得住。
+   ------------------------------------------------------------------ */
+.flow-shell .cv-cpk-sidebar.cv-cpk-float,
+.flow-shell .cv-cpk-sidebar.cv-dtp-float {
+  position: absolute;
+  z-index: 20;
+  background: var(--cv-float);
+  border: 1px solid var(--cv-line-strong);
+  border-radius: var(--cv-radius);
+  box-shadow: var(--cv-shadow-3);
+}
+
 .cv-cpk-head { 
   display: flex; 
   align-items: center; 
@@ -2992,6 +3017,315 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   background: var(--cv-accent-soft);
   border-color: var(--cv-accent-line);
   font-weight: 500;
+}
+
+/* ---------- 自建的档 / 分类（2026-10-08 晚：徐先「风格滤镜运镜那也加上」）---------- */
+
+/*
+ * tab 条**换行**：自建档可以一直加，一行迟早放不下 —— 跟标签面板那条 tab 同一个理由
+ * （横滑的 tab 条「看不出还能滑」，最后一档就那么消失了）。
+ */
+.cv-cpk-tabs { flex-wrap: wrap; }
+
+/*
+ * 那两颗圆圈加号（tab 条尾巴一颗、分类胶囊尾巴一颗），与标签面板的 `.cv-dtp-add` 同款。
+ * 🔴 `padding: 0` 不能省：`globals.css` 给所有 `button` 留了横向内边距，
+ *    不压掉量出来是 30×26 —— 「圆圈」变横椭圆（标签面板那颗就是这么栽的）。
+ */
+.cv-cpk-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  flex: none;
+  color: var(--cv-dim);
+  background: transparent;
+  border: 1px solid var(--cv-line-strong);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cv-cpk-add:hover {
+  color: var(--cv-text);
+  background: var(--cv-panel-2);
+}
+
+.cv-cpk-add.on {
+  color: var(--cv-accent);
+  background: var(--cv-accent-soft);
+  border-color: var(--cv-accent-line);
+}
+
+/* 自建档的 tab：名字长了截断，别把整条 tab 条挤成三行。 */
+.cv-cpk-mine-tab {
+  max-width: calc(110px * var(--ui));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 新建档 / 新建分类 / 改名那一排。 */
+.cv-cpk-newcat {
+  display: flex;
+  align-items: center;
+  gap: calc(6px * var(--ui));
+  padding: 10px 16px;
+  background: var(--cv-panel-2);
+  border-bottom: 1px solid var(--cv-line);
+  flex: none;
+}
+
+.cv-cpk-newcat-name {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 calc(10px * var(--ui));
+  font-family: inherit;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-text);
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  outline: none;
+}
+
+.cv-cpk-newcat-name:focus { border-color: var(--cv-accent); }
+
+.cv-cpk-newcat-modes {
+  display: flex;
+  gap: 2px;
+  flex: none;
+}
+
+.cv-cpk-mode-btn {
+  height: 30px;
+  flex: none;
+  padding: 0 calc(10px * var(--ui));
+  font-family: inherit;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-dim);
+  background: transparent;
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cv-cpk-mode-btn.on {
+  color: var(--cv-text);
+  background: var(--cv-accent-soft);
+  border-color: var(--cv-accent-line);
+}
+
+.cv-cpk-newcat-ok {
+  flex: none;
+  height: 30px;
+  padding: 0 calc(12px * var(--ui));
+  font-family: inherit;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-text);
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line-strong);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cv-cpk-newcat-ok:hover { background: var(--cv-panel-2); }
+
+/*
+ * 管理条（管自建档 / 管自建分类）。
+ * 🔴 这一栏在 column flex 里 → 必须 `flex: none`，否则会被上面的网格压扁。
+ */
+.cv-cpk-mine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(6px * var(--ui));
+  padding: 8px 16px;
+  background: var(--cv-panel-2);
+  border-bottom: 1px solid var(--cv-line);
+  flex: none;
+}
+
+.cv-cpk-mine-label {
+  font-size: var(--cv-fs-2);
+  color: var(--cv-mute);
+  margin-right: auto;
+}
+
+.cv-cpk-mine-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(4px * var(--ui));
+  height: 26px;
+  flex: none;
+  padding: 0 calc(8px * var(--ui));
+  font-family: inherit;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-dim);
+  background: transparent;
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cv-cpk-mine-btn:hover:not(:disabled) {
+  color: var(--cv-text);
+  background: var(--cv-panel-2);
+  border-color: var(--cv-line-strong);
+}
+
+.cv-cpk-mine-btn:disabled { opacity: 0.6; cursor: default; }
+
+.cv-cpk-mine-btn.on {
+  color: var(--cv-accent);
+  background: var(--cv-accent-soft);
+  border-color: var(--cv-accent-line);
+}
+
+.cv-cpk-mine-icon { padding: 0 calc(6px * var(--ui)); }
+
+.cv-cpk-mine-del:hover:not(:disabled) { color: var(--cv-danger, var(--cv-accent)); }
+
+.cv-cpk-mine-input {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 calc(8px * var(--ui));
+  font-family: inherit;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-text);
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  outline: none;
+}
+
+.cv-cpk-mine-ok,
+.cv-cpk-mine-cancel {
+  flex: none;
+  height: 26px;
+  padding: 0 calc(10px * var(--ui));
+  font-family: inherit;
+  font-size: var(--cv-fs-2);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cv-cpk-mine-ok {
+  color: var(--cv-text);
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line-strong);
+}
+
+.cv-cpk-mine-ok:hover { background: var(--cv-panel-2); }
+
+.cv-cpk-mine-cancel {
+  color: var(--cv-mute);
+  background: transparent;
+  border: 1px solid transparent;
+}
+
+.cv-cpk-mine-cancel:hover { color: var(--cv-text); }
+
+/* 手输一条预设：名字 + 提示词。 */
+.cv-cpk-addform {
+  display: flex;
+  flex-direction: column;
+  gap: calc(6px * var(--ui));
+  padding: 10px 16px;
+  background: var(--cv-panel-2);
+  border-bottom: 1px solid var(--cv-line);
+  flex: none;
+}
+
+.cv-cpk-addform-prompt {
+  width: 100%;
+  min-height: calc(64px * var(--ui));
+  padding: calc(8px * var(--ui));
+  font-family: inherit;
+  font-size: var(--cv-fs-3);
+  line-height: 1.6;
+  color: var(--cv-text);
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  resize: vertical;
+  outline: none;
+}
+
+.cv-cpk-addform-prompt:focus { border-color: var(--cv-accent); }
+
+.cv-cpk-addform-acts {
+  display: flex;
+  gap: calc(6px * var(--ui));
+  justify-content: flex-end;
+}
+
+/* 一行提示（导入读了几条 / 保存失败）。 */
+.cv-cpk-note {
+  padding: calc(8px * var(--ui)) 16px;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-accent);
+  border-bottom: 1px solid var(--cv-line);
+  flex: none;
+}
+
+.cv-cpk-collect-hint {
+  padding: 0 16px 10px;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-mute);
+  flex: none;
+}
+
+.cv-cpk-collect-mark {
+  position: absolute;
+  top: calc(6px * var(--ui));
+  left: calc(6px * var(--ui));
+  padding: calc(2px * var(--ui)) calc(6px * var(--ui));
+  font-size: var(--cv-fs-2);
+  color: var(--cv-text);
+  background: var(--cv-float);
+  border: 1px solid var(--cv-line-strong);
+  border-radius: 999px;
+}
+
+.cv-cpk-card.owned { border-color: var(--cv-accent); }
+
+/*
+ * 卡片右上角的「从分类里删掉这条」。
+ * 收藏星标在右上角，这颗挪到**左上角**下面的位置 —— 两颗挤在同一个角会互相盖住，
+ * 而「点错一颗」在这里是要删东西的。
+ */
+.cv-cpk-card-del {
+  position: absolute;
+  left: calc(6px * var(--ui));
+  /* 🔴 必须是 top，不能是 bottom：卡片底部那一行是**名字**，
+     压在左下角就跟「推镜」这三个字叠在一起（2026-10-08 真机截图抓到）。 */
+  top: calc(6px * var(--ui));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: var(--cv-mute);
+  background: var(--cv-float);
+  border: 1px solid var(--cv-line-strong);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cv-cpk-card-del:hover {
+  color: var(--cv-text);
+  border-color: var(--cv-accent-line);
 }
 
 .cv-cpk-grid {
@@ -3763,3 +4097,669 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   color: var(--cv-mute);
 }
 .flow-shell .cv-inspector-engine { display: grid; gap: calc(6px * var(--ui)); }
+
+/* ==========================================================================
+   D站标签选择器（2026-10-08）
+   --------------------------------------------------------------------------
+   外壳沿用 `.cv-cpk-sidebar`（预设栏那一套：宽度、底色、左边那条分隔线、
+   滑入动效），但**把它的 grid 换成 flex** —— 这一栏的行数会变（切到「自定义」时
+   搜索框和列表都没了），固定 5 行的 grid 会留下两行空白。
+   列表自己 `flex: 1; min-height: 0` 才滚得起来。
+   ========================================================================== */
+.cv-cpk-sidebar.cv-dtp {
+  display: flex;
+  flex-direction: column;
+  grid-template-rows: none;
+}
+
+/*
+ * 六档 tab（角色 / 服装 / 姿势 / 环境 / 画师 / 自定义）在 288px（`--ui` 0.8）里排不下
+ * 「预设栏那套 14px 内边距」：「自定义」会被挤成「自」，而自定义标签是他明确要的功能 ——
+ * 点不到就是功能少了。
+ *
+ * 🔴 兜底是**换行**，不是横滑（2026-10-08 加「服装」那一档时改的）：
+ *    上一版写的是 `overflow-x: auto`，一行放不下就往右滑 —— 可 tab 条**看不出还能滑**，
+ *    「自定义」就那么消失了。换行之后每一档都在，宽度不够就多占一行（头高一点而己）。
+ *    `flex: 1 0 auto` 是关键：不缩（`shrink 0`）→ 文字永远不会被压扁，放不下自然折行；
+ *    同时还能长（`grow 1`）→ 宽裕时平分，跟原来一样。
+ * ⚠️ `.cv-cpk-tab` 不带 `flex`，靠下面这条更高特异度的规则才生效（与预设栏三 tab 互不影响）。
+ */
+.cv-dtp .cv-cpk-tabs {
+  flex-wrap: wrap;
+  gap: 2px;
+}
+.cv-dtp .cv-cpk-tab {
+  flex: 1 0 auto;
+  min-width: 0;
+  padding: 0 5px;
+  white-space: nowrap;
+}
+
+/* 抽签方式那一排：两颗互斥胶囊 + 右边的「换一批」。 */
+.cv-dtp-mode {
+  display: flex;
+  align-items: center;
+  gap: calc(6px * var(--ui));
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--cv-line);
+  /* 这几个横条都在 .cv-dtp 这个 column flex 里，**必须 flex:none** ——
+     不写的话默认 `0 1 auto`，列表一长它们会被一起压扁。 */
+  flex: none;
+}
+
+.cv-dtp-mode-btn {
+  height: 30px;
+  padding: 0 12px;
+  font-family: inherit;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-dim);
+  background: transparent;
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cv-dtp-mode-btn:hover {
+  color: var(--cv-text);
+  background: var(--cv-panel-2);
+}
+
+.cv-dtp-mode-btn.on {
+  color: var(--cv-text);
+  background: var(--cv-accent-soft);
+  border-color: var(--cv-accent-line);
+  font-weight: 500;
+}
+
+/* 「换一批」贴右：它是动作，不是状态，跟左边那两颗互斥开关长得一样会分不清。 */
+.cv-dtp-reroll {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(5px * var(--ui));
+  height: 30px;
+  margin-left: auto;
+  padding: 0 12px;
+  font-family: inherit;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-text);
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cv-dtp-reroll:hover {
+  background: var(--cv-panel-2);
+  border-color: var(--cv-line-strong);
+}
+
+/* ---------- 已选 ---------- */
+.cv-dtp-picked {
+  display: flex;
+  flex-direction: column;
+  gap: calc(6px * var(--ui));
+  padding: 0 16px 10px;
+  border-bottom: 1px solid var(--cv-line);
+  flex: none;
+}
+
+.cv-dtp-picked-label {
+  display: flex;
+  align-items: center;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-mute);
+}
+
+/* 「清空」贴右：跟下面「换一批」是同一个位置、同一个语义（动作）。 */
+.cv-dtp-clear {
+  height: auto;
+  margin-left: auto;
+  padding: 0;
+  font-family: inherit;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-accent);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.cv-dtp-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(6px * var(--ui));
+  /* 选了十几个之后这一块会长得很高，把下面的列表挤没 —— 给它一个上限，多出来的自己滚。 */
+  max-height: calc(96px * var(--ui));
+  overflow-y: auto;
+}
+
+.cv-dtp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(5px * var(--ui));
+  height: auto;
+  flex: none;
+  max-width: 100%;
+  padding: calc(4px * var(--ui)) calc(8px * var(--ui));
+  font-family: inherit;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-text);
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cv-dtp-chip > span {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cv-dtp-chip:hover {
+  border-color: var(--cv-accent-line);
+  color: var(--cv-accent);
+}
+
+.cv-dtp-empty {
+  font-size: var(--cv-fs-2);
+  color: var(--cv-mute);
+}
+
+/* ---------- 列表 ---------- */
+.cv-dtp-list {
+  flex: 1;
+  /* 唯一允许被压缩的那一块（可滚区就要能缩），其余横条一律 flex:none。 */
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: calc(6px * var(--ui));
+}
+
+/*
+ * 🔴 `flex: none` 不能省，更**不能**写成 `min-height: 0`。
+ *
+ * 这里是个 column flex 容器，一次要排 120 行（SEARCH_LIMIT）。子项默认 `flex-shrink: 1`，
+ * 于是浏览器选择「把每一行压扁到容器高度 ÷ 120」而不是滚动 —— 表现是**每行里那两行
+ * 文字上下叠在一起**（2026-10-08 截图里就是这样，一眼看不出是 CSS 还是字号问题）。
+ * 写 `min-height: 0` 更是主动把「不许压到内容以下」这道保险拆了。
+ * 滚动交给上面的 `overflow-y: auto`，每行自己撑住自己的高度。
+ */
+.cv-dtp-row {
+  display: flex;
+  align-items: center;
+  gap: calc(10px * var(--ui));
+  width: 100%;
+  height: auto;
+  flex: none;
+  padding: calc(7px * var(--ui)) calc(10px * var(--ui));
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 400;
+  line-height: normal;
+  text-align: left;
+  color: var(--cv-text);
+  background: transparent;
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.cv-dtp-row:hover {
+  background: var(--cv-panel-2);
+  border-color: var(--cv-line-strong);
+}
+
+.cv-dtp-row.on {
+  border-color: var(--cv-accent);
+  background: var(--cv-accent-soft);
+}
+
+/* 缩略图：姿势 / 环境才有，远程图（jsDelivr）。
+   固定方块 + 居中 —— 加载不出来时行高不变，条目照样点得到。 */
+.cv-dtp-thumb {
+  position: relative;
+  display: block;
+  flex: none;
+  width: calc(44px * var(--ui));
+  height: calc(44px * var(--ui));
+  border-radius: var(--cv-radius-sm);
+  background: var(--cv-panel-2);
+  overflow: hidden;
+}
+
+.cv-dtp-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.cv-dtp-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: calc(2px * var(--ui));
+  min-width: 0;
+  flex: 1;
+}
+
+.cv-dtp-row-title {
+  font-size: var(--cv-fs-3);
+  color: var(--cv-text);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cv-dtp-row-sub {
+  font-size: var(--cv-fs-2);
+  color: var(--cv-mute);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cv-dtp-error {
+  padding: calc(12px * var(--ui)) 0;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-mute);
+}
+
+/* ---------- 自定义 ---------- */
+.cv-dtp-extra {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 16px;
+}
+
+.cv-dtp-extra-title {
+  font-size: var(--cv-fs-3);
+  font-weight: 600;
+  color: var(--cv-text);
+}
+
+.cv-dtp-extra-hint {
+  margin-top: calc(4px * var(--ui));
+  font-size: var(--cv-fs-2);
+  color: var(--cv-mute);
+}
+
+.cv-dtp-extra-input {
+  flex: 1;
+  min-height: calc(120px * var(--ui));
+  margin-top: calc(10px * var(--ui));
+  padding: calc(10px * var(--ui));
+  font-family: inherit;
+  font-size: var(--cv-fs-3);
+  line-height: 1.6;
+  color: var(--cv-text);
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  resize: none;
+  outline: none;
+}
+
+.cv-dtp-extra-input:focus {
+  border-color: var(--cv-accent);
+  box-shadow: 0 0 0 3px var(--cv-accent-ring);
+}
+
+/* ---------- 新建分类 / 分类工具栏（2026-10-08 晚：徐先要的「自己加分类」） ---------- */
+
+/*
+ * tab 条最右边那颗「+」：圆圈里一个加号（照他画的那张图）。tab 条是换行的 flex，
+ * 所以 `margin-left: auto` 只会把它推到**自己那一行的**末尾 —— 够用了，
+ * 它本来就在 tab 序列的最后。⚠️ `flex: none` 不能省：`.cv-dtp .cv-cpk-tab` 那条
+ * `flex: 1 0 auto` 是给档位写的，被这颗吃到就会把它拉成一条。
+ */
+.cv-dtp-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  /* ⚠️ `padding: 0` 不能省：`globals.css` 给所有 `button` 留了横向内边距，
+     不压掉就会被撑成 30×26 —— 「圆圈」变椭圆（真机实测到的）。 */
+  padding: 0;
+  flex: none;
+  margin-left: auto;
+  color: var(--cv-dim);
+  background: transparent;
+  border: 1px solid var(--cv-line-strong);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cv-dtp-add:hover {
+  color: var(--cv-text);
+  background: var(--cv-panel-2);
+}
+
+.cv-dtp-add.on {
+  color: var(--cv-accent);
+  background: var(--cv-accent-soft);
+  border-color: var(--cv-accent-line);
+}
+
+/* 自定义分类的 tab：上限宽度，名字长了省略 —— 不然它会把整条 tab 条挤成三行。 */
+.cv-dtp-cat {
+  max-width: calc(110px * var(--ui));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 新建分类那一行：名字 + 提交方式 + 创建。 */
+.cv-dtp-newcat {
+  display: flex;
+  align-items: center;
+  gap: calc(6px * var(--ui));
+  padding: 10px 16px;
+  background: var(--cv-panel-2);
+  border-bottom: 1px solid var(--cv-line);
+  flex: none;
+}
+
+.cv-dtp-newcat-name {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 calc(10px * var(--ui));
+  font-family: inherit;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-text);
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  outline: none;
+}
+
+.cv-dtp-newcat-name:focus {
+  border-color: var(--cv-accent);
+}
+
+.cv-dtp-newcat-modes {
+  display: flex;
+  gap: 2px;
+  flex: none;
+}
+
+.cv-dtp-newcat-ok {
+  flex: none;
+  height: 30px;
+  padding: 0 calc(12px * var(--ui));
+  font-family: inherit;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-text);
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line-strong);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cv-dtp-newcat-ok:hover {
+  background: var(--cv-panel-2);
+}
+
+/* 分类工具栏：三颗动作 + 模式两档 + 两颗图标钮。换行是兜底（288px 宽放不下六件）。 */
+.cv-dtp-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(6px * var(--ui));
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--cv-line);
+  flex: none;
+}
+
+.cv-dtp-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(4px * var(--ui));
+  height: 26px;
+  flex: none;
+  padding: 0 calc(8px * var(--ui));
+  font-family: inherit;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-dim);
+  background: transparent;
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cv-dtp-tool:hover:not(:disabled) {
+  color: var(--cv-text);
+  background: var(--cv-panel-2);
+  border-color: var(--cv-line-strong);
+}
+
+.cv-dtp-tool:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.cv-dtp-tool.on {
+  color: var(--cv-accent);
+  background: var(--cv-accent-soft);
+  border-color: var(--cv-accent-line);
+}
+
+.cv-dtp-tool-icon {
+  padding: 0 calc(6px * var(--ui));
+}
+
+.cv-dtp-tool-del:hover:not(:disabled) {
+  color: var(--cv-danger, var(--cv-accent));
+}
+
+.cv-dtp-tools-mode {
+  display: flex;
+  gap: 2px;
+  flex: none;
+  margin-left: auto;
+}
+
+/* 内联输入行（手输一条标签 / 给分类改名）。 */
+.cv-dtp-inline {
+  display: flex;
+  align-items: center;
+  gap: calc(6px * var(--ui));
+  padding: 10px 16px;
+  background: var(--cv-panel-2);
+  border-bottom: 1px solid var(--cv-line);
+  flex: none;
+}
+
+.cv-dtp-inline-input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 calc(10px * var(--ui));
+  font-family: inherit;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-text);
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  outline: none;
+}
+
+.cv-dtp-inline-input:focus {
+  border-color: var(--cv-accent);
+}
+
+.cv-dtp-inline-ok,
+.cv-dtp-inline-cancel {
+  flex: none;
+  height: 30px;
+  padding: 0 calc(10px * var(--ui));
+  font-family: inherit;
+  font-size: var(--cv-fs-2);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cv-dtp-inline-ok {
+  color: var(--cv-text);
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line-strong);
+}
+
+.cv-dtp-inline-ok:hover {
+  background: var(--cv-panel-2);
+}
+
+.cv-dtp-inline-cancel {
+  color: var(--cv-mute);
+  background: transparent;
+  border: 1px solid transparent;
+}
+
+.cv-dtp-inline-cancel:hover {
+  color: var(--cv-text);
+}
+
+/* 一行提示（导入读了几条 / 保存失败）。 */
+.cv-dtp-note {
+  padding: calc(8px * var(--ui)) 16px;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-accent);
+  border-bottom: 1px solid var(--cv-line);
+  flex: none;
+}
+
+/* 收藏模式的来源切换（角色 / 服装 / 姿势 / 环境）。 */
+.cv-dtp-collect {
+  display: flex;
+  align-items: center;
+  gap: calc(4px * var(--ui));
+  padding: 10px 16px 0;
+  flex: none;
+  flex-wrap: wrap;
+}
+
+.cv-dtp-collect-tab {
+  height: 26px;
+  flex: none;
+  padding: 0 calc(8px * var(--ui));
+  font-family: inherit;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-dim);
+  background: transparent;
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cv-dtp-collect-tab:hover {
+  color: var(--cv-text);
+  background: var(--cv-panel-2);
+}
+
+.cv-dtp-collect-tab.on {
+  color: var(--cv-text);
+  background: var(--cv-accent-soft);
+  border-color: var(--cv-accent-line);
+}
+
+.cv-dtp-collect-hint {
+  font-size: var(--cv-fs-2);
+  color: var(--cv-mute);
+  margin-left: auto;
+}
+
+/*
+ * 自定义分类里那行「行 + 删除钮」的外壳。
+ * 🔴 为什么要有这一层：删除钮**不能**放进行按钮里面（`<button>` 套 `<button>` 是非法结构），
+ *    所以它只能当兄弟 —— 那行按钮就不能自己占满宽度了。
+ * 🔴 `flex: none` 跟 `.cv-dtp-row` 同一个理由：这里是 column flex，不写会被压扁。
+ */
+.cv-dtp-row-wrap {
+  display: flex;
+  align-items: stretch;
+  gap: calc(6px * var(--ui));
+  flex: none;
+}
+
+.cv-dtp-row-wrap > .cv-dtp-row {
+  flex: 1;
+  min-width: 0;
+}
+
+.cv-dtp-row-del {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: auto;
+  flex: none;
+  color: var(--cv-mute);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cv-dtp-row-del:hover {
+  color: var(--cv-text);
+  background: var(--cv-panel-2);
+  border-color: var(--cv-line);
+}
+
+/* 收藏模式：行尾那颗「已收 / ＋」。 */
+.cv-dtp-collect-mark {
+  flex: none;
+  margin-left: auto;
+  padding: 0 calc(6px * var(--ui));
+  font-size: var(--cv-fs-2);
+  color: var(--cv-mute);
+}
+
+.cv-dtp-collect-mark.on {
+  color: var(--cv-accent);
+}
+
+/* ---------- 底栏 ---------- */
+.cv-dtp-foot {
+  display: flex;
+  align-items: center;
+  gap: calc(10px * var(--ui));
+  padding: 10px 16px;
+  border-top: 1px solid var(--cv-line);
+  flex: none;
+}
+
+.cv-dtp-foot-label {
+  flex: none;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-mute);
+}
+
+/* 这一轮拼出来的串：挑的时候就能看见会交出去什么。
+   `nowrap + ellipsis` 是一对 —— 只写 nowrap 不截断，会把底栏撑破。 */
+.cv-dtp-foot-preview {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-dim);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: right;
+}

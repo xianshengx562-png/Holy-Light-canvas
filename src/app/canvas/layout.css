@@ -187,6 +187,25 @@
 .cv-topbar .cv-divider { width: 1px; height: calc(20px * var(--ui)); background: var(--cv-line); flex: none; }
 .cv-topbar .cv-group { display: flex; align-items: center; gap: calc(4px * var(--ui)); }
 .cv-topbar .cv-spacer { flex: 1; }
+/*
+ * 「本机 ComfyUI 在不在跑」的状态灯（2026-10-08 徐先圈的位置：节点数右边、余额左边）。
+ *
+ * 绿 = 在跑（`--ok`，固定色不跟配色走），暗灰 = 没在跑。
+ * ⚠️ **两态都占位、都可见**：没在跑时不留空 —— 一是位置会左右跳，
+ *    二是用户根本不知道那儿有个灯。暗灰用 `--cv-mute`，看得见又不抢眼。
+ * ⚠️ 尺寸乘 `--ui`（跟顶栏其它元素一样），最小 7px 兜着 —— 再小就成一个像素点了。
+ */
+.cv-comfy-dot {
+  flex: none;
+  width: calc(8px * var(--ui));
+  height: calc(8px * var(--ui));
+  min-width: 7px;
+  min-height: 7px;
+  border-radius: 50%;
+  background: var(--cv-mute);
+  transition: background var(--t);
+}
+.cv-comfy-dot.on { background: var(--ok); }
 /* 站点余额的卡槽：`display:contents` 让余额**自己**参与顶栏的 flex —— 不然
    它成了卡槽的唯一孩子，顶栏那 10px 的 gap 会算在卡槽外面，
    跟「已保存」之间的间距就多出一格（或者干脆对不上）。 */
@@ -325,3 +344,86 @@
 .cv-topbar .cv-brand { padding: 0 calc(8px * var(--ui)); }
 /* 数字框自己填满那一格（原来是 23px，比旁边的按钮矮一截）。 */
 .cv-topbar .cv-run-times .cv-input { height: 100%; }
+
+/* ------------------------------------------------------------------
+   「启动」拆成两档（2026-10-08 徐先）
+
+   左边实心那颗照旧是「启动」（= 绕过已经生成过结果的节点，最高频那一档），
+   右边挂一颗只有小箭头的按钮，点开列出两档。两档之间**没有缝**：
+   `gap: 0` + 右圆角/左圆角互补，读起来是**一颗**被分成两半的按钮，
+   而不是两颗挨着的按钮 —— 拆成两颗会被当成两个不同的功能。
+
+   ⚠️ 高度都锁 `--cv-topbar-ctl`（顶栏那一条统一高度），别各写各的。
+   ⚠️ 箭头那颗**不给背景**：给了就变成两颗并排按钮（见上一条）。
+   ------------------------------------------------------------------ */
+.cv-run-split {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 0;
+  height: var(--cv-topbar-ctl);
+}
+.cv-run-split > .cv-btn.sm {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.cv-run-caret {
+  display: grid;
+  place-items: center;
+  height: var(--cv-topbar-ctl);
+  width: calc(20px * var(--ui));
+  padding: 0;
+  font-family: inherit;
+  color: var(--cv-bg);
+  background: var(--cv-text);
+  border: 0;
+  border-left: 1px solid var(--cv-bg);
+  border-radius: 0 var(--cv-radius-sm) var(--cv-radius-sm) 0;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+.cv-run-caret:hover { opacity: 0.85; }
+.cv-run-split.open .cv-run-caret { opacity: 0.85; }
+
+/* 点开之后那层透明底：点一下别处就收起。铺满整屏（不只在顶栏里）——
+   菜单可能伸到顶栏下面，只铺顶栏的话，鼠标往画布一点会**同时**点到画布。 */
+.cv-run-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}
+.cv-run-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 61;
+  display: grid;
+  gap: calc(2px * var(--ui));
+  width: calc(300px * var(--ui));
+  padding: calc(6px * var(--ui));
+  background: var(--cv-float);
+  border: 1px solid var(--cv-line-strong);
+  border-radius: var(--cv-radius);
+  box-shadow: var(--cv-shadow-3);
+  animation: cv-sidebar-in 0.14s ease;
+}
+.cv-run-item {
+  display: grid;
+  gap: calc(2px * var(--ui));
+  height: auto;
+  padding: calc(7px * var(--ui)) calc(9px * var(--ui));
+  font-family: inherit;
+  font-size: var(--cv-fs-3);
+  font-weight: 400;
+  line-height: 1.35;
+  text-align: left;
+  color: var(--cv-text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+}
+.cv-run-item:hover { background: var(--cv-panel-2); border-color: var(--cv-line); }
+.cv-run-item-title { font-weight: 600; }
+.cv-run-item-sub { font-size: var(--cv-fs-1); color: var(--cv-mute); }

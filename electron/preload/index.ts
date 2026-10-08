@@ -90,6 +90,65 @@ contextBridge.exposeInMainWorld('api', {
   presetImportRemove: (groupId: string) =>
     ipcRenderer.invoke('preset-import:remove', groupId) as Promise<{ ok: boolean; message: string }>,
   /**
+   * 自定义标签分类（2026-10-08，见 `electron/main/danbooru-cats.ts`）。
+   *
+   * 读 / 写一份 `<dataDir>/danbooru-categories.json`，外加「读用户选的文件、把条目交回来」。
+   * `import` **只读不写**：收不收、收进哪个分类由渲染进程决定 ——
+   * 点了导入又反悔时磁盘上不该留下任何东西。
+   */
+  danbooruCatsLoad: () =>
+    ipcRenderer.invoke('danbooru-cats:load') as Promise<{
+      version: number;
+      categories: {
+        id: string; name: string; mode: 'pick' | 'all';
+        entries: { id: string; label: string; tags: string; sub?: string; preview?: string }[];
+      }[];
+    }>,
+  danbooruCatsSave: (payload: {
+    categories: {
+      id: string; name: string; mode: 'pick' | 'all';
+      entries: { id: string; label: string; tags: string; sub?: string; preview?: string }[];
+    }[];
+  }) => ipcRenderer.invoke('danbooru-cats:save', payload) as Promise<{ ok: boolean; message: string }>,
+  danbooruCatsImport: (payload: { files: string[] }) =>
+    ipcRenderer.invoke('danbooru-cats:import', payload) as Promise<{
+      ok: boolean; message: string;
+      entries: { id: string; label: string; tags: string; sub?: string; preview?: string }[];
+      files: number; skipped: string[];
+    }>,
+  /**
+   * 自建的创作预设：档 / 分类 / 条目（2026-10-08，见 `electron/main/preset-mine.ts`）。
+   * 存在 `<dataDir>/creative-presets/mine.json`，与「导入的那批」是两份文件 ——
+   * 那份的语义是「同名再导 = 覆盖」，这份是「往我自己的分类里加」。
+   */
+  presetMineLoad: () =>
+    ipcRenderer.invoke('preset-mine:load') as Promise<{
+      version: number;
+      kinds: { id: string; name: string; single: boolean }[];
+      categories: { id: string; kind: string; name: string }[];
+      presets: {
+        id: string; kind: string; category: string; name: string;
+        description: string; prompt: string; preview: string; poster?: string; prefix?: string;
+      }[];
+    }>,
+  presetMineSave: (payload: {
+    kinds: { id: string; name: string; single: boolean }[];
+    categories: { id: string; kind: string; name: string }[];
+    presets: {
+      id: string; kind: string; category: string; name: string;
+      description: string; prompt: string; preview: string; poster?: string; prefix?: string;
+    }[];
+  }) => ipcRenderer.invoke('preset-mine:save', payload) as Promise<{ ok: boolean; message: string }>,
+  presetMineImport: (payload: { files: string[] }) =>
+    ipcRenderer.invoke('preset-mine:import', payload) as Promise<{
+      ok: boolean; message: string;
+      entries: {
+        id: string; kind: string; category: string; name: string;
+        description: string; prompt: string; preview: string; poster?: string; prefix?: string;
+      }[];
+      files: number; skipped: string[];
+    }>,
+  /**
    * 在系统文件管理器里打开一个目录（Windows 是资源管理器，macOS 是 Finder）。
    *
    * 注意 `shell.openPath` **不抛异常**，只回错误串，所以这里把 `message` 原样带回——
