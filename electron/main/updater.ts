@@ -52,43 +52,44 @@ const SOURCE_FILE = 'update-source.json';
 export const DEFAULT_UPDATE_SOURCE = 'https://github.com/xianshengx562-png/Holy-Light-canvas/releases/latest/download/';
 
 /*
- * 🔴 默认源**不走 generic**（2026-10-08 修：徐先「检测更新好像有点问题」）。
+ * 🔴 更新源那条路的坑（2026-10-08 修：徐先「检测更新好像有点问题」）。
  *
  *   `github.com/<owner>/<repo>/releases/latest/download/` 是 GitHub 的**网页**下载路径，
- *   在很多网络下（本机实测）会一直连到 21 秒超时，界面上就是「正在检查更新…」转半天，
- *   最后甩一句 `net::ERR_CONNECTION_TIMED_OUT`。而**同一台机器上 `api.github.com` 是通的**
- *   （0.6 秒回）。所以默认源改走 electron-updater 的 `github` provider ——
- *   它问的正是 `api.github.com`；generic 那条路留给 `update-source.json` 里填的自定义源。
+ *   本机实测**一律 21 秒超时**（`releases.atom` / `releases/latest` /
+ *   `releases/download/<tag>/latest.yml` 三条都一样）；而 `api.github.com` **0.5 秒**就回。
+ *   所以：
+ *     · 源在 GitHub 上时，**检查**先走 API 问版本号（见 `fetchLatestTag`）；
+ *     · electron-updater 那边改用 `github` provider —— ⚠️ 它**也走网页**
+ *       （源码注释 "do not use API for GitHub to avoid limit"），换它救不了检查，
+ *       但它解析 `latest.yml`、管下载安装那一套还在，真发现新版时要用；
+ *     · generic 那条路留给 `update-source.json` 里填的自定义源。
  *
- *   ⚠️ 两个 provider 读的都是 release 里的 `latest.yml`，产物不用重新出。
  *   ⚠️ 别把这段简写成"直接把 url 换成 api.github.com"：api 不提供 `latest.yml` 这种
  *      静态文件路径，generic 拼 `url + 'latest.yml'` 出来的地址必然 404。
  */
-const GITHUB_OWNER = 'xianshengx562-png';
-const GITHUB_REPO = 'Holy-Light-canvas';
 
-/** 一次检查最多等这么久。超时就报错、把按钮放出来 —— 宁可让用户重试，也别一直转圈。 */
+/** 一次完整检查最多等这么久。超时就报错、把按钮放出来 —— 宁可让用户重试，也别一直转圈。 */
 const CHECK_TIMEOUT_MS = 20000;
 
 /**
- * 这个地址是不是「本项目在 GitHub 上的 releases」。
+ * 这个地址是不是「GitHub 上某个仓库的 releases」—— 是就顺手把 owner / repo 摘出来。
  *
- * ⚠️ 判形态不判字符串相等：`update-source.json` 里是同一串地址时两者才相等，
- *    写成不带尾斜杠、带 `www.`、或大小写不一样就悄悄走回 generic ——
- *    而 generic 正是那条连不通的路。认形态就能都接住。
+ * ⚠️ 判形态不判字符串相等：`update-source.json` 里少了尾斜杠、多了 `www.`、
+ *    大小写不一样，严格相等就悄悄走回 generic —— 而 generic 正是那条连不通的路。
  */
-const GITHUB_FEED_RE = new RegExp(
-  '^https?://(?:www\\.)?github\\.com/' + GITHUB_OWNER + '/' + GITHUB_REPO + '/releases',
-  'i',
-);
+const GITHUB_FEED_RE = /^https?:\/\/(?:www\.)?github\.com\/([^/]+)\/([^/]+)\/releases/i;
 
-/** 按当前更新源挑 provider：本项目在 GitHub 上的那份走 API，其余照旧走 generic。 */
+function githubTarget(source: string): { owner: string; repo: string } | null {
+  const m = GITHUB_FEED_RE.exec(source);
+  return m ? { owner: m[1], repo: m[2] } : null;
+}
+
+/** 按当前更新源挑 provider：GitHub 上的那份走 GitHub provider，其余照旧走 generic。 */
 function feedFor(source: string):
   | { provider: 'github'; owner: string; repo: string }
   | { provider: 'generic'; url: string } {
-  if (GITHUB_FEED_RE.test(source)) {
-    return { provider: 'github', owner: GITHUB_OWNER, repo: GITHUB_REPO };
-  }
+  const target = githubTarget(source);
+  if (target) return { provider: 'github', owner: target.owner, repo: target.repo };
   return { provider: 'generic', url: source };
 }
 
@@ -115,6 +116,55 @@ async function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+/**
+ * 快路径：只问一句「GitHub 上最新的是哪一版」（2026-10-08）。
+ *
+ * 🔴 为什么需要它：electron-updater 的 GitHub provider **刻意不走 API** ——
+ *    它自己的注释写着 "do not use API for GitHub to avoid limit"，请求的是
+ *    `github.com/<o>/<r>/releases.atom`、`/releases/latest`、
+ *    `/releases/download/<tag>/latest.yml` 这三步，**全是 github.com 的网页路径**。
+ *    本机实测：这三条一律 21 秒超时，而 `api.github.com` 0.5 秒就回 ——
+ *    所以光把 provider 换成 github 救不了「检查更新」，换的还是那条连不通的路。
+ *
+ *    这条快路径只做一件事：**拿最新版本号**。跟自己一样就当场回「已经是最新版」，
+ *    不必再去撞那条网页路径；不一样（真有新版）才把完整的下载流程交给 electron-updater。
+ *
+ * ⚠️ 快路径**失败不算失败**：拿不到就当作没问过，照旧走 electron-updater 那条路
+ *    （那边还有 20 秒超时兜着）。它只是让最常见的情况（本来就是最新版）秒回。
+ */
+const FAST_TIMEOUT_MS = 6000;
+
+async function fetchLatestTag(target: { owner: string; repo: string }): Promise<string> {
+  const res = await fetch(`https://api.github.com/repos/${target.owner}/${target.repo}/releases/latest`, {
+    /* GitHub 的 API 没有 User-Agent 会直接 403 —— 这一个是硬性要求，不是礼貌。 */
+    headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'Holy-Light-canvas' },
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const json = (await res.json()) as { tag_name?: unknown };
+  const tag = typeof json?.tag_name === 'string' ? json.tag_name.trim() : '';
+  if (!tag) throw new Error('no tag_name');
+  return tag;
+}
+
+/** `v1.0.102` 比 `1.0.101` 新？逐段比数字，够用（不引 semver 依赖）。 */
+function isNewer(tag: string, current: string): boolean {
+  const parts = (v: string) =>
+    String(v || '')
+      .trim()
+      .replace(/^v/i, '')
+      .split(/[.-]/)
+      .map((n) => Number.parseInt(n, 10) || 0);
+  const a = parts(tag);
+  const b = parts(current);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const x = a[i] ?? 0;
+    const y = b[i] ?? 0;
+    if (x > y) return true;
+    if (x < y) return false;
+  }
+  return false;
 }
 
 type Listener = (state: UpdateState) => void;
@@ -270,6 +320,28 @@ export function setUpdaterSource(url: string): UpdateState {
 export async function checkForUpdate(): Promise<UpdateState> {
   if (state.phase === 'unsupported' || state.phase === 'unconfigured') return state;
   if (state.phase === 'checking' || state.phase === 'downloading') return state;
+
+  /* 快路径：源在 GitHub 上就先问 API 一句「最新是哪一版」。本来就是最新版的话
+     当场回答（0.5 秒），不必去撞那条连不通的网页路径；真有新版才走完整流程。
+     ⚠️ 问不出来就当没问过 —— 下面那条路照走，那边还有 20 秒超时兜着。 */
+  const current = state.currentVersion || app.getVersion();
+  const target = githubTarget(state.source);
+  let latestTag = '';
+  if (target) {
+    emit({ kind: 'checking' });
+    try {
+      const tag = await withTimeout(fetchLatestTag(target), FAST_TIMEOUT_MS);
+      if (isNewer(tag, current)) {
+        latestTag = tag;
+      } else {
+        emit({ kind: 'not-available', version: current });
+        return state;
+      }
+    } catch {
+      /* 快路径失败：静默，交给下面那条路。 */
+    }
+  }
+
   try {
     autoUpdater.setFeedURL(feedFor(state.source));
     await withTimeout(autoUpdater.checkForUpdates(), CHECK_TIMEOUT_MS);
@@ -278,7 +350,15 @@ export async function checkForUpdate(): Promise<UpdateState> {
        （`available` / `not-available` / `error`），而那个 promise 还挂在那儿没落地。
        这时候再甩一句「连接超时」，会把已经出来的正确结果盖掉 ——
        「明明刚说已经是最新版，一转眼又变成连不上」。所以只在**确实还没有结果**时才报。 */
-    if (updaterState().phase === 'checking') emit({ kind: 'error', message: errorText(error) });
+    if (updaterState().phase === 'checking') {
+      const message = errorText(error);
+      /* 快路径已经问出「远端有个更新的版本」时，错误要带上一句 —— 不然用户只知道
+         「连不上」，不知道其实有新版本、只是这份下不下来。 */
+      emit({
+        kind: 'error',
+        message: latestTag ? `${message}（远端最新是 ${latestTag}，只是这份下不下来。）` : message,
+      });
+    }
   }
   return state;
 }
