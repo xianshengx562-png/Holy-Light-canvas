@@ -2145,11 +2145,31 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     const isLatentOn = (item: Node<NodeData>) => isLatentKind(item.data.kind) && item.data.latentEnabled !== 'off';
     const continuationOn = !isImage && node.data.continuationEnabled === 'on';
     /*
+     * 🔴 **提交只认「直接连到这个节点」的那几根线**（2026-10-09 徐先：「只收直接连到生成节点的上游」）。
+     *
+     * `sources()` 是**沿着链一路往上**的（A → B → 生成 时它会把 A 也算进来），
+     * 于是这一次提交交出去的图比用户连上去的多——两种后果都坏：
+     * - 配置里槽位不够（比如只绑了「参考图 1」）→ 多出来的那几张照样被读盘、上传到云端，
+     *   然后**没人接**地被丢掉：白跑一趟；而它一旦取不到字节 / 传不上去，
+     *   整次提交会被「取不到参考图」打掉，连真正要用的那张也一起废掉。
+     * - 槽位够（绑了「参考图 2 / 3…」）→ 那几张**悄悄混进**生成，而用户根本没把它们连上来。
+     *
+     * 更硬的一条理由：**底栏那几格输入槽位本来就是按「直接入边」画的**
+     * （`inputSlots(directForSlots, …)`，见 `hydrated` 里那个 `direct`）。
+     * 界面上写着"这次送进去的是这两张"，提交却多送一张 —— 那是界面在撒谎。
+     *
+     * ⚠️ 递归那一份（`upstream` / `mediaUpstream`）**照旧留着**给不按槽位对位的东西用：
+     * latent 链要顺着中转节点往上找最近的那一节（`isTerminalLatent`），
+     * 老式 workflow 节点与首尾帧节点也可能隔一层 —— 那些不看「连了几根线」。
+     */
+    const directIds = new Set(edges.filter(edge => edge.target === id).map(edge => edge.source));
+    const directUpstream = mediaUpstream.filter(item => directIds.has(item.id));
+    /*
      * 参考图按 **URL** 收集，不按节点收集：首尾帧节点一个节点能出两张
      * （给它自己「取用」开关决定），按节点收集会把尾帧悄悄丢掉 ——
      * 「想要尾帧续拍却拿到首帧」是最难发现的错：任务成功、画面接不上、界面什么都不说。
      */
-    const imageUrls = mediaUpstream
+    const imageUrls = directUpstream
       .filter(item => isReferenceSource(item.data.kind))
       .flatMap(item => referenceUrlsOf(item.data))
       /* 「生成 → image-out → 视频」会让同一份图同时出现在两个上游节点上、URL 相同，去重避免占掉多个参考位。 */
@@ -2174,7 +2194,8 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
      * **整段视频**交下来。它身上只有 `resultUrl`（远端地址或本站资产地址都可能是），
      * 两种都交给服务端 `resolveVideoInputs` 处理，这里只把取不到字节的那种（`blob:`）滤掉。
      */
-    const videoInputs = mediaUpstream
+    /* 与参考图同一条规矩：只认直接连过来的那几根线（理由见上面 `directUpstream` 那段）。 */
+    const videoInputs = directUpstream
       /* 「指定节点上传」透传的是一段视频时也算一个来源 —— 它交下去的正是这一路的整段视频。 */
       .filter(item => item.data.kind === 'video-input' || item.data.kind === 'video-generate'
         || isPinnedUploadKind(item.data.kind))
@@ -2186,7 +2207,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
             || (isResolvableUrl(item.data.videoUrl) ? item.data.videoUrl : '') || '').trim())
       .filter(Boolean)
       .slice(0, MAX_VIDEO_INPUTS);
-    const audioInputs = upstream
+    const audioInputs = directUpstream
       .filter(item => item.data.kind === 'audio-input')
       .map(item => String(item.data.audioRemoteFile || item.data.audioRemoteUrl
         || (isResolvableUrl(item.data.audioUrl) ? item.data.audioUrl : '') || '').trim())
@@ -2205,7 +2226,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
      * `sources()`，是 state 里那份节点，hydrated 现算出来的 `relayValue` 它身上没有。
      * 读它就会永远拿到空值 —— 一个「连好了线、点运行却什么都没写进去」的哑火。
      */
-    const pinnedUploads = mediaUpstream
+    const pinnedUploads = directUpstream
       .filter(item => isPinnedUploadKind(item.data.kind))
       .map(item => ({
         nodeId: uploadNodeIdOf(item.data),
@@ -2228,7 +2249,12 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
      * 不是参考图。从资产库导入的视频身上只有本地地址，按参考图那把尺子量永远是空的，
      * 于是出现「连好了线、点运行却说尚未上传完成」，而它其实什么都不缺。
      */
-    const pending = mediaUpstream.some(item => isPinnedUploadKind(item.data.kind)
+    /*
+     * 就绪判据与提交**同一把尺子**：只量直接连过来的那几根线（见上面 `directUpstream`）。
+     * 不然会出现「这个节点明明连好了、它上游的上游却还没跑完 → 点运行被拦住」，
+     * 而那句拦人的话指的其实是一个它根本不会用的节点。
+     */
+    const pendingMedia = directUpstream.some(item => isPinnedUploadKind(item.data.kind)
       /*
        * 「指定节点上传」：它自己不持有媒体，量它有没有准备好只能看**透传值**。
        * 漏掉这一档的症状是「上游图已经传好了、线也连好了，点运行却说尚未上传完成」——
@@ -2237,7 +2263,14 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       ? !String(item.data.relayValue || '').trim()
       : isReferenceSource(item.data.kind)
         ? referenceUrlsOf(item.data).length === 0 && !mediaReadyForRun(item.data)
-        : continuationOn && isLatentOn(item) && isTerminalLatent(item.id, upstream, edges) && !latentChainOf(item.id).value);
+        : false);
+    /*
+     * ⚠️ latent 那一档**必须**走递归的 `mediaUpstream`：latent 链是「latent → 中转 → 生成」，
+     * 中转节点本来就隔在中间（`isTerminalLatent` 就是为这种隔层写的），按直连量会一个都找不到。
+     */
+    const pendingLatent = mediaUpstream.some(item => continuationOn && isLatentOn(item)
+      && isTerminalLatent(item.id, upstream, edges) && !latentChainOf(item.id).value);
+    const pending = pendingMedia || pendingLatent;
     /**
      * 上游接着 latent、却一条值都没解析出来 —— 这是最危险的一档**静默失败**：
      * 提交会带着两个空槽位跑成功，出来的片段和上一段毫无关系，而界面上什么都不说。
@@ -2478,7 +2511,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
      * 「还没接上游」要人去连线，「连成环了」要人去拆环，报一句笼统的「尚未上传完成」
      * 会让人反复上传一个根本不存在的文件，怎么传都不会好。
      */
-    const pinnedMissing = mediaUpstream.find(item => isPinnedUploadKind(item.data.kind)
+    const pinnedMissing = directUpstream.find(item => isPinnedUploadKind(item.data.kind)
       && !String(item.data.relayValue || '').trim());
     const pinnedHint = pinnedMissing
       ? String(pinnedMissing.data.relayBroken || '') === 'cycle'
