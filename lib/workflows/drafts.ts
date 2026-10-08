@@ -59,6 +59,16 @@ export type WorkflowSummary = {
    * 判这个只能看绑定，光看「启用了几项」答不出来（启用的可能全是步数、种子）。
    */
   enabledBindings: string[];
+  /**
+   * 这份配置里**有没有能接提示词的字段**（`kind === 'text'`，不论启用没有）。
+   *
+   * 与 `enabledBindings` 里有没有 `prompt` 是**两个问题**，界面要分别回答：
+   * - 「有文本字段、只是没绑」→ 去配置页绑一下就能修，提示可以理直气壮把人支过去；
+   * - 「连文本字段都没有」→ 这份东西**自带提示词**（RunningHub 应用最常见：
+   *   「Krea2 资产库角色（四视图）」整份只有一个参考图字段），画布上写的字本来就没有去处。
+   *   这时候再说「去配置页绑一下」是**一句死路** —— 那边根本没有这个下拉条目。
+   */
+  hasPromptField: boolean;
   isDefault: boolean;
   /**
    * 这份是不是**软件自带的预设**（2026-10-02 徐先：内置两条 RunningHub 超清工作流）。
@@ -73,8 +83,8 @@ export type WorkflowSummary = {
   graphNodes: number;
 };
 
-/** 汇总里只用得到这两个键（「启用没有」与「绑到了哪个画布槽位」），所以不引完整字段类型。 */
-type DraftField = { enabled?: boolean; binding?: string };
+/** 汇总里只用得到这三个键（启没启用 / 绑到哪个槽位 / 是不是文本字段），所以不引完整字段类型。 */
+type DraftField = { enabled?: boolean; binding?: string; kind?: string };
 
 /**
  * 三个筛选维度：用途（产出什么）、分类（喂什么参考）、工序（生成还是超清）。
@@ -150,6 +160,8 @@ export async function listWorkflowDrafts(userId: string, filter: WorkflowFilter 
       enabledBindings: Array.from(new Set(fields
         .filter(field => field?.enabled && field.binding && field.binding !== 'manual')
         .map(field => String(field.binding)))),
+      /* 不看 `enabled`：这里答的是「有没有这个去处」，不是「它开着没有」。 */
+      hasPromptField: fields.some(field => String(field?.kind || '') === 'text'),
       // 「默认」这个概念只对视频成立：defaultWorkflowId 就是那条视频工作流。
       isDefault: kind === 'video' && draft.workflowId === defaultWorkflowId,
       builtin: isBuiltinWorkflowId(draft.workflowId),

@@ -159,9 +159,14 @@ async function resolveLatentValues(values: string[] | undefined, userId: string,
  *
  * Dropping an unplaceable value is the binding mechanism's normal behaviour, which means an
  * unwired input vanishes with no trace: the任务 succeeds and comes back with a video that
- * ignored the prompt. Anything the user definitely typed or picked deserves a loud error
- * rather than a silent no-op — and the fix (rebind the field on the workflow config page) is
- * something only they can do, so the message has to name it.
+ * ignored it. Anything the user definitely typed or picked deserves a loud error rather than a
+ * silent no-op — and the fix (rebind the field on the workflow config page) is something only
+ * they can do, so the message has to name it.
+ *
+ * ⚠️ **提示词不在这一层拦**（2026-10-08 徐先：「参数没绑定提示词节点就不拦，所有节点都一样」）。
+ * 有些配置（尤其 RunningHub 应用）压根没有能接提示词的字段，那句「去配置页绑一下」是死路；
+ * 提醒改由界面给（`GenerateDock` / `WorkflowConfigurator` 的红字），只说不拦。
+ * 详见 `orphanedCanvasBindings()` 上头那段。
  *
  * 「哪些值算没接上」那份判定在 `orphanedCanvasBindings()`（纯函数、可单测）—— 这里只管
  * 「怎么报」：报错文案要把人支到配置页去，而只有这一层知道他该点哪里。

@@ -164,6 +164,12 @@ export default function WorkflowConfigurator({ initialWorkflowId, initialKind = 
    * 并且直接告诉他下一步是去勾选哪个字段（超清不吃提示词，那套字段勾了也没用）。
    */
   const upscaleWired = operation !== 'upscale' || fields.some(field => field.enabled && isUpscaleInputBinding(field.binding));
+  /*
+   * 这份配置里**有没有文本字段** —— 决定下面那条提示词警告怎么说。
+   * 没绑提示词有两种成因：有字段没勾（可修，指路有用）／压根没这个字段（修不了，指路是骗人）。
+   * 只看 `kind === 'text'`，不看 `enabled` —— 答的是「有没有这个去处」，不是「眼下开没开」。
+   */
+  const hasTextField = fields.some(field => String(field?.kind || '') === 'text');
   /**
    * 改一个字段。
    *
@@ -257,9 +263,18 @@ export default function WorkflowConfigurator({ initialWorkflowId, initialKind = 
       任务照样成功、出来的画面和写的那句毫无关系，全程零报错。
       超清那一份不查：它加工的是现成媒体，压根不该有提示词位。
     */}
-    {operation !== 'upscale' && !fields.some(f => f.enabled && f.binding === 'prompt') && (
-      <p role="alert" className="workflow-lib-warn" data-wf-prompt-unwired="">这份工作流还没有字段绑到「画布 · 提示词」—— 生成照跑不误（不会报错），但画布上写的提示词不会送进工作流，出来的是它自己的默认值。在下面勾选提示词那个字段，把「画布参数绑定」选成「画布 · 提示词」。</p>
-    )}
+    {operation !== 'upscale' && !fields.some(f => f.enabled && f.binding === 'prompt') && (hasTextField ? (
+      /* 有文本字段，只是还没绑 → 支到下面那条列表上，勾一下就好。 */
+      <p role="alert" className="workflow-lib-warn" data-wf-prompt-unwired="bindable">这份工作流还没有字段绑到「画布 · 提示词」—— 生成照跑不误（不会报错），但画布上写的提示词不会送进工作流，出来的是它自己的默认值。在下面勾选提示词那个字段，把「画布参数绑定」选成「画布 · 提示词」。</p>
+    ) : (
+      /*
+        整份配置里一个文本字段都没有（典型：RunningHub 应用，只有参考图位）。
+        ⚠️ 这时候叫人去「勾选提示词那个字段」是句空话 —— 列表里根本没有那一条
+        （2026-10-08 徐先在「Krea2 资产库角色（四视图）」上撞到的就是这堵墙）。
+        如实讲：提示词由它自己带着，画布上的字送不进去，照样能生成。
+      */
+      <p role="alert" className="workflow-lib-warn" data-wf-prompt-unwired="none">这份配置里没有能接提示词的文本字段 —— 生成照跑不误（不会报错），提示词以它自带的为准，画布上写的那句不会送进去。要改就改它自己的参数。</p>
+    ))}
     {error && <div role="alert" className="workflow-error">{error}</div>}
     {notice && <div role="status" className="workflow-success"><Check size={16} />{notice}</div>}
     <div className="workflow-layout">

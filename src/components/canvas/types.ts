@@ -60,6 +60,13 @@ export type WorkflowOption = {
    * 时，写在画布上的提示词一个字都送不进去，而任务照样成功 —— 静默的坏结果。
    */
   enabledBindings: string[];
+  /**
+   * 这份配置里**有没有能接提示词的字段**（服务端 `WorkflowSummary.hasPromptField` 同一份）。
+   *
+   * 与 `enabledBindings` 里有没有 `prompt` 是两个问题：有文本字段只是没绑 → 去配置页能修；
+   * 连文本字段都没有（应用自带提示词）→ 说「去配置页绑一下」是死路。
+   */
+  hasPromptField: boolean;
   isDefault: boolean;
   /**
    * 这份工作流的来源：`'runninghub'`（云端编号那份）还是 `'local'`

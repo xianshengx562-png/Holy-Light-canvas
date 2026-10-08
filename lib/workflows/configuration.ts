@@ -618,7 +618,17 @@ export type LatentNodeIds = { coarse?: string; fine?: string };
  * 从外面（真机点一次）很难看清是哪一条判出来的 —— 只能拿真实配置直接跑函数。
  *
  * 判据逐条：
- * - **提示词 / 负向提示词**：写了一段话却没有任何字段承接，等于白写。
+ * - 🔴 **提示词不在这里拦**（2026-10-08 徐先：「参数没绑定提示词节点就不拦，所有节点都一样」）。
+ *   原来这一条是硬拦：画布交了一段字、配置里没有字段接它，就 400 打回去。两处不成立：
+ *   1. 提示词本来就不是一道闸（1.0.97 起「空提示词照跑」就是他的口径），
+ *      而「这句字要不要送进去」和「能不能生成」是两件事；
+ *   2. 更硬的一条 —— **有些配置压根没有能接提示词的字段**（RunningHub 应用最常见：
+ *      像「Krea2 资产库角色（四视图）」那样整份只有一个参考图字段，提示词是应用自带的模板）。
+ *      这种配置上，原来那句报错叫人「去配置页把字段绑成『画布 · 提示词』」**是一句死路** ——
+ *      配置页里根本没有那个下拉条目可绑。
+ *   提醒改由界面那一层给（`GenerateDock` / `WorkflowConfigurator` 的红字），**只说不拦**；
+ *   而且按「这份配置到底有没有文本字段」分两种说法，不再把人支到做不到的地方。
+ * - **负向提示词**：写了一段话却没有任何字段承接，等于白写。
  *   步数 / CFG / 种子 / 张数 / 采样器**不在这里检查**——它们有默认值、每次都会提交，
  *   而很多图片工作流压根不暴露这些字段，一旦检查就变成「不绑就永远生成不了」。
  * - **参考图**：看 `reference_image_*` 有没有被启用字段接住。
@@ -637,7 +647,7 @@ export function orphanedCanvasBindings(
   const consumed = consumedCanvasBindings(config);
   const has = (prefix: string) => [...consumed].some(binding => binding.startsWith(prefix));
   const orphaned: string[] = [];
-  if (values.prompt?.trim() && !consumed.has('prompt')) orphaned.push('提示词');
+  /* 🔴 提示词**故意不查**（理由见上面那段：有些配置压根没有能接它的字段）。 */
   if (values.negativePrompt?.trim() && !consumed.has('negative_prompt')) orphaned.push('负向提示词');
   const images = values.referenceImages?.length ?? 0;
   if (images && !has('reference_image_')) orphaned.push(`${images} 张参考图`);

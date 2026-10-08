@@ -385,16 +385,27 @@ export default function GenerateDock({ data, nodeId, anchor, presetAnchor, inspe
   const continuationOn = data.continuationEnabled === 'on';
 
   /*
-   * 「这份工作流接没接提示词」（2026-10-08 徐先：「不绑定提示词节点id也能生成」）。
+   * 「这份配置接没接提示词」（2026-10-08 徐先：「不绑定提示词节点id也能生成」）。
    *
    * 判据只能是**绑定**，不是「启用了几项」—— 启用的可能全是步数 / 种子 / 比例，
    * 那些都不吃画布上的字。没有字段绑到 `prompt` 时，提交体里根本没有提示词那一项。
    *
    * 超清那一份刻意不查：它加工的是一份现成媒体，本来就不该有提示词位（说了等于吵）。
+   *
+   * 🔴 **应用节点也查**（同日他定：「参数没绑定提示词节点就不拦，所有节点都一样」）：
+   *    原来这里带着 `!isApp`，于是应用节点上「提示词没去处」既不拦也不说 ——
+   *    他恰好在「Krea2 资产库角色（四视图）」上撞到了这条：那份应用整份只有一个参考图字段，
+   *    写上去的字一直静默丢掉。不拦是对的，什么都不说不对。
    */
-  const promptUnwired = !isGateway && !isApp && !!chosenWorkflow
+  const promptUnwired = !isGateway && !!chosenWorkflow
     && chosenWorkflow.operation !== 'upscale'
     && !(chosenWorkflow.enabledBindings ?? []).includes('prompt');
+  /*
+   * 这份配置里**有没有能接提示词的字段** —— 决定上面那条提示怎么说。
+   * 有（只是没绑）→ 去配置页绑一下就能修，理直气壮把人支过去；
+   * 没有（这份东西自带提示词）→ 那边没有这个条目可绑，说了就是死路，只能如实讲清楚。
+   */
+  const promptFieldExists = chosenWorkflow?.hasPromptField !== false;
 
   /*
    * 应用节点固定走云端（应用只存在于 RunningHub 上），所以来源这一层对它就是个常量；
@@ -1302,9 +1313,18 @@ export default function GenerateDock({ data, nodeId, anchor, presetAnchor, inspe
                 任务照样成功，出来的画面和你写的那句毫无关系，全程一句报错都没有。
                 所以这里把话说破，并把「打开工作流配置」那颗按钮就摆在下面一步之遥。
               */}
-              {promptUnwired && (
-                <span className="cv-dock-hint warn" data-dock-prompt-unwired="">{`这份「${workflowDisplayName(chosenWorkflow!)}」没有任何字段绑到「画布 · 提示词」—— 生成照跑，但你写在这张画布上的提示词不会送进工作流，出来的是它自己的默认值。要让它生效，点下面「打开工作流配置」，把提示词那个字段的「画布参数绑定」选成「画布 · 提示词」。`}</span>
-              )}
+              {promptUnwired && (promptFieldExists ? (
+                /* 有文本字段、只是没绑 → 支去配置页，一步就能修好。 */
+                <span className="cv-dock-hint warn" data-dock-prompt-unwired="bindable">{`这份「${workflowDisplayName(chosenWorkflow!)}」没有任何字段绑到「画布 · 提示词」—— 生成照跑，但你写在这张画布上的提示词不会送进工作流，出来的是它自己的默认值。要让它生效，点下面「打开工作流配置」，把提示词那个字段的「画布参数绑定」选成「画布 · 提示词」。`}</span>
+              ) : (
+                /*
+                  这份配置里压根没有文本字段（典型：RunningHub 应用，整份只有一个参考图位）。
+                  ⚠️ 这时候**不能**支去配置页 —— 那里没有提示词条目可绑，照着做只能空手而回
+                  （2026-10-08 徐先在「Krea2 资产库角色（四视图）」上撞的就是这条死路）。
+                  如实说：提示词由它自己带着，画布上的字送不进去。
+                */
+                <span className="cv-dock-hint warn" data-dock-prompt-unwired="none">{`这份「${workflowDisplayName(chosenWorkflow!)}」没有能接提示词的字段 —— 生成照跑，提示词以它自带的为准，你写在这张画布上的那句不会送进去。要改就改它自己的参数（应用节点在卡片上就能直接改）。`}</span>
+              ))}
               {chosenWorkflow && (
                 /*
                  * 「打开工作流配置」原地开浮层，不跳页（2026-10-01 徐先）。
