@@ -173,6 +173,20 @@ export function imageMimeOfExt(ext: string) {
 }
 
 /**
+ * 同上，但覆盖**全部**媒体扩展名（图 / 视频 / 音频 / 文本），不只是图片。
+ * `lib/canvas-media.ts` 要用它给落盘的画布素材回 content-type —— 那份素材没有 Asset 记录，
+ * 取流路由得自己报类型。
+ */
+export function mediaMimeOfExt(ext: string) {
+  return MIME[String(ext || '').toLowerCase()]?.mime || 'application/octet-stream';
+}
+
+/** 扩展名 → 大类（图 / 视频 / 音频 / 文本）。认不出返回 null。 */
+export function mediaKindOfExt(ext: string): MediaKind | null {
+  return MIME[String(ext || '').toLowerCase()]?.media ?? null;
+}
+
+/**
  * 把一次任务结果里的媒体落盘，返回「原始 URL → 本地 URL」的对照表。
  * 同一任务重复调用不会重复下载（按 `originalUrl` 命中已有 Asset）。
  */

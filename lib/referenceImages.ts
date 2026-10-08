@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { ApiError } from '@/lib/api';
 import { openMediaAsset } from '@/lib/media';
+import { openCanvasMedia, parseCanvasMediaUrl } from '@/lib/canvas-media';
 import { uploadMediaCached } from '@/lib/providers/runninghub/client';
 import { uploadOrExplain } from '@/lib/upload';
 
@@ -65,7 +66,21 @@ export async function resolveReferenceImage(
   let name = options.fallbackName || 'reference.png';
   try {
     const assetId = source.match(ASSET_PATH)?.[1];
-    if (assetId) {
+    /*
+     * 画布素材（2026-10-08）：拖进画布的那张图**没有 Asset 记录**（`lib/canvas-media.ts`），
+     * 走 `openMediaAsset` 会报「媒体不存在」—— 于是「不进资产库」顺带把「不能用于生成」也带上了，
+     * 那不是他要的。这一支就是让「不进资产库」只影响**界面**，不影响生成。
+     */
+    const canvas = parseCanvasMediaUrl(source);
+    if (canvas) {
+      const media = await openCanvasMedia({ userId, projectId: canvas.projectId, file: canvas.file });
+      if (!media) throw new ApiError(400, `这份${label}已经不在盘上了 —— 重新拖一次。`);
+      tooBig(media.size, label);
+      /* 同资产那一支：文件名必须带对扩展名，RunningHub 靠它认类型。 */
+      name = media.name || `reference.${media.ext || 'png'}`;
+      const buffer = await readFile(/*turbopackIgnore: true*/ media.path);
+      bytes = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
+    } else if (assetId) {
       const asset = await openMediaAsset(assetId, userId);
       tooBig(asset.size, label);
       name = asset.name || `reference.${asset.path.split('.').pop() || 'png'}`;

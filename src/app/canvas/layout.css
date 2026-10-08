@@ -128,7 +128,14 @@
      原来它跟画布同色（--cv-bg），于是「哪块是工具、哪块是工作区」全靠底下那根 1px 线分。 */
   background: var(--cv-float);
   border-bottom: 1px solid var(--cv-line-soft);
-  z-index: 20;
+  /* Topbar is a flex item, so this z-index is the ceiling for every floating panel rendered
+     inside it: the run menu (61) and its click-away backdrop (60) live in THIS stacking
+     context. It used to be 20, which put it under the canvas top-right entry row
+     (.cv-corner, 34) and the right drawer (.cv-drawer, 33) -- the run menu opened straight
+     into those round buttons and lost its first line (2026-10-08, caught by probe).
+     36 clears both. They never overlap the topbar band anyway (topbar 0-48, .cv-corner is
+     top:14px inside the canvas stage), so nothing else moves. */
+  z-index: 36;
 }
 .cv-topbar .cv-brand {
   display: flex;
@@ -400,7 +407,12 @@
   z-index: 61;
   display: grid;
   gap: calc(2px * var(--ui));
-  width: calc(300px * var(--ui));
+  /* 🔴 按内容收窄，不写死 300px（2026-10-08）。说明文字删掉之后只剩两个短标题，
+     写死宽度就是一整条空盒子；`max-content` 量的是最长那行的自然宽度，
+     标题再也不会被挤出去。`min-width` 兜住「只剩两三个字」的极端。 */
+  width: max-content;
+  min-width: calc(150px * var(--ui));
+  max-width: calc(280px * var(--ui));
   padding: calc(6px * var(--ui));
   background: var(--cv-float);
   border: 1px solid var(--cv-line-strong);
@@ -418,6 +430,11 @@
   font-weight: 400;
   line-height: 1.35;
   text-align: left;
+  /* 🔴 标题不换行（说明文字删掉了，换行只会让「绕过已经生成过的节点」折成两行、
+     右半边顶出菜单）。超长才由 `max-width` 侧收，正常情况永远是一行。 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--cv-text);
   background: transparent;
   border: 1px solid transparent;
@@ -426,4 +443,3 @@
 }
 .cv-run-item:hover { background: var(--cv-panel-2); border-color: var(--cv-line); }
 .cv-run-item-title { font-weight: 600; }
-.cv-run-item-sub { font-size: var(--cv-fs-1); color: var(--cv-mute); }

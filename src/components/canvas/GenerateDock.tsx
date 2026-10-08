@@ -81,6 +81,13 @@ export type DockAnchor = {
   width: number;
   top: number;
   maxHeight: number;
+  /**
+   * 摆在哪一边：`below`（节点下方，默认）/ `above`（翻到上方）/ `side`（节点旁边）。
+   *
+   * 只有「标签选择器」会用后两档（2026-10-08）：它面板里横条多、列表长，
+   * 节点落在屏幕下半部时下面那点地方根本放不下 —— 留在原地等于把列表和底栏悄悄裁掉。
+   */
+  place?: 'below' | 'above' | 'side';
 };
 
 /** 槽位在行里的排序：提示词在最前，然后是图，最后是 latent / 工作流 / 参数块。 */
@@ -376,6 +383,18 @@ export default function GenerateDock({ data, nodeId, anchor, presetAnchor, inspe
   const isGateway = engine === 'videoapi' || engine === 'custom';
   /** 接续上一段（视频节点专用；图片节点不吃 latent，网关那两档也没有）。 */
   const continuationOn = data.continuationEnabled === 'on';
+
+  /*
+   * 「这份工作流接没接提示词」（2026-10-08 徐先：「不绑定提示词节点id也能生成」）。
+   *
+   * 判据只能是**绑定**，不是「启用了几项」—— 启用的可能全是步数 / 种子 / 比例，
+   * 那些都不吃画布上的字。没有字段绑到 `prompt` 时，提交体里根本没有提示词那一项。
+   *
+   * 超清那一份刻意不查：它加工的是一份现成媒体，本来就不该有提示词位（说了等于吵）。
+   */
+  const promptUnwired = !isGateway && !isApp && !!chosenWorkflow
+    && chosenWorkflow.operation !== 'upscale'
+    && !(chosenWorkflow.enabledBindings ?? []).includes('prompt');
 
   /*
    * 应用节点固定走云端（应用只存在于 RunningHub 上），所以来源这一层对它就是个常量；
@@ -1275,6 +1294,16 @@ export default function GenerateDock({ data, nodeId, anchor, presetAnchor, inspe
               )}
               {chosenWorkflow && isRunningHubAppWorkflowId(chosenWorkflow.workflowId) && !isApp && (
                 <span className="cv-dock-hint warn">{`这份「${workflowDisplayName(chosenWorkflow)}」是 RunningHub 应用，不是工作流 —— 「工作流」下拉里不再列应用。它还能跑，但应用该用「RunningHub 应用」节点（那份节点的卡片上就能直接改应用参数）。要在这个节点上继续用，从上面的下拉里换一份工作流。`}</span>
+              )}
+              {/*
+                提示词没接进工作流（2026-10-08 徐先：「不绑定提示词节点id也能生成」）。
+                **只提示、不拦** —— 提示词不是一道闸（1.0.97 他定的），空提示词交给工作流
+                自己的默认值是合法用法；但「写了提示词、它却一个字都没送进去」是静默的坏结果：
+                任务照样成功，出来的画面和你写的那句毫无关系，全程一句报错都没有。
+                所以这里把话说破，并把「打开工作流配置」那颗按钮就摆在下面一步之遥。
+              */}
+              {promptUnwired && (
+                <span className="cv-dock-hint warn" data-dock-prompt-unwired="">{`这份「${workflowDisplayName(chosenWorkflow!)}」没有任何字段绑到「画布 · 提示词」—— 生成照跑，但你写在这张画布上的提示词不会送进工作流，出来的是它自己的默认值。要让它生效，点下面「打开工作流配置」，把提示词那个字段的「画布参数绑定」选成「画布 · 提示词」。`}</span>
               )}
               {chosenWorkflow && (
                 /*

@@ -95,7 +95,8 @@ import {
 import { validateImageParams } from '@/lib/workflows/imageParams';
 /* D站标签选择器（2026-10-08）：抽签与组装都在纯函数层，这里只负责「什么时候抽、抽完写哪」。 */
 import {
-  freshSeed, loadDanbooruData, normalizeTagSelection, rollTagText, type TagSelection,
+  loadDanbooruData, nextTagSeeds, normalizeTagSelection, rollTagText, tagNeedsRedraw,
+  type TagSeedRoll, type TagSeeds, type TagSelection,
 } from './danbooruTags';
 import DanbooruTagPicker from './DanbooruTagPicker';
 /*
@@ -164,6 +165,14 @@ const FLOAT_GAP = 12;
 const FLOAT_PICKER_MAX_H = 560;
 /** 再挤也留这么多：低于这个高度列表只剩两三行，不如让节点往上挪一点。 */
 const FLOAT_PICKER_MIN_H = 240;
+/**
+ * 「放得下」的线（2026-10-08）。
+ *
+ * 标签面板里 tab / 抽签 / 输出 / 搜索 / 底栏这五条横杠**固定占 270px**，
+ * 再加上已选区和特征标签块 —— 低于这个高度时留给列表的不足一行，
+ * 缩略图就等于没有了（真机量到列表只剩 20px）。所以宁肯换一边摆，也不留在这种高度里。
+ */
+const FLOAT_PICKER_COMFORT_H = 440;
 
 /**
  * 浮动挑选面板实际给多高。
@@ -925,6 +934,14 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
    * 以面板里正在改的这份为准，那才是用户眼下看到的东西。
    */
   const tagSelRef = useRef<Map<string, TagSelection>>(new Map());
+  /*
+   * 同一个道理，**每一档的种子**也要有一份 ref（2026-10-08 晚）。
+   *
+   * 🔴 从 `nodesRef` 读会读到上一帧那一份：连着改两下选择，第二下拿到的 `tagSeeds`
+   *    还没有第一下写进去的「固定」种子 → 那一档会被重新播种，抽出来的东西**又换了**。
+   *    用户明明点的是「固定这一批」，看上去却像没固定住。
+   */
+  const tagSeedRef = useRef<Map<string, TagSeeds>>(new Map());
   /** 「设置」浮层里现在看的是哪一页（值就是设置页的 href）。 */
   /** 默认落在「模型服务」：设置区第一页就是它（`SETTING_TABS[0]`），两处别各说一套。 */
   const [settingsTab, setSettingsTab] = useState('/settings/model-services');
@@ -2847,6 +2864,17 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     }
   }, []);
 
+  /** 节点上存着的那份「每档一把种子」（老画布没有这个字段 → undefined，交给 `nextTagSeeds` 新播）。 */
+  const nodeSeeds = useCallback((id: string): TagSeeds | undefined => {
+    const raw = nodesRef.current.find(item => item.id === id)?.data.tagSeeds;
+    if (!raw || typeof raw !== 'object') return undefined;
+    const out: TagSeeds = {};
+    for (const [key, value] of Object.entries(raw)) {
+      if (typeof value === 'number' && Number.isFinite(value)) out[key] = value >>> 0;
+    }
+    return Object.keys(out).length ? out : undefined;
+  }, [nodesRef]);
+
   /*
    * D站标签：抽一批、写回节点（2026-10-08）。
    *
@@ -2854,37 +2882,49 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
    * 结果属于「这一轮」，节点上持久存的是**他挑了哪几个**（`tagSelection`）。
    * 分开存才有「换一批」，也才有「改完选择还能找回原来挑的那批」。
    *
+   * 🔴 种子往哪一步走由 `roll` 说了算（`nextTagSeeds`）：面板里改东西一律 `keep` ——
+   *    在「角色」上点一下「固定这一批」，绝不该顺手把服装 / 姿势那几档重抽一遍。
+   *
    * 🔴 标签库加载不出来时**什么都不写**，也不弹错：留着上一批的字，
    *    比把节点清空好 —— 而真正该说的地方是面板里那条错误，那儿才有人在看。
    */
-  const rollTagsInto = useCallback(async (id: string, selection: TagSelection, seed?: number) => {
+  const rollTagsInto = useCallback(async (id: string, selection: TagSelection, roll: TagSeedRoll = 'keep') => {
     try {
       const data = await loadDanbooruData();
       /* 自定义分类是外挂数据（磁盘上那份）：第一次进来要读一次，之后走模块级缓存。
          读不出来时 `customCategoriesNow()` 给空数组 —— 抽签照跑，只是少了那几档。 */
       await loadCustomCategories();
-      const next = seed ?? freshSeed();
+      /*
+       * 每一档一把种子（2026-10-08 晚）：见 `danbooruTags.ts` 的 `nextTagSeeds`。
+       * 上一份种子优先从 ref 读（可能比 `nodesRef` 新一帧），没有才回落到节点上那份 ——
+       * 从 nodes 读会读到上一帧，那一档会被重新播种，「固定」当场失效。
+       */
+      const prev = tagSeedRef.current.get(id) || nodeSeeds(id);
+      const seeds = nextTagSeeds(selection, prev, roll);
+      tagSeedRef.current.set(id, seeds);
       patch(id, {
         tagSelection: selection,
-        tagText: rollTagText(selection, data, next, customCategoriesNow()),
-        tagSeed: next,
+        tagText: rollTagText(selection, data, seeds, customCategoriesNow()),
+        tagSeeds: seeds,
       });
     } catch {
       /* 见上面那段：静默，保持原串。 */
     }
-  }, [patch]);
+  }, [patch, nodeSeeds]);
 
-  /** 卡片上那颗「换一批」：换一颗种子，挑中的那批不动。 */
+  /** 卡片上那颗「换一批」：**每一档**都换一把种子，挑中的那批不动。 */
   const rerollTags = useCallback(async (id: string) => {
     const node = nodesRef.current.find(item => item.id === id);
     if (!node) return;
     /* 面板开着时以面板里那份为准（它可能是刚连点选出来、还没渲染进 nodes 的）。 */
     const selection = tagSelRef.current.get(id) || normalizeTagSelection(node.data.tagSelection);
-    await rollTagsInto(id, selection);
+    await rollTagsInto(id, selection, 'reroll');
   }, [nodesRef, rollTagsInto]);
 
   /*
-   * 面板里改完选择：立刻重抽一次 —— 底栏那个预览当场就变，不用先跑一遍才知道会交出去什么。
+   * 面板里改完选择：立刻按**当前那把种子**重算一次 —— 底栏那个预览当场就变，
+   * 不用先跑一遍才知道会交出去什么。种子不动（`keep`）：改一个档的候选项，
+   * 不该把别的档趁着重抽一遍。
    *
    * 🔴 参数是**函数式**的（拿上一份算下一份），上一份从 `tagSelRef` 读（理由见它那条注释）。
    */
@@ -2896,10 +2936,11 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     await rollTagsInto(id, next);
   }, [nodesRef, rollTagsInto]);
 
-  /** 开面板：顺手把「正在编辑的这一份」初始化成节点上那份。 */
+  /** 开面板：顺手把「正在编辑的这一份」初始化成节点上那份（选择与种子两份都初始化）。 */
   const openTagPicker = useCallback((id: string) => {
     const node = nodesRef.current.find(item => item.id === id);
     tagSelRef.current.set(id, normalizeTagSelection(node?.data.tagSelection));
+    tagSeedRef.current.delete(id);
     setTagPickerFor(id);
   }, [nodesRef]);
 
@@ -2907,10 +2948,15 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
   const closeTagPicker = useCallback(() => {
     setTagPickerFor(null);
     tagSelRef.current.clear();
+    tagSeedRef.current.clear();
   }, []);
 
   /*
-   * 「启动」时把**随机模式**的标签节点全部重抽一遍。
+   * 「启动」时把**标着「每次运行抽」的档位**重抽一遍（2026-10-08 晚起是**按档**的）。
+   *
+   * 有哪一档是随机的，这个节点就要重画：`fixed` 的那几档沿用上一把种子 → 抽出来还是同一批，
+   * 随机的几档换新种子 → 换人。/ 一档随机的都没有（整节点固定）就**一个字都不写** ——
+   * 老画布上那些固定节点正是靠这一条保持原样。
    *
    * 🔴 抽完必须**等一次渲染**再往下跑：标签值走的是 `nodes` → `hydrated` → 生成节点那条链，
    *    而 `patch` 之后 `nodesRef` 要等渲染才刷新。不等的话下游读到的还是上一批 ——
@@ -2920,24 +2966,26 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     const targets = nodesRef.current.filter(node =>
       node.data.kind === 'danbooru-tags'
       && !node.data.bypassed
-      && normalizeTagSelection(node.data.tagSelection).mode === 'random');
+      && tagNeedsRedraw(normalizeTagSelection(node.data.tagSelection)));
     if (!targets.length) return;
     try {
       const data = await loadDanbooruData();
       await loadCustomCategories();
       for (const node of targets) {
         const selection = normalizeTagSelection(node.data.tagSelection);
-        const seed = freshSeed();
+        const prev = tagSeedRef.current.get(node.id) || nodeSeeds(node.id);
+        const seeds = nextTagSeeds(selection, prev, 'advance');
+        tagSeedRef.current.set(node.id, seeds);
         patch(node.id, {
-          tagText: rollTagText(selection, data, seed, customCategoriesNow()),
-          tagSeed: seed,
+          tagText: rollTagText(selection, data, seeds, customCategoriesNow()),
+          tagSeeds: seeds,
         });
       }
       await waitRender(renderTick.current);
     } catch {
       /* 标签库加载不出来就跳过这一轮重抽：节点上那一批还在，照样跑。 */
     }
-  }, [nodesRef, patch, waitRender]);
+  }, [nodesRef, nodeSeeds, patch, waitRender]);
 
   /**
    * 生成节点的**执行顺序**（2026-09-27，「启动」按钮要用）。
@@ -3332,16 +3380,21 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
 
 
   /**
-   * 把拖进来 / 粘进来 / 在卡片上选进来的媒体存成**本项目下的一份资产**（`/api/assets/...`）。
+   * 把拖进来 / 粘进来 / 在卡片上选进来的媒体**存到本项目的画布素材目录**（`/api/canvas-media/...`）。
    *
    * 为什么不再当场传到 RunningHub（`upload` 那条路）：那条路要另一家平台的 Key 已经配好，
    * 没配的时候「往画布里粘一张参考图」也要弹「尚未配置 RunningHub API Key」——
    * 可用户只是想把这张图放进画布，传给谁跟他此刻要做的事无关。
-   * 存成本站资产之后，提交生成时服务端自己读盘重传（`lib/referenceImages.ts`），
+   * 存下来之后，提交生成时服务端自己读盘重传（`lib/referenceImages.ts`），
    * 于是「放进画布」不再依赖任何外部账号。
    *
-   * 顺带修掉一个老毛病：`/api/assets/...` 是**持久地址**，重开项目还在；
+   * 顺带修掉一个老毛病：这个地址是**持久地址**，重开项目还在；
    * 以前视频 / 音频给播放器的是 `blob:`，刷新一次就播不了了。
+   *
+   * 🔴 2026-10-08 徐先：「从外面添加的图片拉入画布会自动进入资产库，这个 bug 也修复
+   * （不要进入资产库）」→ 这一条**不再建 Asset 记录**，资产库里看不到它、容量统计
+   * 也算不到它。放在画布上的素材是**输入**，不是收藏 —— 混进资产库等于把收藏夹当回收站。
+   *「不进资产库」只影响界面：生成照旧能用（`resolveReferenceImage` 认这个地址形状）。
    */
   const archiveMedia = useCallback(async (id: string, file: File) => {
     const isVideo = file.type.startsWith('video/');
@@ -3354,17 +3407,17 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         : { status: 'uploading', imageUrl: localUrl, imageSize: undefined, result: undefined });
     try {
       const body = await apiPost<{ items: { id: string; url: string; name: string }[] }>(
-        '/api/tools/archive',
-        buildArchiveForm([{ name: file.name || 'pasted-media', blob: file, note: '画布粘贴' }], projectId),
+        '/api/canvas-media',
+        buildArchiveForm([{ name: file.name || 'pasted-media', blob: file, note: '画布素材' }], projectId),
       );
       const saved = body.items?.[0];
-      if (!saved?.url) throw new Error('没能存进项目资产，请重试。');
+      if (!saved?.url) throw new Error('没能存进画布素材目录，请重试。');
       /** 音频没有首帧那一说，也不进参考图那条路：存下来就能播、能绑到 LoadAudio 那类节点。 */
       if (isAudio) {
         patch(id, {
           status: 'idle',
           audioUrl: saved.url, audioRemoteUrl: saved.url, audioRemoteFile: saved.url,
-          result: '已存入资产',
+          result: '已放进画布',
         });
       } else if (isVideo) {
         /*
@@ -3376,7 +3429,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         try {
           const frameBlob = await firstFrameBlob(localUrl);
           const frame = await apiPost<{ items: { id: string; url: string; name: string }[] }>(
-            '/api/tools/archive',
+            '/api/canvas-media',
             buildArchiveForm([{ name: 'first-frame.jpg', blob: frameBlob, note: '视频首帧' }], projectId),
           );
           frameUrl = frame.items?.[0]?.url || undefined;
@@ -3385,14 +3438,15 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
           status: 'idle',
           videoUrl: saved.url, videoRemoteUrl: saved.url, videoRemoteFile: saved.url,
           ...(frameUrl ? { previewUrl: frameUrl, remoteFile: frameUrl } : {}),
-          result: frameUrl ? '已存入资产' : '已存入资产，但首帧图没提取出来',
+          result: frameUrl ? '已放进画布' : '已放进画布，但首帧图没提取出来',
         });
       } else {
-        patch(id, { status: 'idle', imageUrl: saved.url, previewUrl: saved.url, result: '已存入资产' });
+        patch(id, { status: 'idle', imageUrl: saved.url, previewUrl: saved.url, result: '已放进画布' });
       }
-      setNotice(`「${file.name || '媒体'}」已存入项目资产`);
+      /* 不提「资产库」：这一份刻意不进资产库（见本函数上面的注释），说了就是一句假话。 */
+      setNotice(`「${file.name || '媒体'}」已放进画布`);
     } catch (error) {
-      patch(id, { status: 'failed', result: error instanceof Error ? error.message : '存入资产失败' });
+      patch(id, { status: 'failed', result: error instanceof Error ? error.message : '存进画布失败' });
     }
   }, [patch, projectId, setNotice]);
 
@@ -4959,7 +5013,48 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       const raw = dockAnchorFor(tagNode, { x: viewX, y: viewY, zoom: viewZoom, width: paneW },
         tagSize && tagSize.id === tagNode.id ? tagSize : null,
         Math.round(PICKER_PANEL_W * uiScale()));
-      return { ...raw, maxHeight: pickerMaxHeight(raw.top, paneH) };
+      /*
+       * 🔴 2026-10-08 真机量出来的：节点落在屏幕下半部时，「节点下面那点地方」只剩
+       * **372px**（窗口 900 高、节点占掉中间一截）。而面板里 tab / 抽签 / 输出 / 搜索 /
+       * 底栏这五条横杠**固定**吃掉 270px，再加上「已选区」和「特征标签」那两块 ——
+       * 留给**列表**的不到 40px，缩略图整个消失（他说的「下面的图片也被遮住」就是这个）。
+       *
+       * 三级落点，按「这个地方能有多高」排：
+       *   1. **节点下方**（他要的原话：「在没有节点参数侧边栏的模式，标签的选择直接在节点的下方显示」）
+       *      —— 放得下（≥ `FLOAT_PICKER_COMFORT_H`）就留在下面；
+       *   2. 下方放不下就**翻到节点上方**（与 `DockCombo` 那条 roomBelow / roomAbove 同一个规矩）；
+       *   3. 上下都放不下就**摆到节点旁边** —— 那里能用满整个画布高度（预设栏早就是这种摆法）。
+       *      留在下面 / 上面等于把列表和底栏悄悄裁掉，那比「换一边」糟得多。
+       */
+      const zoom = viewZoom || 1;
+      const nodeLeftX = (tagNode.position?.x ?? 0) * zoom + viewX;
+      const nodeTopY = (tagNode.position?.y ?? 0) * zoom + viewY;
+      const boxW = ((tagSize && tagSize.id === tagNode.id ? tagSize.w : 0) || DOCK_FALLBACK_W) * zoom;
+      const belowRoom = paneH ? paneH - raw.top - FLOAT_GAP - DOCK_EDGE : FLOAT_PICKER_MAX_H;
+      const aboveRoom = nodeTopY - FLOAT_GAP - DOCK_EDGE;
+      const place: 'below' | 'above' | 'side' = belowRoom >= FLOAT_PICKER_COMFORT_H
+        ? 'below'
+        : aboveRoom >= FLOAT_PICKER_COMFORT_H
+          ? 'above'
+          : 'side';
+      if (place === 'side') {
+        /* 右边放不下（节点在右半屏 / 画布被拖窄）就退到左边 —— 退到画布外等于用户看不见它。 */
+        const rightAt = nodeLeftX + boxW + FLOAT_GAP;
+        const leftAt = nodeLeftX - raw.width - FLOAT_GAP;
+        const maxHeight = Math.max(FLOAT_PICKER_MIN_H, Math.min(FLOAT_PICKER_MAX_H, Math.round((paneH || FLOAT_PICKER_MAX_H) - DOCK_EDGE * 2)));
+        return {
+          ...raw,
+          place,
+          left: Math.round(rightAt + raw.width + FLOAT_GAP <= paneW
+            ? rightAt
+            : Math.max(DOCK_EDGE, Math.min(leftAt, paneW - raw.width - DOCK_EDGE))),
+          top: DOCK_EDGE,
+          maxHeight,
+        };
+      }
+      const maxHeight = Math.max(FLOAT_PICKER_MIN_H, Math.min(FLOAT_PICKER_MAX_H, Math.round(place === 'above' ? aboveRoom : belowRoom)));
+      const top = place === 'above' ? Math.max(DOCK_EDGE, Math.round(nodeTopY - FLOAT_GAP - maxHeight)) : raw.top;
+      return { ...raw, top, maxHeight, place };
     })()
     : undefined;
 
@@ -5276,16 +5371,20 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
           {/* 点空白处收起。用一层透明的整屏底 —— 菜单在顶栏里，
               鼠标往画布上一点就走，「点开之后关不掉」是最烦人的那类小毛病。 */}
           <div className="cv-run-backdrop" onMouseDown={() => setRunMenu(false)} />
+          {/* 🔴 只留标题（2026-10-08 徐先：「不需要说明文字，保留『绕过已经生成过的节点』『全部运行』就行」）。
+              原来每档下面还挂一行说明，那行比标题长得多，把菜单撑到 300px 还是会被字顶出去 ——
+              删掉之后菜单按内容收窄（`max-content`）。两档的差别挪进 `title`：
+              悬停才看得到，平时不占一格。 */}
           <div className="cv-run-menu" role="menu" data-cv-run-menu>
             <button className="cv-run-item" type="button" role="menuitem" data-cv-run-mode="skip"
+              title="已经有结果的生成节点不重复提交 —— 省积分，适合只改了后半段"
               onClick={() => { setRunMenu(false); void runAllNodes(false, 'skip'); }}>
               <span className="cv-run-item-title">绕过已经生成过的节点</span>
-              <span className="cv-run-item-sub">已经有结果的生成节点不重复提交 —— 省积分，适合只改了后半段</span>
             </button>
             <button className="cv-run-item" type="button" role="menuitem" data-cv-run-mode="all"
+              title="每个生成节点都重新跑一遍（有结果的也跑）—— 会按节点数累计扣积分"
               onClick={() => { setRunMenu(false); void runAllNodes(false, 'all'); }}>
               <span className="cv-run-item-title">全部运行</span>
-              <span className="cv-run-item-sub">每个生成节点都重新跑一遍（有结果的也跑）—— 会按节点数累计扣积分</span>
             </button>
           </div>
         </>}
@@ -5665,14 +5764,17 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         {/* key=节点id：换一颗节点就是一块新面板 —— 弹层 / 展开状态不跨节点残留。 */}
         {!inspectorOpen && dockNode && <GenerateDock key={dockNode.id} data={dockNode.data} nodeId={dockNode.id} anchor={dockAnchor} presetAnchor={presetAnchor} />}
         {/*
-          D站标签选择器（浮动形态）。
-          参数栏关着时就挂在这儿 —— 挨着它挑的那颗节点下方，跟参数对话框同一个宿主、同一套定位。
-          参数栏开着时 `tagAnchor` 是 undefined，它自己会 portal 到 `.cv-preset-slot` 变成并排那一栏
-          （宿主选择写在 `DanbooruTagPicker` 里，见那个文件顶上那段）。
+          D站标签选择器（**浮动形态**）。
+          只在参数栏**关着**时挂在这儿 —— 挨着它挑的那颗节点下方，跟参数对话框同一个宿主、同一套定位。
+          🔴 条件里必须带 `!inspectorOpen`：`DanbooruTagPicker` 把「没有 anchor」当成
+             **就地渲染**（进参数栏那一路），少了这一条，参数栏开着时它会原地长在 `.cv-stage` 里
+             —— 既不在参数栏、也没有浮层定位，等于掉在画布中间。
+          参数栏开着时它由下面的 `<NodeInspector tagger={...}>` 接走（2026-10-08 徐先：
+          「选择标签就是这个节点的参数」）。
           ⚠️ 位置必须留在这个 `.cv-stage` 里面：它跟对话框一样是 absolute 定位的，
              搬到外面（`.cv-body` 那一层）就会拿整页当包含块，跟着右栏宽度一起漂。
         */}
-        {tagNode && (
+        {!inspectorOpen && tagNode && (
           <DanbooruTagPicker
             selection={normalizeTagSelection(tagNode.data.tagSelection)}
             preview={String(tagNode.data.tagText || '')}
@@ -5705,7 +5807,28 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         🔴 位置必须在 `<NodeInspector>` **之前** —— DOM 顺序就是并排顺序，不用 `order` 去绕。
       */}
       <div className="cv-preset-slot" />
-      {inspectorOpen && !zen && <NodeInspector node={current} onClose={() => setInspectorOpen(false)} />}
+      {inspectorOpen && !zen && (
+        <NodeInspector
+          node={current}
+          onClose={() => setInspectorOpen(false)}
+          /*
+           * D站标签节点的「参数」就是标签选择器本身（2026-10-08 徐先：
+           * 「这样吧，选择标签就是这个节点的参数」）—— 参数栏开着时它在这一栏里，
+           * 不再当画布与参数栏中间那第三栏（那一栏把画布挤窄，而参数栏里空着）。
+           * 🔴 不传 `anchor`：那是「浮在节点下方」那一支的开关（见 `DanbooruTagPicker` 顶上那段）。
+           */
+          tagger={current && current.data.kind === 'danbooru-tags' ? (
+            <DanbooruTagPicker
+              key={current.id}
+              selection={normalizeTagSelection(current.data.tagSelection)}
+              preview={String(current.data.tagText || '')}
+              onChange={mutate => void applyTagSelection(current.id, mutate)}
+              onReroll={() => void rerollTags(current.id)}
+              onClose={() => setInspectorOpen(false)}
+            />
+          ) : undefined}
+        />
+      )}
     </div>
 
     {/*

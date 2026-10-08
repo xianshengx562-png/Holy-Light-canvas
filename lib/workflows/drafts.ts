@@ -50,6 +50,15 @@ export type WorkflowSummary = {
   updatedAt: string;
   totalCount: number;
   enabledCount: number;
+  /**
+   * 这份配置里**已启用**字段都绑到了哪些画布槽位（如 `prompt` / `reference_image_1`）。
+   *
+   * 为什么连绑定一起带出来：界面要能答「你写在这张画布上的提示词到底送不送得进去」——
+   * 一份工作流哪个字段都没绑到 `prompt` 时，提交体里根本没有提示词那一项，
+   * 任务照样成功、出的是工作流自己的默认值，全程一句报错都没有。
+   * 判这个只能看绑定，光看「启用了几项」答不出来（启用的可能全是步数、种子）。
+   */
+  enabledBindings: string[];
   isDefault: boolean;
   /**
    * 这份是不是**软件自带的预设**（2026-10-02 徐先：内置两条 RunningHub 超清工作流）。
@@ -64,7 +73,8 @@ export type WorkflowSummary = {
   graphNodes: number;
 };
 
-type DraftField = { enabled?: boolean };
+/** 汇总里只用得到这两个键（「启用没有」与「绑到了哪个画布槽位」），所以不引完整字段类型。 */
+type DraftField = { enabled?: boolean; binding?: string };
 
 /**
  * 三个筛选维度：用途（产出什么）、分类（喂什么参考）、工序（生成还是超清）。
@@ -136,6 +146,10 @@ export async function listWorkflowDrafts(userId: string, filter: WorkflowFilter 
       updatedAt: draft.updatedAt.toISOString(),
       totalCount: fields.length,
       enabledCount: fields.filter(field => field?.enabled).length,
+      /* 只收「启用且真绑了槽位」的：`binding: 'manual'` 是固定值，不吃画布上的任何东西。 */
+      enabledBindings: Array.from(new Set(fields
+        .filter(field => field?.enabled && field.binding && field.binding !== 'manual')
+        .map(field => String(field.binding)))),
       // 「默认」这个概念只对视频成立：defaultWorkflowId 就是那条视频工作流。
       isDefault: kind === 'video' && draft.workflowId === defaultWorkflowId,
       builtin: isBuiltinWorkflowId(draft.workflowId),

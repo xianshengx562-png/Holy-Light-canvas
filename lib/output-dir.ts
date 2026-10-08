@@ -27,6 +27,16 @@ const CONFIG_NAME = 'output-dir.json';
 /** 落盘根目录下的两个子目录名。改名等于改落盘结构，见上面第 2 条。 */
 export const MEDIA_DIR = 'media';
 export const LATENT_DIR = 'latents';
+/**
+ * 第三个子目录：**画布上手动放进去的素材**（拖进来 / 粘进来 / 在节点上选的文件）。
+ *
+ * 它**刻意不叫 media、也不放在 media 底下**（2026-10-08 徐先：「从外面添加的图片
+ * 拉入画布会自动进入资产库，这个 bug 也修复（不要进入资产库）」）：
+ * 孤儿扫描只认 `media/` 与 `latents/` 两个目录、且按「有没有 Asset 记录」判生死，
+ * 一个没有记录的文件落在 `media/` 里，用户点一次「清理孤儿」就真没了。
+ * 单独一个目录既满足「不进资产库」，也不会被那把清扫扫到。
+ */
+export const CANVAS_MEDIA_DIR = 'canvas-media';
 
 type Stored = { dir?: string };
 
@@ -77,6 +87,16 @@ export async function mediaRoot(): Promise<string> {
 /** latent 的落盘目录。 */
 export async function latentRoot(): Promise<string> {
   return path.join(await outputRoot(), LATENT_DIR);
+}
+
+/**
+ * 画布素材的落盘目录：`<根目录>/canvas-media/<projectId>/<uuid>.<ext>`。
+ *
+ * 与 `mediaRoot()` 的唯一区别就是它**不建 Asset 记录**，所以资产库里看不到、
+ * 容量统计里也算不到 —— 生成、取流、重传照旧（见 `lib/canvas-media.ts`）。
+ */
+export async function canvasMediaRoot(): Promise<string> {
+  return path.join(await outputRoot(), CANVAS_MEDIA_DIR);
 }
 
 /* ------------------------------------------------------------------ *

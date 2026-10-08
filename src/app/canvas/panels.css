@@ -2871,6 +2871,14 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   border: 1px solid var(--cv-line-strong);
   border-radius: var(--cv-radius);
   box-shadow: var(--cv-shadow-3);
+  /*
+   * 🔴 **装不下时能滚，不能被静默裁掉**（2026-10-08）：这块面板的高度是
+   *    「节点下面还剩多少」算出来的，节点往下一挪它就只有 300 多 px，
+   *    里面横条 + 已选区 + 特征标签 + 列表很容易超出 —— `hidden` 会一声不响
+   *    把列表和底栏切掉（他截图里「下面的图片被遮住」就是这么来的）。
+   *    滚动交给这里兜底：正常高度下不会有滚动条，真挤了也还够得着。
+   */
+  overflow-y: auto;
 }
 
 .cv-cpk-head { 
@@ -4030,6 +4038,18 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   overflow-y: auto;
   padding: calc(14px * var(--ui));
 }
+/*
+ * 正文这一层**不滚**、也不自带内边距：内容自己管滚动。
+ * 目前只有一个用户 —— D站标签选择器（标签库 4000 条，交给正文滚会长成一条几万像素的长页）。
+ * 让面板里的列表去滚（`.cv-dtp-list` 本来就是 `flex:1; min-height:0; overflow-y:auto`）。
+ */
+.flow-shell .cv-inspector-content-fill {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+}
 /* ---------- 参数条在检查器里（NodeParamBar 复用同一份 JSX）----------
  * 🔴 2026-10-08 徐先报的 bug：「右侧怎么什么参数都没有」。
  *    跟上面 `.cv-dock-inspector` 是**同一个病**：`.cv-param-bar` 是为「挂在节点卡片
@@ -4110,6 +4130,34 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   display: flex;
   flex-direction: column;
   grid-template-rows: none;
+  /* 🔴 `stretch` 是显式写死的，不是默认值的复述：真机上量到列表被撑成 max-content
+     并在容器里**居中溢出**（见下面 `.cv-dtp-list` 那段），这条是拿回来兜底的。 */
+  align-items: stretch;
+}
+
+/* --------------------------------------------------------------------------
+   就地形态 —— 进右侧参数栏（2026-10-08 晚：徐先「选择标签就是这个节点的参数」）
+   --------------------------------------------------------------------------
+   🔴 **浮层那套定位与外观必须整套撤掉** —— 这个病在本工程犯过两次
+      （`GenerateDock` 10-07、`NodeParamBar` 10-08），这是第三次，别再犯：
+      `.cv-cpk-sidebar` 是照「并排占一栏」写的 —— 定宽 + 左边一条分隔线 + 底色 + 滑入动效。
+      进了参数栏这四样全是多余的（参数栏自己有边框和底色），而且**不定宽才能跟着
+      用户拖出来的栏宽走**（`.cv-inspector` 的宽度是能拖的，写死 360px 就拖不动它）。
+   ⚠️ `overflow: hidden` + `flex: 1; min-height: 0`：滚动交给面板里的 `.cv-dtp-list`
+      （标签库 4000 条）。两层都滚会出现一条滚不动的内滚动条。
+   ⚠️ 高度不由这里定：`flex: 1` 让它吃满 `.cv-inspector-content-fill`。
+   -------------------------------------------------------------------------- */
+.flow-shell .cv-inspector .cv-cpk-sidebar.cv-dtp-inline {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  min-height: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  animation: none;
+  overflow: hidden;
 }
 
 /*
@@ -4202,7 +4250,20 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   gap: calc(6px * var(--ui));
   padding: 0 16px 10px;
   border-bottom: 1px solid var(--cv-line);
+  /*
+   * 🔴 2026-10-08 真机量出来的毛病（徐先：「选择的随机角色多了，会将下面的图片也给遮住」）：
+   *    面板盒子只有 **372px**（浮动态的高度是「节点下面还剩多少」算出来的），而这一块原先
+   *    **没有上限** —— 选 8 个角色就长到 150px，把下面全挤出盒子：列表被挤到 **20px**
+   *    （缩略图 = 他说的「下面的图片」就是这么没的）、底栏预览串整条被裁掉，全程不报错。
+   *
+   *    ⚠️ 试过 `flex: 0 1 auto`（让它去缩）—— 结果是**题头那行留下、chip 行被压到只剩 1px**：
+   *    浏览器把省下来的空间全给了 `flex: 1` 的列表，而「已选了谁」恰恰是这一块唯一的内容。
+   *    所以改成**给它一个上限、自己滚**：`flex: none` + `max-height` + `overflow-y: auto`。
+   *    88px = 题头一行 + chip 两行，装得下「已选 8（抽 1 个）」那句和大部分 chip。
+   */
   flex: none;
+  max-height: calc(88px * var(--ui));
+  overflow-y: auto;
 }
 
 .cv-dtp-picked-label {
@@ -4229,8 +4290,15 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   display: flex;
   flex-wrap: wrap;
   gap: calc(6px * var(--ui));
-  /* 选了十几个之后这一块会长得很高，把下面的列表挤没 —— 给它一个上限，多出来的自己滚。 */
-  max-height: calc(96px * var(--ui));
+  /* 选了十几个之后这一块会长得很高，把下面的列表挤没 —— 给它一个上限，多出来的自己滚。
+     🔴 96 → 72（2026-10-08）：浮动态的面板只有 372px，96 那一条已经吃掉四分之一。 */
+  max-height: calc(72px * var(--ui));
+  /*
+   * 🔴 `flex: none` 不能省（2026-10-08 真机量到）：已选区变成可收缩之后，
+   *    它里面的 chip 行默认 `flex-shrink: 1`，被压成 **0 高** ——「已选 8」还在、
+   *    但那 8 个 chip 一个都看不见（DOM 在、rect 是 0）。这是「看不出哪里坏了」的那一种。
+   */
+  flex: none;
   overflow-y: auto;
 }
 
@@ -4270,10 +4338,41 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 }
 
 /* ---------- 列表 ---------- */
+/*
+ * 🔴🔴 2026-10-08 真机量到的横溢（徐先截图里红箭头指的那截）：
+ *    `.cv-dtp-list` 的 rect 是 `[1040, 525, 420, 319]`，而它的容器（面板做过 padding 之后）
+ *    只有 347px —— 它被撑成了 **max-content（420 = 最长那一行 + padding）** 并且
+ *    **在容器里居中**，左右各溢 37px；面板与窗口都是 `overflow: hidden`，
+ *    于是右边那一截连名字带缩略图全被切掉，左边也无声地让出去一块。
+ *    行里是 `white-space: nowrap`（`vocaloid · blue hair · blue eyes` 这种），
+ *    所以「最长的一行有多宽」直接决定了这个数字。
+ *
+ *    修法是把几何**钉死**，不去追究是谁把 `stretch` 带走的（同一个类名被三处复用，
+ *    追到具体那一条的收益远不如钉死这一条）：
+ *      `align-self: stretch` + `margin: 0`  → 宽度 = 容器内容宽（撑满）
+ *      `max-width: 100%`                    → 万一还有谁想把它顶开，这里也压住
+ *      `overflow-x: hidden`                 → ⚠️ `overflow-y: auto` 会把另一方向也算 auto，
+ *                                             不显式裁横向就会长出一条横向滚动条
+ *    文字不会被压扁：`.cv-dtp-row-text` 是 `flex:1; min-width:0`，
+ *    里面两层本来就带 `ellipsis`，宽度收窄之后它们自己会截断成 `…`。
+ */
 .cv-dtp-list {
   flex: 1;
-  /* 唯一允许被压缩的那一块（可滚区就要能缩），其余横条一律 flex:none。 */
-  min-height: 0;
+  /*
+   * 唯一允许被压缩的那一块（可滚区就要能缩），其余横条一律 flex:none。
+   *
+   * 🔴 但**不能无限缩**（2026-10-08）：真机量到它被挤到 **20px** —— 一行缩略图都放不下，
+   *    那就是他截图里「下面的图片被遮住」。这里给一个 48px 的下限（约一行）：
+   *    宁可让已选区自己滚，也不能把列表和缩略图压没。
+   *    ⚠️ 48 是**按最坏情况定的**：浮动面板最矮会被节点顶到 336px，
+   *       上面那些横条固定占 242px，再高一点的下限会让整块溢出（又变成静默裁掉）。
+   */
+  min-height: calc(48px * var(--ui));
+  align-self: stretch;
+  margin: 0;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   padding: 10px 16px;
   display: flex;
@@ -4701,12 +4800,16 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   min-width: 0;
 }
 
-.cv-dtp-row-del {
+/* 行尾那两颗小钮（2026-10-08 加的改名 + 原来那颗删除）。
+   🔴 圆形按钮那条规矩在这儿同样成立：`globals.css` 给所有 `button` 留了横向内边距，
+      不显式 `padding: 0` 的话 26px 宽的钮会被撑成一个不方不正的块。 */
+.cv-dtp-row-act {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 26px;
   height: auto;
+  padding: 0;
   flex: none;
   color: var(--cv-mute);
   background: transparent;
@@ -4716,10 +4819,180 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   transition: all 0.15s ease;
 }
 
-.cv-dtp-row-del:hover {
+.cv-dtp-row-act:hover {
   color: var(--cv-text);
   background: var(--cv-panel-2);
   border-color: var(--cv-line);
+}
+/* 删除钮悬停转警示色：它跟改名钮挨着，颜色不一样才不会点错。 */
+.cv-dtp-row-del:hover {
+  color: var(--cv-danger);
+  background: var(--cv-danger-soft);
+  border-color: var(--cv-danger-line);
+}
+
+/*
+ * 「角色输出」那一行（2026-10-08）—— 跟上面那行抽签模式是同一副按钮，
+ * 所以挂 `cv-dtp-mode` 复用样式，只多一个题头把两行区分开。
+ * 不题头的话两颗按钮长得一模一样，谁也说不清哪行管抽签、哪行管输出。
+ */
+.cv-dtp-mode-label {
+  flex: none;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-mute);
+}
+
+/* 角色特征标签组：整块自己滚，不跟下面的列表抢高度（列表是主滚动区）。 */
+.cv-dtp-ctags {
+  display: flex;
+  flex-direction: column;
+  gap: calc(4px * var(--ui));
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--cv-line);
+  /*
+   * 🔴 216 → 96（2026-10-08）：216 那一条在 372px 的浮动面板里**一上来就吃掉 58%**，
+   *    再叠加已选区就必然把列表挤没（真机量到溢出 279px、列表只剩 20px）。
+   *    96 仍放得下两三个角色组的表头，多出来的照旧自己滚。
+   *    （整块现在**默认收着**，摊开是用户自己点的 —— 那时候挤一点是他选的。）
+   */
+  max-height: calc(96px * var(--ui));
+  overflow-y: auto;
+  /* 同 `.cv-dtp-mode`：column flex 里的横条必须 flex:none，否则列表一长它们被压扁。 */
+  flex: none;
+}
+
+.cv-dtp-ctags-head {
+  display: flex;
+  align-items: center;
+  gap: calc(8px * var(--ui));
+  width: 100%;
+  padding: 0;
+  font-family: inherit;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-mute);
+  /* 它是颗 button（整块收起 / 展开）—— 原生按钮那套底和边框得撤掉。 */
+  background: transparent;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+}
+.cv-dtp-ctags-head:hover { color: var(--cv-text); }
+
+.cv-dtp-ctags-hint {
+  margin-left: auto;
+  color: var(--cv-placeholder);
+}
+
+.cv-dtp-ctag-group {
+  display: flex;
+  flex-direction: column;
+  gap: calc(2px * var(--ui));
+  flex: none;
+}
+
+.cv-dtp-ctag-head {
+  display: flex;
+  align-items: center;
+  gap: calc(6px * var(--ui));
+  flex: none;
+}
+
+.cv-dtp-ctag-toggle {
+  display: flex;
+  align-items: center;
+  gap: calc(6px * var(--ui));
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0;
+  font-family: inherit;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-dim);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.cv-dtp-ctag-toggle:hover { color: var(--cv-text); }
+.cv-dtp-ctag-toggle.on { color: var(--cv-text); }
+
+/* 角色名可能很长（`kirisame maripa (pc-98)` 这种），截断而不是把计数挤出去。 */
+.cv-dtp-ctag-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cv-dtp-ctag-count {
+  flex: none;
+  margin-left: auto;
+  color: var(--cv-mute);
+}
+
+/* 只有真改过才出现，所以做小一点、别抢角色名的注意力。 */
+.cv-dtp-ctag-reset {
+  flex: none;
+  height: 22px;
+  padding: 0 calc(8px * var(--ui));
+  font-family: inherit;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-mute);
+  background: transparent;
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cv-dtp-ctag-reset:hover {
+  color: var(--cv-text);
+  background: var(--cv-panel-2);
+}
+
+.cv-dtp-ctag-list {
+  display: flex;
+  flex-direction: column;
+  gap: calc(2px * var(--ui));
+  /* 展开的这一组自己不再滚 —— 滚动交给外层 `.cv-dtp-ctags`，
+     两层都滚会长出一条滚不动的内滚动条（这个病在这个面板上已经犯过一次）。 */
+}
+
+.cv-dtp-ctag-row {
+  display: flex;
+  align-items: center;
+  gap: calc(6px * var(--ui));
+  padding-left: calc(18px * var(--ui));
+  flex: none;
+}
+
+.cv-dtp-ctag-text {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--cv-fs-3);
+  color: var(--cv-text);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cv-dtp-ctag-row > .cv-dtp-row-act {
+  height: 24px;
+}
+
+.cv-dtp-ctag-empty {
+  margin: 0;
+  padding-left: calc(18px * var(--ui));
+  font-size: var(--cv-fs-2);
+  color: var(--cv-placeholder);
+}
+
+/* 内联改名那行落在标签组里，得比 `.cv-dtp-inline` 那条通栏窄一圈（见那个类的 padding）。 */
+.cv-dtp-ctag-edit {
+  padding: 4px 0 4px calc(18px * var(--ui));
+  background: transparent;
+  border-bottom: 0;
 }
 
 /* 收藏模式：行尾那颗「已收 / ＋」。 */

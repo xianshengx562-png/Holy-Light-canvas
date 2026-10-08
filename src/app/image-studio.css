@@ -227,6 +227,14 @@
   transition: border-color var(--t-fast);
 }
 .studio-compose:focus-within { border-color: var(--accent-line); }
+/*
+  有文件被拖到这张卡上：把上段那张卡的边框点亮。
+  不画一层遮罩 —— 遮罩会盖住正在写的提示词，而拖放恰恰发生在「正写着」的时候。
+*/
+.studio-dock.dropping .studio-compose {
+  border-color: var(--accent-line);
+  border-style: dashed;
+}
 
 .studio-refs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
 .studio-ref { position: relative; }

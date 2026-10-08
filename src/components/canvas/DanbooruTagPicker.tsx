@@ -1,10 +1,11 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { PencilLine, Plus, RefreshCw, Search, Star, Trash2, Upload, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, PencilLine, Plus, RefreshCw, Search, Star, Trash2, Upload, X } from 'lucide-react';
 import {
-  SEARCH_LIMIT, characterThumb, loadDanbooruData, matchArtist, matchCharacter, matchScene,
-  sceneLabelOf, type DanbooruData, type TagSelection,
+  CUSTOM_KEY_PREFIX, SEARCH_LIMIT, characterTagsOf, characterThumb, loadDanbooruData, matchArtist,
+  matchCharacter, matchScene, sceneLabelOf, tagModeOf,
+  type DanbooruData, type DanbooruCharacter, type TagMode, type TagSelection,
 } from './danbooruTags';
 import type { DockAnchor } from './GenerateDock';
 import { pickFilesPath } from '@/lib/desktop-fs';
@@ -18,17 +19,23 @@ import {
  * D站标签选择器面板（2026-10-08）—— 挑角色 / 服装 / 姿势 / 环境 / 画师，
  * 运行时在挑中的那批里随机抽。
  *
- * 两种形态，由 `anchor` 决定（2026-10-08 徐先定的「标签的选择直接在节点的下方显示选择」）：
+ * 两种形态，由 `anchor` 决定：
  *
  *   - **`anchor` 给了** → portal 到 `.cv-stage`，absolute 贴在选中节点**正下方**。
- *     用在「右侧节点参数栏关着」的时候 —— 那时候画布是整幅的，挂一条固定侧栏
- *     等于白占画布一条边，而挑标签本来就要看着节点。
- *   - **`anchor` 没给**（参数栏开着）→ portal 到 `.cv-preset-slot`（`display: contents`），
- *     于是这一栏是 `.cv-body` 的 flex 子项，**并排**在画布与参数栏中间，不盖任何东西。
+ *     用在「右侧节点参数栏关着」的时候（2026-10-08 徐先：「标签的选择直接在节点的下方显示选择」）
+ *     —— 那时候画布是整幅的，挂一条固定侧栏等于白占画布一条边，而挑标签本来就要看着节点。
+ *   - **`anchor` 没给** → **就地**渲染在自己所在的位置。只有一个调用者：
+ *     `NodeInspector` 把它摆在右侧参数栏的正文里 —— 也就是「它就是这个节点的参数」
+ *     （2026-10-08 徐先：「这样吧，选择标签就是这个节点的参数」）。
+ *     上一版这里是 portal 到 `.cv-preset-slot` 当**画布与参数栏中间的第三栏** ——
+ *     那样参数栏里空着（这个节点别的参数一个都没有）、中间那栏又把画布挤窄，
+ *     两头都不对。撤掉那条路，落点只剩「参数栏里」。
  *
- * ⚠️ 两种形态都**别改成挂 `body`**：那样取不到 `cv-*` 变量，整块变白板。
+ * ⚠️ 浮动形态**别改成挂 `body`**：那样取不到 `cv-*` 变量，整块变白板。
  * ⚠️ 浮动形态的位置由外面算（`CanvasEditor` 的 `dockAnchorFor`）—— 视口变换、节点实测尺寸
  *    只有那边拿得到，这里再算一遍就是第二份真相。
+ * ⚠️ 就地形态**必须撤掉浮层那套定位与外观**（见 panels.css 里 `.cv-dtp-inline` 那段）——
+ *    `.cv-cpk-sidebar` 是为「并排占一栏」写的，`border-left` / 底色 / 动效进了参数栏都是多余。
  *
  * 这一栏只管**挑哪几个**（`TagSelection`）。抽签的结果（`tagText`）由 `CanvasEditor` 写 ——
  * 面板里改完选择也是通过 `onChange` 交上去、由那边统一重抽一次，
@@ -45,14 +52,26 @@ import {
  *
  * 🔴 提交方式**每个分类自己定**（`pick` 抽 1 条 / `all` 整串接上）—— 他选的那档。
  *    做成全局开关的话，「质量词」这种要整串接的会和「衣服」这种要抽一个的互相打架。
+ * 🔴 分类里的**每一条**都能删、能改名（2026-10-08 徐先：「可以删除标签和给标签命名」）：
+ *    `label` 只是列表里给人看的名字，`tags` 才是接进提示词的那串 —— 改名只动前者。
+ *    导入的清单自带名字（`名字 | 标签串`），手输的那批就得靠这个补一个。
+ * 🔴 **抽签模式也是每一档自己定**（2026-10-08 晚：徐先发现「在画师上点固定，别的档也跟着固定」）：
+ *    存在 `selection.modes[<档位键>]`，没设过的档回落老的节点级 `mode`（老画布兼容）。
+ *    面板上那两颗按钮**只动当前这一档**；自由文本那一档不抽签，整行不画。
  * 🔴 这份清单**不随画布走**：它是磁盘上的用户数据（`<dataDir>/danbooru-categories.json`），
  *    画布节点上只存「选了哪些条目 id」。所以分类被删之后老画布不会炸 —— 那一档跳过就是。
  */
 
 type Tab = 'character' | 'clothing' | 'pose' | 'background' | 'artist' | 'extra';
 
-/** 自定义分类的 tab key：`dc:<分类 id>`。带前缀是为了和内置那六档放同一个 state 里。 */
-const CUSTOM_PREFIX = 'dc:';
+/**
+ * 自定义分类的 tab key：`dc:<分类 id>`。带前缀是为了和内置那六档放同一个 state 里。
+ *
+ * 🔴 前缀**只有一份**（`danbooruTags.ts` 里那个常量）：它同时是「每档自己的抽签模式」
+ *    （`selection.modes`）与抽签时那条随机流的键 —— 两边各写一遍迟早对不上，
+ *    症状是「这一档明明设了固定，跑起来还是每次都换」。
+ */
+const CUSTOM_PREFIX = CUSTOM_KEY_PREFIX;
 
 const TAB_LABEL: Record<Tab, string> = {
   character: '角色',
@@ -115,6 +134,7 @@ export default function DanbooruTagPicker({
    */
   onChange: (mutate: (prev: TagSelection) => TagSelection) => void;
   onReroll: () => void;
+  /** 只在浮动形态用得上（那颗 ×）。就地形态由参数栏自己收。 */
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<string>('character');
@@ -132,6 +152,33 @@ export default function DanbooruTagPicker({
   const [newOpen, setNewOpen] = useState(false);
   const [manual, setManual] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
+  /**
+   * 给**某一条标签**改名（2026-10-08 徐先：「可以删除标签和给标签命名」）。
+   *
+   * 存的是 `{ id, label }`：id 认出改的是哪一条，label 是输入框里正在打的字。
+   * 只改 `label`（列表里给人看的那个），`tags`（接进提示词的那串）一个字都不动 ——
+   * 混在一起改的话，改个显示名就把发出去的提示词换了。
+   */
+  const [entryEdit, setEntryEdit] = useState<{ id: string; label: string } | null>(null);
+  /**
+   * 角色那一档：展开着的是哪个已选角色、以及正在改哪一条特征标签
+   * （2026-10-08 徐先要的「每个角色都有一堆锁定标签」，跟着角色走、可逐条改）。
+   *
+   * `ctagEdit.idx` 是**这一组里的下标**，不是标签文字：同一个角色完全可能有两个字面
+   * 相同的标签（官方那份里就有重复度很高的词），按下标才指得准。代价是改完/删完
+   * 下标会平移 —— 所以每次操作完都 `setCtagEdit(null)`，不让它跨帧活着。
+   */
+  const [openedChar, setOpenedChar] = useState('');
+  const [ctagEdit, setCtagEdit] = useState<{ name: string; idx: number; text: string } | null>(null);
+  /**
+   * 整块「特征标签」收着还是展开（2026-10-08）。
+   *
+   * 为什么**默认收着**：真机量到面板盒子只有 372px，而 tab / 抽签 / 输出 / 搜索 / 底栏
+   * 这五条横杠固定吃掉 223px —— 这一块一铺开（8 个角色的组头就有 200 多 px）就把
+   * 下面的列表挤到 20px、底栏预览串整条被裁掉（他说的「下面的图片被遮住」）。
+   * 收着的时候只占一行题头（约 28px），列表和缩略图保得住；要看再点开。
+   */
+  const [ctagsOpen, setCtagsOpen] = useState(false);
   const [collectFrom, setCollectFrom] = useState<CollectFrom | null>(null);
   const [busy, setBusy] = useState('');
   const [note, setNote] = useState('');
@@ -172,7 +219,13 @@ export default function DanbooruTagPicker({
     setCollectFrom(null);
     setManual(null);
     setRenaming(null);
+    setEntryEdit(null);
     setConfirmDel('');
+    /* 角色那一档的展开 / 编辑态也一起复位：留着一个正开着的输入框，切回来会横在那儿。 */
+    setOpenedChar('');
+    setCtagEdit(null);
+    /* 整块也复位：切走再切回来时不该还摊着（摊着就会又去挤列表）。 */
+    setCtagsOpen(false);
   }, [tab]);
 
   useEffect(() => {
@@ -181,12 +234,16 @@ export default function DanbooruTagPicker({
   }, [tab]);
 
   /*
-   * Esc 关闭：挂 `window` 的**捕获阶段**（与 `CreativePresetPicker` 同一套写法）。
-   * 挂面板自己的 onKeyDown 时，焦点一旦掉到 body 就再也收不到事件。
+   * 浮动形态才归自己管「怎么关」：面板上那颗 ×、以及 Esc。
+   * 就地形态（参数栏里）**不接管** —— 它只是参数栏里的内容，
+   * 收起来那一下属于参数栏标题栏上那颗 ×（`NodeInspector` 自己的 `onClose`）。
+   * 在这里再接一个 Esc 的话，用户在搜索框里按 Esc 会把整条参数栏一起收掉。
    */
+  const floating = Boolean(anchor);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   useEffect(() => {
+    if (!floating) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       event.stopPropagation();
@@ -194,13 +251,25 @@ export default function DanbooruTagPicker({
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, []);
+  }, [floating]);
 
   const customId = tab.startsWith(CUSTOM_PREFIX) ? tab.slice(CUSTOM_PREFIX.length) : '';
   const active = useMemo(
     () => custom.find(item => item.id === customId) || null,
     [custom, customId],
   );
+
+  /*
+   * 抽签模式是**每一档自己**的（2026-10-08 晚，徐先：「每个都可以单独设置」）：
+   * 读的是当前 tab 那一档，写也只写那一档 ——
+   * 原来只动 `selection.mode`（全节点一个开关），在「画师」上点一下，
+   * 角色 / 服装 / 环境全都跟着变成固定，等于用一个开关顶掉别的档。
+   */
+  const tabMode = tagModeOf(selection, tab);
+  const setTabMode = (mode: TagMode) =>
+    onChange(prev => ({ ...prev, modes: { ...prev.modes, [tab]: mode } }));
+  /** 当前这档叫什么（自定义分类用分类名，其余用 tab 上那两个字），写进按钮的悬停提示。 */
+  const tabName = active?.name || TAB_LABEL[tab as Tab] || '这一档';
 
   /** 选中列表：当前 tab 对应的那一份。 */
   const picked = useMemo(() => {
@@ -341,6 +410,66 @@ export default function DanbooruTagPicker({
   };
 
   /* ------------------------------------------------------------------ *
+   * 角色那一档：输出两档 + 特征标签组
+   * ------------------------------------------------------------------ */
+
+  const setCharacterDetail = (on: boolean) => {
+    onChange(prev => ({ ...prev, characterDetail: on }));
+    if (!on) setCtagEdit(null);
+  };
+
+  /**
+   * 改这个角色的特征标签组（删一条 / 改一条都走这儿）。
+   *
+   * 🔴 **第一次动的时候要把官方那组整份写进 `characterTagEdits`** —— 这就是这里为什么
+   *    必须在 `onChange` 的回调里重新算一遍：`characterTagsOf(prev, item)` 拿到的正是
+   *    「改过就听改的、没改过就是官方那份」，随手一改就自然完成了「首改落盘」。
+   *    在外面先算好再传进去的话，删一条会把另外十几条一起抹掉（变成只有这一条）。
+   */
+  const editCharacterTags = (
+    name: string,
+    mutate: (tags: string[]) => string[],
+  ) => {
+    const item = data?.characters.find(one => one.name === name);
+    onChange(prev => ({
+      ...prev,
+      characterTagEdits: {
+        ...(prev.characterTagEdits || {}),
+        [name]: mutate(characterTagsOf(prev, item)),
+      },
+    }));
+  };
+
+  /** 整组还原成官方那份 —— 把这个键删掉就行（`characterTagsOf` 会回落到官方清单）。 */
+  const resetCharacterTags = (name: string) => {
+    setCtagEdit(null);
+    onChange(prev => {
+      const next = { ...(prev.characterTagEdits || {}) };
+      delete next[name];
+      return { ...prev, characterTagEdits: next };
+    });
+  };
+
+  /** 已选的那些角色，按 `characters.json` 里的顺序（跟着列表走，不是点击顺序）。 */
+  const characterPicks = useMemo<DanbooruCharacter[]>(() => {
+    if (!data) return [];
+    const chosen = new Set(selection.characters);
+    return data.characters.filter(item => chosen.has(item.name));
+  }, [data, selection.characters]);
+
+  /**
+   * 把内联框里那一条改掉。空着 = 取消（跟自定义分类那条「改名」一个规矩）——
+   * 把一条标签改成空串没有意义，那不如点旁边那颗垃圾桶，意图还清楚些。
+   */
+  const commitCtagEdit = () => {
+    const draft = ctagEdit;
+    setCtagEdit(null);
+    const text = String(draft?.text || '').trim();
+    if (!draft || !text) return;
+    editCharacterTags(draft.name, list => list.map((one, index) => (index === draft.idx ? text : one)));
+  };
+
+  /* ------------------------------------------------------------------ *
    * 自定义分类：改那份清单
    * ------------------------------------------------------------------ */
 
@@ -395,9 +524,34 @@ export default function DanbooruTagPicker({
     setRenaming(null);
   };
 
+  /**
+   * 给一条标签改名。空着不改（等于取消）—— 名字空了列表里那行会变成没有字的行，
+   * 而「显示名」本来就该默认等于标签串（`normalizeEntry` 就是这么兜的）。
+   */
+  const renameEntry = (category: CustomCategory, entryId: string, label: string) => {
+    const clean = label.trim();
+    setEntryEdit(null);
+    if (!clean) return;
+    patchCategory(category.id, prev => ({
+      ...prev,
+      entries: prev.entries.map(item => (item.id === entryId ? { ...item, label: clean } : item)),
+    }));
+  };
+
   const addManual = (category: CustomCategory, text: string) => {
-    const entry = entryFromInput(text);
+    /*
+     * 「加一条」顺手认 `名字 | 标签串`（与导入清单同一套写法，2026-10-08 他要的「给标签命名」）：
+     * 前半是列表里显示的名字，后半才是接进提示词的那串。只打一串也行 —— 那就名字 = 标签串。
+     *
+     * 🔴 **只认第一根竖线**：标签串自己带竖线的情况（有些模型的写法）不该被切掉一半。
+     */
+    const raw = String(text || '');
+    const bar = raw.indexOf('|');
+    const name = bar >= 0 ? raw.slice(0, bar).trim() : '';
+    const tags = (bar >= 0 ? raw.slice(bar + 1) : raw).trim();
+    const entry = entryFromInput(tags);
     if (!entry) return;
+    if (name) entry.label = name;
     if (category.entries.some(item => item.id === entry.id)) {
       setNote('这条已经在里面了。');
       return;
@@ -509,26 +663,20 @@ export default function DanbooruTagPicker({
    * ------------------------------------------------------------------ */
 
   /*
-   * 浮动形态挂 `.cv-stage`（`position: relative`，与 `.cv-dock` 同一个宿主 ——
-   * 抽屉、对话框、工具条都在那儿）。并排形态照旧挂 `.cv-preset-slot`。
-   * 两个宿主管子的都是「这一块 CSS 变量取不取得到」：挂 `body` 会变白板。
+   * 宿主在下面按形态分：浮动的那一支挂 `.cv-stage`，并排那一支已经没了（就地渲染）。
+   * 两边共同的前提都是「这一块 CSS 变量取不取得到」—— 挂 `body` 会变白板。
    */
-  const host = typeof document !== 'undefined'
-    ? document.querySelector(anchor ? '.cv-stage' : '.cv-preset-slot')
-    : null;
-  if (!host) return null;
-
   const chips = active
     ? active.entries.filter(entry => picked.includes(entry.id)).map(entry => ({ id: entry.id, label: entry.label }))
     : [];
 
-  return createPortal((
+  const panel = (
     <div
-      className={`cv-cpk-sidebar cv-dtp${anchor ? ' cv-dtp-float' : ''}`}
+      className={`cv-cpk-sidebar cv-dtp${floating ? ' cv-dtp-float' : ' cv-dtp-inline'}`}
       data-dtp-tab={tab}
-      /* 探针要能一眼看出这一块是「照节点算出来的」还是「碰巧落在画布上」——
+      /* 探针要能一眼看出这一块是「照节点算出来的」「参数栏里的」还是「碰巧落在画布上」——
          单看坐标分不出来。 */
-      data-dtp-anchor={anchor ? 'below' : 'column'}
+      data-dtp-anchor={floating ? (anchor?.place || 'below') : 'inspector'}
       style={anchor
         ? { left: anchor.left, top: anchor.top, width: anchor.width, maxHeight: anchor.maxHeight }
         : undefined}
@@ -578,15 +726,19 @@ export default function DanbooruTagPicker({
             <Plus size={14} strokeWidth={2.4} aria-hidden />
           </button>
         </div>
-        <button
-          type="button"
-          className="cv-cpk-close"
-          aria-label="关闭标签面板"
-          title="关闭（Esc）"
-          onClick={onClose}
-        >
-          <X size={16} strokeWidth={1.8} aria-hidden />
-        </button>
+        {/* 就地形态不画这颗 ×：参数栏标题栏上已经有一颗（收起参数栏），
+            同一块地方两颗 × 会让人不知道该收哪一层。 */}
+        {floating && (
+          <button
+            type="button"
+            className="cv-cpk-close"
+            aria-label="关闭标签面板"
+            title="关闭（Esc）"
+            onClick={onClose}
+          >
+            <X size={16} strokeWidth={1.8} aria-hidden />
+          </button>
+        )}
       </div>
 
       {newOpen && (
@@ -625,36 +777,78 @@ export default function DanbooruTagPicker({
         </div>
       )}
 
-      {/* 抽签模式：每次运行重抽 / 固定这一批。 */}
-      <div className="cv-dtp-mode" role="group" aria-label="抽签方式">
-        <button
-          type="button"
-          className={`cv-dtp-mode-btn${selection.mode === 'random' ? ' on' : ''}`}
-          aria-pressed={selection.mode === 'random'}
-          title="每次点「启动」都重新抽一批"
-          onClick={() => onChange(prev => ({ ...prev, mode: 'random' }))}
+      {/*
+        抽签模式：每次运行重抽 / 固定这一批 —— **只改当前这一档**（见上面 `tabMode` 那段）。
+        「自定义标签」那一档是自由文本、不抽签，所以整行都不画：
+        画了就是两个点了没有任何反应的按钮。
+      */}
+      {tab !== 'extra' && (
+        <div className="cv-dtp-mode" role="group" aria-label={`「${tabName}」的抽签方式`} data-dtp-mode-for={tab}>
+          <button
+            type="button"
+            className={`cv-dtp-mode-btn${tabMode === 'random' ? ' on' : ''}`}
+            aria-pressed={tabMode === 'random'}
+            title={`只改「${tabName}」这一档：每次点「启动」都重新抽一批`}
+            onClick={() => setTabMode('random')}
+          >
+            每次运行抽
+          </button>
+          <button
+            type="button"
+            className={`cv-dtp-mode-btn${tabMode === 'fixed' ? ' on' : ''}`}
+            aria-pressed={tabMode === 'fixed'}
+            title={`只改「${tabName}」这一档：保持当前这一批，只有点「换一批」才重抽`}
+            onClick={() => setTabMode('fixed')}
+          >
+            固定这一批
+          </button>
+          <button
+            type="button"
+            className="cv-dtp-reroll"
+            title="整个节点重抽一批（每一档都换）"
+            onClick={onReroll}
+          >
+            <RefreshCw size={12} strokeWidth={2} aria-hidden />
+            <span>换一批</span>
+          </button>
+        </div>
+      )}
+
+      {/*
+        角色的**输出档位**（2026-10-08 徐先：「可以选择只输出角色名标签，或者输出角色标签」）。
+        只在这一档画 —— 别的档没有「角色名」这回事。
+
+        跟上面那行抽签模式长得一模一样，所以这行前面挂一个题头，不然两颗按钮是同一副面孔、
+        谁也说不清哪一行管抽签、哪一行管输出。
+      */}
+      {tab === 'character' && (
+        <div
+          className="cv-dtp-mode cv-dtp-detail"
+          role="group"
+          aria-label="角色输出内容"
+          data-dtp-detail-mode
         >
-          每次运行抽
-        </button>
-        <button
-          type="button"
-          className={`cv-dtp-mode-btn${selection.mode === 'fixed' ? ' on' : ''}`}
-          aria-pressed={selection.mode === 'fixed'}
-          title="保持当前这一批，只有点「换一批」才重抽"
-          onClick={() => onChange(prev => ({ ...prev, mode: 'fixed' }))}
-        >
-          固定这一批
-        </button>
-        <button
-          type="button"
-          className="cv-dtp-reroll"
-          title="现在就重抽一批"
-          onClick={onReroll}
-        >
-          <RefreshCw size={12} strokeWidth={2} aria-hidden />
-          <span>换一批</span>
-        </button>
-      </div>
+          <span className="cv-dtp-mode-label">角色输出</span>
+          <button
+            type="button"
+            className={`cv-dtp-mode-btn${selection.characterDetail ? '' : ' on'}`}
+            aria-pressed={!selection.characterDetail}
+            title="只把角色名接进提示词（默认，也是这一轮之前的老行为）"
+            onClick={() => setCharacterDetail(false)}
+          >
+            只角色名
+          </button>
+          <button
+            type="button"
+            className={`cv-dtp-mode-btn${selection.characterDetail ? ' on' : ''}`}
+            aria-pressed={selection.characterDetail}
+            title="角色名 + 这个角色官方那一组特征标签 —— 跟 Anima 选择器那颗「应用触发词 + 标签」一样"
+            onClick={() => setCharacterDetail(true)}
+          >
+            角色名 + 标签
+          </button>
+        </div>
+      )}
 
       {/* 自定义分类的工具栏：加标签 / 导入 / 收藏 / 改模式 / 重命名 / 删除。 */}
       {active && (
@@ -663,7 +857,7 @@ export default function DanbooruTagPicker({
             type="button"
             className="cv-dtp-tool"
             title="手输一条标签"
-            onClick={() => { setManual(manual === null ? '' : null); setRenaming(null); setConfirmDel(''); }}
+            onClick={() => { setManual(manual === null ? '' : null); setRenaming(null); setEntryEdit(null); setConfirmDel(''); }}
           >
             <Plus size={11} strokeWidth={2.4} aria-hidden />
             <span>加标签</span>
@@ -712,7 +906,7 @@ export default function DanbooruTagPicker({
             className="cv-dtp-tool cv-dtp-tool-icon"
             title="给这个分类改个名字"
             aria-label="重命名分类"
-            onClick={() => { setRenaming(active.name); setManual(null); setConfirmDel(''); }}
+            onClick={() => { setRenaming(active.name); setManual(null); setEntryEdit(null); setConfirmDel(''); }}
           >
             <PencilLine size={12} strokeWidth={2} aria-hidden />
           </button>
@@ -726,6 +920,7 @@ export default function DanbooruTagPicker({
             onClick={() => {
               if (confirmDel !== active.id) {
                 setConfirmDel(active.id);
+                setEntryEdit(null);
                 return;
               }
               setConfirmDel('');
@@ -756,6 +951,26 @@ export default function DanbooruTagPicker({
         </div>
       )}
 
+      {/* 给一条标签改名：一行内联输入（不用原生 prompt —— 它在这个 app 里样式是另一套）。 */}
+      {active && entryEdit && (
+        <div className="cv-dtp-inline">
+          <input
+            className="cv-dtp-inline-input"
+            value={entryEdit.label}
+            autoFocus
+            /* 占位里带上这一条真正接出去的那串，免得改到一半忘了在改哪条。 */
+            placeholder={`名字，例如「校服」—— 标签串是「${active.entries.find(item => item.id === entryEdit.id)?.tags || ''}」`}
+            onChange={event => setEntryEdit({ id: entryEdit.id, label: event.target.value })}
+            onKeyDown={event => {
+              if (event.key === 'Enter') renameEntry(active, entryEdit.id, entryEdit.label);
+              if (event.key === 'Escape') setEntryEdit(null);
+            }}
+          />
+          <button type="button" className="cv-dtp-inline-ok" onClick={() => renameEntry(active, entryEdit.id, entryEdit.label)}>改</button>
+          <button type="button" className="cv-dtp-inline-cancel" onClick={() => setEntryEdit(null)}>取消</button>
+        </div>
+      )}
+
       {/* 手输一条标签。 */}
       {active && manual !== null && (
         <div className="cv-dtp-inline">
@@ -763,7 +978,7 @@ export default function DanbooruTagPicker({
             className="cv-dtp-inline-input"
             value={manual}
             autoFocus
-            placeholder="一条标签，例如 masterpiece"
+            placeholder="一条标签，例如 masterpiece（想起名字就写：校服 | school uniform）"
             onChange={event => setManual(event.target.value)}
             onKeyDown={event => {
               if (event.key === 'Enter') addManual(active, manual);
@@ -830,7 +1045,9 @@ export default function DanbooruTagPicker({
               已选 {picked.length}
               {customId
                 ? (active?.mode === 'all' ? '（整串接上）' : '（抽 1 个）')
-                : tab === 'artist' ? '（全部串上）' : '（抽 1 个）'}
+                : tab === 'artist' ? '（全部串上）'
+                  : tab === 'character' && selection.characterDetail ? '（抽 1 个 · 带特征标签）'
+                    : '（抽 1 个）'}
             </span>
             {picked.length > 0 && (
               <button type="button" className="cv-dtp-clear" onClick={clear}>清空</button>
@@ -865,6 +1082,129 @@ export default function DanbooruTagPicker({
               ))}
             </div>
           </div>
+
+          {/*
+            已选角色的**特征标签组**（2026-10-08 徐先：「每个角色都有对应的一堆锁定标签」
+            + 选定「可改」）。
+
+            只在「角色名 + 标签」这一档画：只出角色名的时候这些标签根本不参与输出，
+            画出来只会让人以为它们会被发出去。
+
+            每个角色默认**收起**（一个角色平均 11.8 条，两个角色展开就把列表挤没了），
+            点一下头展开。整块自己滚，不跟下面的列表抢高度。
+          */}
+          {tab === 'character' && selection.characterDetail && characterPicks.length > 0 && (
+            <div className="cv-dtp-ctags" data-dtp-ctags data-dtp-ctags-open={ctagsOpen ? 'true' : 'false'}>
+              <button
+                type="button"
+                className={`cv-dtp-ctags-head${ctagsOpen ? ' on' : ''}`}
+                aria-expanded={ctagsOpen}
+                data-dtp-ctags-toggle=""
+                onClick={() => { setCtagsOpen(v => !v); setCtagEdit(null); }}
+              >
+                {ctagsOpen
+                  ? <ChevronDown size={12} strokeWidth={2} aria-hidden />
+                  : <ChevronRight size={12} strokeWidth={2} aria-hidden />}
+                <span>这些角色的特征标签 · {characterPicks.length} 个角色</span>
+                <span className="cv-dtp-ctags-hint">跟着角色走 · 可删可改</span>
+              </button>
+              {/*
+                整块**默认收着**：见上面 `ctagsOpen` 那条注释（铺开就会把列表挤没）。
+                收着的时候只留题头那一行。
+              */}
+              {ctagsOpen && characterPicks.map(item => {
+                const tags = characterTagsOf(selection, item);
+                const open = openedChar === item.name;
+                const edited = Array.isArray(selection.characterTagEdits?.[item.name]);
+                return (
+                  <div className="cv-dtp-ctag-group" key={item.name}>
+                    <div className="cv-dtp-ctag-head">
+                      <button
+                        type="button"
+                        className={`cv-dtp-ctag-toggle${open ? ' on' : ''}`}
+                        aria-expanded={open}
+                        data-dtp-ctag-open={item.name}
+                        onClick={() => { setOpenedChar(open ? '' : item.name); setCtagEdit(null); }}
+                      >
+                        {open
+                          ? <ChevronDown size={12} strokeWidth={2} aria-hidden />
+                          : <ChevronRight size={12} strokeWidth={2} aria-hidden />}
+                        <span className="cv-dtp-ctag-name">{item.name}</span>
+                        <span className="cv-dtp-ctag-count">{tags.length} 条</span>
+                      </button>
+                      {/* 只有真改过才给「还原」—— 没改过的那份本来就是官方的，点了没有任何反应。 */}
+                      {edited && (
+                        <button
+                          type="button"
+                          className="cv-dtp-ctag-reset"
+                          data-dtp-ctag-reset={item.name}
+                          title="还原成官方那一组"
+                          onClick={() => resetCharacterTags(item.name)}
+                        >
+                          还原
+                        </button>
+                      )}
+                    </div>
+                    {open && (
+                      <div className="cv-dtp-ctag-list">
+                        {!tags.length && <p className="cv-dtp-ctag-empty">这一组是空的 —— 等于只出角色名</p>}
+                        {tags.map((tag, idx) => {
+                          const editing = ctagEdit !== null && ctagEdit.name === item.name && ctagEdit.idx === idx;
+                          if (editing) {
+                            return (
+                              <div className="cv-dtp-inline cv-dtp-ctag-edit" key={`edit-${idx}`}>
+                                <input
+                                  className="cv-dtp-inline-input"
+                                  value={ctagEdit.text}
+                                  autoFocus
+                                  placeholder="标签串"
+                                  onChange={event => setCtagEdit({ name: item.name, idx, text: event.target.value })}
+                                  onKeyDown={event => {
+                                    if (event.key === 'Enter') commitCtagEdit();
+                                    if (event.key === 'Escape') setCtagEdit(null);
+                                  }}
+                                />
+                                <button type="button" className="cv-dtp-inline-ok" onClick={commitCtagEdit}>改</button>
+                                <button type="button" className="cv-dtp-inline-cancel" onClick={() => setCtagEdit(null)}>取消</button>
+                              </div>
+                            );
+                          }
+                          return (
+                            <div className="cv-dtp-ctag-row" key={`${tag}-${idx}`}>
+                              <span className="cv-dtp-ctag-text">{tag}</span>
+                              <button
+                                type="button"
+                                className="cv-dtp-row-act"
+                                data-dtp-ctag-edit={`${item.name}::${idx}`}
+                                aria-label={`改「${tag}」`}
+                                title="改这一条（显示的就是接进提示词的那串）"
+                                onClick={() => setCtagEdit({ name: item.name, idx, text: tag })}
+                              >
+                                <PencilLine size={11} strokeWidth={2} aria-hidden />
+                              </button>
+                              <button
+                                type="button"
+                                className="cv-dtp-row-act cv-dtp-row-del"
+                                data-dtp-ctag-del={`${item.name}::${idx}`}
+                                aria-label={`去掉「${tag}」`}
+                                title="从这一组里去掉这条"
+                                onClick={() => {
+                                  setCtagEdit(null);
+                                  editCharacterTags(item.name, list => list.filter((_, index) => index !== idx));
+                                }}
+                              >
+                                <Trash2 size={11} strokeWidth={2} aria-hidden />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           <div
             className="cv-dtp-list"
@@ -936,9 +1276,27 @@ export default function DanbooruTagPicker({
                   >
                     {body}
                   </button>
+                  {/* 改名 + 删掉，两颗并排。原来只有删掉那颗，他没找着 —— 顺手也让删除显眼一点。 */}
                   <button
                     type="button"
-                    className="cv-dtp-row-del"
+                    className="cv-dtp-row-act"
+                    data-dtp-row-rename={row.id}
+                    aria-label={`给「${row.title}」改个名字`}
+                    title="改个名字（只改列表里显示的名字，不改接进提示词的那串标签）"
+                    onClick={() => {
+                      const entry = active.entries.find(item => item.id === row.id);
+                      setManual(null);
+                      setRenaming(null);
+                      setConfirmDel('');
+                      setEntryEdit({ id: row.id, label: entry?.label || row.title });
+                    }}
+                  >
+                    <PencilLine size={11} strokeWidth={2} aria-hidden />
+                  </button>
+                  <button
+                    type="button"
+                    className="cv-dtp-row-act cv-dtp-row-del"
+                    data-dtp-row-del={row.id}
                     aria-label={`从${active.name}里删掉这条`}
                     title="从分类里删掉这条"
                     onClick={() => removeEntry(active, row.id)}
@@ -966,5 +1324,14 @@ export default function DanbooruTagPicker({
         <span className="cv-dtp-foot-preview" title={preview}>{preview || '（还没抽）'}</span>
       </div>
     </div>
-  ), host);
+  );
+
+  /* 就地形态：直接交给自己所在的位置（参数栏正文），不 portal。 */
+  if (!floating) return panel;
+
+  /* 浮动形态：portal 到 `.cv-stage`（`position: relative`，与 `.cv-dock` 同一个宿主）。
+     取不到就整块不渲染 —— 宁可不出，也不能挂到别的层上去当浮层。 */
+  const host = typeof document !== 'undefined' ? document.querySelector('.cv-stage') : null;
+  if (!host) return null;
+  return createPortal(panel, host);
 }

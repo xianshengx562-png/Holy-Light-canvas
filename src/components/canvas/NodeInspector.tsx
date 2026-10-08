@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useStore } from '@xyflow/react';
 import { SlidersHorizontal, X } from 'lucide-react';
 import GenerateDock from './GenerateDock';
@@ -26,9 +26,18 @@ function clampWidth(v: number) {
   return Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, Math.round(v)));
 }
 
-export default function NodeInspector({ node, onClose }: {
+export default function NodeInspector({ node, onClose, tagger }: {
   node: { id: string; data: NodeData } | null;
   onClose: () => void;
+  /**
+   * D站标签节点：它的「参数」**就是标签选择器本身**（2026-10-08 徐先：
+   * 「这样吧，选择标签就是这个节点的参数」）。
+   *
+   * 由 `CanvasEditor` 组装好传进来，而不是在这里 import：那几颗回调
+   * （改选择 / 重抽）都挂在画布那台状态机上，参数栏不该反过来去够它们。
+   * 别的一律不传 —— 这里只负责把它摆在正文里。
+   */
+  tagger?: ReactNode;
 }) {
   const kind = (node?.data.kind || 'text') as NodeKind;
   const follows = upscaleFollowsConnection(kind);
@@ -100,11 +109,19 @@ export default function NodeInspector({ node, onClose }: {
         <NodeGlyph kind={kind} size={18} />
         <div><strong>{displayLabelOf(node.data) || NODE_META[kind].label}</strong><span>{NODE_META[kind].label}</span></div>
       </div>
-      {usesGenerateDock(kind)
-        ? <GenerateDock key={node.id} data={node.data} nodeId={node.id} inspector />
-        : kind !== 'text'
-          ? <div className="cv-inspector-content"><NodeParamBar key={node.id} data={node.data} followedSide={side} followedFrom={from} /></div>
-          : <div className="cv-inspector-content"><dl className="cv-inspector-facts"><dt>类型</dt><dd>文本</dd><dt>字符</dt><dd>{String(node.data.text || '').length}</dd></dl></div>}
+      {/*
+        D站标签排在最前面判：它既不是生成节点、也不吃 `NodeParamBar` 那套字段
+        —— 走 `NodeParamBar` 的话参数栏里是空的（2026-10-08 徐先截图里那块）。
+        `cv-inspector-content-fill`：正文这一层不滚，滚动交给面板里的列表
+        （标签库 4000 条，交给正文滚会长成一条几万像素的长页）。
+      */}
+      {kind === 'danbooru-tags'
+        ? <div className="cv-inspector-content cv-inspector-content-fill">{tagger}</div>
+        : usesGenerateDock(kind)
+          ? <GenerateDock key={node.id} data={node.data} nodeId={node.id} inspector />
+          : kind !== 'text'
+            ? <div className="cv-inspector-content"><NodeParamBar key={node.id} data={node.data} followedSide={side} followedFrom={from} /></div>
+            : <div className="cv-inspector-content"><dl className="cv-inspector-facts"><dt>类型</dt><dd>文本</dd><dt>字符</dt><dd>{String(node.data.text || '').length}</dd></dl></div>}
     </> : <div className="cv-inspector-empty"><SlidersHorizontal size={28} strokeWidth={1.3} /><span>未选中节点</span></div>}
   </aside>;
 }

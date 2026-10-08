@@ -250,6 +250,16 @@ export default function WorkflowConfigurator({ initialWorkflowId, initialKind = 
       而界面上没有任何地方会报错 —— 正是这套 UI 一直在防的那种静默失败。
     */}
     {!upscaleWired && <p role="alert" className="workflow-lib-warn">这份工作流是「超清」工序，但还没有字段承接待加工的媒体 —— 在下面勾选那个上传字段，把「画布绑定」选成「画布 · 参考图 1」（图）或「画布 · 视频输入 1」（视频），否则点超清时输入会被丢掉。</p>}
+    {/*
+      提示词没接进来（2026-10-08 徐先：「不绑定提示词节点id也能生成」）。
+      **只说、不拦**：空提示词交给工作流自己的默认值本来就是合法用法，
+      但「画布上写了提示词、它一个字都没进提交体」是静默的坏结果 ——
+      任务照样成功、出来的画面和写的那句毫无关系，全程零报错。
+      超清那一份不查：它加工的是现成媒体，压根不该有提示词位。
+    */}
+    {operation !== 'upscale' && !fields.some(f => f.enabled && f.binding === 'prompt') && (
+      <p role="alert" className="workflow-lib-warn" data-wf-prompt-unwired="">这份工作流还没有字段绑到「画布 · 提示词」—— 生成照跑不误（不会报错），但画布上写的提示词不会送进工作流，出来的是它自己的默认值。在下面勾选提示词那个字段，把「画布参数绑定」选成「画布 · 提示词」。</p>
+    )}
     {error && <div role="alert" className="workflow-error">{error}</div>}
     {notice && <div role="status" className="workflow-success"><Check size={16} />{notice}</div>}
     <div className="workflow-layout">

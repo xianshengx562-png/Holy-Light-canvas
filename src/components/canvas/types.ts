@@ -53,6 +53,13 @@ export type WorkflowOption = {
   updatedAt: string;
   totalCount: number;
   enabledCount: number;
+  /**
+   * 已启用字段都绑到了哪些画布槽位（服务端 `WorkflowSummary.enabledBindings` 同一份）。
+   *
+   * 它唯一的用处是让参数栏能答「提示词有没有接进这份工作流」：里面没有 `prompt`
+   * 时，写在画布上的提示词一个字都送不进去，而任务照样成功 —— 静默的坏结果。
+   */
+  enabledBindings: string[];
   isDefault: boolean;
   /**
    * 这份工作流的来源：`'runninghub'`（云端编号那份）还是 `'local'`
@@ -192,7 +199,18 @@ export type NodeData = {
    * 不用等运行。
    */
   tagText?: string;
-  /** 本轮抽签用的种子（落库）：「固定」模式下靠它复现同一批，也是「换一批」自增的那一位。 */
+  /**
+   * 每一档这一刻用的种子（落库）：键 = 档位（`character` / `clothing` / … / `dc:<分类 id>`）。
+   *
+   * 「固定这一批」那一档跨运行沿用同一把种子 → 抽出来还是同一批，而别的档照旧每轮换。
+   * 🔴 一个节点**一把种子是不够的**：那样角色多抽一下、排后面的服装就跟着换，固定不住。
+   */
+  tagSeeds?: Record<string, number>;
+  /**
+   * 老字段（1.0.111 及以前）：全节点**共用**的那一把种子。
+   *
+   * 留着只为「降级回去还能读」—— 现在写的是 `tagSeeds`，这个字段不再被读。
+   */
   tagSeed?: number;
   /**
    * 优化节点**左边此刻连着的那份媒体**（2026-10-03，看图 / 看视频反推；`hydrated` 现算，不写库）。

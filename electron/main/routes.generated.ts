@@ -93,6 +93,9 @@ import * as m78 from '@/server/api/workflows/categories/[id]/route';
 import * as m79 from '@/server/api/projects/[id]/runs/route';
 /* 2026-10-03 手工补的一条（看图反推提示词）。生成器下次重跑时要确认它没被冲掉。 */
 import * as m80 from '@/server/api/prompt/describe/route';
+/* 2026-10-08 手工补的两条（画布素材：落盘但不建资产记录）。生成器下次重跑时要确认没被冲掉。 */
+import * as m81 from '@/server/api/canvas-media/route';
+import * as m82 from '@/server/api/canvas-media/[projectId]/[file]/route';
 
 export type RouteEntry = {
   /** `/api/projects/[id]/canvas` 这样的原始模式，报错信息里要用 */
@@ -598,5 +601,17 @@ export const ROUTES: RouteEntry[] = [
     regex: /^\/api\/workflows$/,
     keys: [],
     mod: m75 as unknown as ApiModule,
+  },
+  {
+    pattern: '/api/canvas-media',
+    regex: /^\/api\/canvas\-media$/,
+    keys: [],
+    mod: m81 as unknown as ApiModule,
+  },
+  {
+    pattern: '/api/canvas-media/[projectId]/[file]',
+    regex: /^\/api\/canvas\-media\/([^\/]+)\/([^\/]+)$/,
+    keys: ['projectId', 'file'],
+    mod: m82 as unknown as ApiModule,
   },
 ];

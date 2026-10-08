@@ -506,7 +506,14 @@ export const ACCEPTS: Record<NodeKind, NodeKind[]> = {
    * （见 `CanvasEditor` 里那段收集），RunningHub 应用里也确实有音频参数位
    * （`RunningHubWebAppField` 的 audio 字段），偏偏连线这一步不放行。
    */
-  'app-generate': ['text', 'prompt-optimize', 'danbooru-tags', 'image', 'video-input', 'audio-input', 'frame-extract', 'pinned-upload', 'workflow', 'params', 'director'],
+  /*
+   * 🔴 `image-generate` 是 2026-10-08 补进来的（徐先：「图片生成节点也可以接入（RunningHub 应用节点）」）。
+   * 漏它的症状和当年漏 `audio-input` 一模一样：**提示「只能连接：…」而列表里根本没有它**，
+   * 可应用早就收参考图（`isImageSourceKind` 里 `image-generate` 一直在），
+   * 偏偏连线这一步不放行 —— 选择被拿掉，而不是报错。
+   * 接上之后无需任何额外配置：提交时 `imageUrls` 按上游那些「参考图来源」自动收。
+   */
+  'app-generate': ['text', 'prompt-optimize', 'danbooru-tags', 'image', 'image-generate', 'video-input', 'audio-input', 'frame-extract', 'pinned-upload', 'workflow', 'params', 'director'],
   /*
    * 优化节点原来只接**文本**：上游文本节点，或者串在前面的另一个优化节点。
    *

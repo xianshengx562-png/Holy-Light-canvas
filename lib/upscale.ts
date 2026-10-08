@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { ApiError } from '@/lib/api';
 import { openMediaAsset } from '@/lib/media';
+import { openCanvasMedia, parseCanvasMediaUrl } from '@/lib/canvas-media';
 import { uploadMediaCached } from '@/lib/providers/runninghub/client';
 import { uploadOrExplain } from '@/lib/upload';
 
@@ -55,8 +56,21 @@ export async function resolveUpscaleInput(
   let bytes: ArrayBuffer;
   let name = 'input.mp4';
   try {
+    /*
+     * 画布素材（2026-10-08）：拖进画布的那份媒体**没有 Asset 记录**（`lib/canvas-media.ts`），
+     * 而「画布上拖进来的图 / 视频也能超清」是他要的能力 —— 少了这一支，点超清会报
+     * 「认不出这个地址」，等于把「不进资产库」顺手变成了「不能超清」。
+     */
+    const canvas = parseCanvasMediaUrl(source);
     const assetId = source.match(ASSET_PATH)?.[1];
-    if (assetId) {
+    if (canvas) {
+      const media = await openCanvasMedia({ userId, projectId: canvas.projectId, file: canvas.file });
+      if (!media) throw new ApiError(400, '要超清的这份媒体已经不在盘上了 —— 重新拖一次。');
+      tooBig(media.size, '媒体');
+      name = media.name || `input.${media.ext || 'mp4'}`;
+      const buffer = await readFile(/*turbopackIgnore: true*/ media.path);
+      bytes = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
+    } else if (assetId) {
       const asset = await openMediaAsset(assetId, userId);
       tooBig(asset.size, '媒体');
       name = asset.name || `input.${asset.path.split('.').pop() || 'mp4'}`;

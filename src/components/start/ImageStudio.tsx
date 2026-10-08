@@ -17,7 +17,7 @@
  *
  * 出图挂靠「图片生成」固定项目（`lib/start/studio.ts` 的约定），任务与资产都有归属。
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ClipboardEvent } from 'react';
 import { ArrowUp, ChevronDown, ExternalLink, Loader2, Plus, Sparkles, X } from 'lucide-react';
 import {
   defaultEngine, defaultParams, ENGINES_FOR, ENGINE_META, paramSummary, ratioOptions, resolutionOptions,
@@ -88,6 +88,8 @@ export default function ImageStudio() {
   const [prompt, setPrompt] = useState('');
   const [refs, setRefs] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
+  /** 有文件正被拖到这张卡上（只用来画一圈高亮，不参与逻辑）。 */
+  const [dropping, setDropping] = useState(false);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
@@ -245,9 +247,8 @@ export default function ImageStudio() {
     };
   }, [sizeOpen]);
 
-  async function onFiles(list: FileList | null) {
-    const picked = Array.from(list ?? []).filter(file => file.size > 0);
-    if (fileRef.current) fileRef.current.value = '';
+  /** 上传并挂上参考图。粘贴、拖入、点「+」选文件三条路都汇到这里。 */
+  async function addFiles(picked: File[]) {
     if (!picked.length) return;
     const room = IMAGE2_MAX_REFERENCES - refs.length;
     if (room <= 0) { setError(`参考图最多 ${IMAGE2_MAX_REFERENCES} 张。`); return; }
@@ -263,6 +264,43 @@ export default function ImageStudio() {
       setUploading(false);
     }
   }
+
+  /** 点「+」挑文件那一条路（`<input type="file">` 给的是 FileList）。 */
+  async function onFiles(list: FileList | null) {
+    if (fileRef.current) fileRef.current.value = '';
+    await addFiles(Array.from(list ?? []).filter(file => file.size > 0));
+  }
+
+  /*
+    粘贴图片（2026-10-08 徐先：「主页的图片生成卡片不能粘贴图片，也不能拖入图片」）。
+
+    与首页大输入框（`ComposeBar.pasteFiles`）同一个写法，两条规矩一条都不能少：
+      - **只拦带图片的粘贴**：不带图时必须原样 return，把事件交回浏览器默认行为 ——
+        否则在这张输入框里 Ctrl+V 一段文案会失效，连提示都没有；
+      - 挂在**整张卡**上而不是 textarea 上：焦点在哪一层都能接住，
+        焦点落在下面那排参数胶囊上时贴的图也一样收得到。
+  */
+  function pasteFiles(event: ClipboardEvent<HTMLDivElement>) {
+    const data = event.clipboardData;
+    if (!data) return;
+    /* 优先读 `files`；读不到再退回逐个 items 取（老浏览器只给后者）。 */
+    const picked: File[] = Array.from(data.files ?? []);
+    if (!picked.length) {
+      Array.from(data.items ?? []).forEach(item => {
+        if (item.kind !== 'file') return;
+        const file = item.getAsFile();
+        if (file) picked.push(file);
+      });
+    }
+    const images = picked.filter(file => file.type.startsWith('image/'));
+    if (!images.length) return;
+    event.preventDefault();
+    void addFiles(images);
+  }
+
+  /* 拖入：`dragover` 不 preventDefault 的话浏览器会直接打开那个文件，drop 根本不触发。 */
+  const carriesFiles = (event: { dataTransfer?: DataTransfer | null }) =>
+    Array.from(event.dataTransfer?.types ?? []).includes('Files');
 
   async function generate() {
     if (busy) return;
@@ -481,7 +519,18 @@ export default function ImageStudio() {
       )}
     </div>
 
-    <div className="studio-dock">
+    <div className={`studio-dock ${dropping ? 'dropping' : ''}`}
+      onPaste={pasteFiles}
+      onDragEnter={event => { if (!carriesFiles(event)) return; event.preventDefault(); setDropping(true); }}
+      onDragOver={event => { if (!carriesFiles(event)) return; event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; }}
+      onDragLeave={event => { if (!carriesFiles(event)) return; setDropping(false); }}
+      onDrop={event => {
+        if (!carriesFiles(event)) return;
+        event.preventDefault();
+        setDropping(false);
+        void addFiles(Array.from(event.dataTransfer.files).filter(file => file.type.startsWith('image/')));
+      }}
+    >
       {/*
         上段卡片：参考图一排 + 提示词。
         原来所有东西挤在同一行（+ / 输入框 / 四个下拉 / 出图），参数把输入框挤成一条缝；

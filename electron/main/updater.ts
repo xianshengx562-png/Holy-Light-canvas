@@ -72,6 +72,38 @@ export const DEFAULT_UPDATE_SOURCE = 'https://github.com/xianshengx562-png/Holy-
 const CHECK_TIMEOUT_MS = 20000;
 
 /**
+ * 更新请求走哪条代理（2026-10-08）。
+ *
+ * 🔴 病根：electron-updater 用 Electron 的 `net`，**读系统代理**；而这台机器的系统代理
+ *    常年挂在 `127.0.0.1:7897`（Clash），代理软件一关，那条路就是死的 ——
+ *    「检查更新」报 `net::ERR_CONNECTION_CLOSED`，用户只能看到一串英文。
+ *    同一时刻快路径（`fetch` → Node 那一套，**不读系统代理**）却是通的，
+ *    于是界面上一会儿说「发现新版本」一会儿说「连不上」，看着像软件自己抽风。
+ *
+ *    所以更新**默认直连**：更新源就那一个地址，能直连就别去蹭用户为别的事开的代理。
+ *    直连确实不通（有些网络非走代理不可）才退回系统代理再试一次。
+ *
+ * 🔴 只改更新那一个 session：electron-updater 自己建了独立分区
+ *    （`session.fromPartition('electron-updater')`），`autoUpdater.netSession` 拿到的就是它。
+ *    改它**不会**动界面 / 生图请求那套网络 —— 一刀切改 `defaultSession` 会把别的请求一起带沟里。
+ */
+type UpdateProxyMode = 'direct' | 'system';
+
+/** 上一次成功的模式。下载那一步接着用它，别在 241MB 上再试一遍两种代理。 */
+let lastProxyMode: UpdateProxyMode = 'direct';
+
+async function setUpdateProxyMode(mode: UpdateProxyMode): Promise<void> {
+  try {
+    await autoUpdater.netSession.setProxy(mode === 'direct' ? { mode: 'direct' } : { mode: 'system' });
+  } catch {
+    /*
+     * 设不成就照原来那套走 —— 这只是「能不能绕开死代理」的优化，
+     * 不是更新的必经步骤，不该因为它失败就整个不检查了。
+     */
+  }
+}
+
+/**
  * 这个地址是不是「GitHub 上某个仓库的 releases」—— 是就顺手把 owner / repo 摘出来。
  *
  * ⚠️ 判形态不判字符串相等：`update-source.json` 里少了尾斜杠、多了 `www.`、
@@ -218,6 +250,14 @@ function errorText(error: unknown): string {
      其余原样保留 —— 诊断时那串原文才是线索。 */
   if (/ENOTFOUND|EAI_AGAIN|getaddrinfo/i.test(message)) return '连不上更新源，检查一下地址或网络。';
   if (/ECONNREFUSED/i.test(message)) return '更新源那台机器没响应（地址的端口上没人听），检查地址与服务是不是开着。';
+  /*
+   * 🔴 `net::ERR_CONNECTION_CLOSED` 是这一台机器上最常见的那种（2026-10-08）：
+   *    系统代理开着（指向 127.0.0.1:7897），但代理软件没开 / 半开 ——
+   *    连接被对端直接关掉。原样甩一句英文，用户根本不知道该去关代理。
+   */
+  if (/ERR_CONNECTION_CLOSED|ECONNRESET|socket hang up/i.test(message)) {
+    return '连不上更新源（连接被对方关掉了）。本机开着系统代理的话，多半是代理软件没开 —— 把代理打开，或者在系统设置里关掉代理再试。';
+  }
   /* 🔴 `net::ERR_CONNECTION_TIMED_OUT` 是 Chromium 自己的错误码（2026-10-08 加）：
      源不可达时 electron-updater 甩出来的就是它，原样显示等于没说。 */
   if (/ETIMEDOUT|ERR_CONNECTION_TIMED_OUT|TIMED_OUT|timeout/i.test(message)) {
@@ -342,22 +382,36 @@ export async function checkForUpdate(): Promise<UpdateState> {
     }
   }
 
-  try {
-    autoUpdater.setFeedURL(feedFor(state.source));
-    await withTimeout(autoUpdater.checkForUpdates(), CHECK_TIMEOUT_MS);
-  } catch (error) {
-    /* 🔴 迟到的超时不算数：electron-updater 的结果常常是**事件**先给的
-       （`available` / `not-available` / `error`），而那个 promise 还挂在那儿没落地。
-       这时候再甩一句「连接超时」，会把已经出来的正确结果盖掉 ——
-       「明明刚说已经是最新版，一转眼又变成连不上」。所以只在**确实还没有结果**时才报。 */
-    if (updaterState().phase === 'checking') {
-      const message = errorText(error);
-      /* 快路径已经问出「远端有个更新的版本」时，错误要带上一句 —— 不然用户只知道
-         「连不上」，不知道其实有新版本、只是这份下不下来。 */
-      emit({
-        kind: 'error',
-        message: latestTag ? `${message}（远端最新是 ${latestTag}，只是这份下不下来。）` : message,
-      });
+  /*
+   * 两种代理各试一次：**先直连**，不行才退回系统代理（理由见 `UpdateProxyMode`）。
+   * 直连那条一有结果就收工，绝大多数情况根本走不到第二轮。
+   */
+  for (const mode of ['direct', 'system'] as const) {
+    await setUpdateProxyMode(mode);
+    /* 第二轮要把界面重新推回「正在检查」，不然上面那句错误会一直挂着。 */
+    emit({ kind: 'checking' });
+    try {
+      autoUpdater.setFeedURL(feedFor(state.source));
+      await withTimeout(autoUpdater.checkForUpdates(), CHECK_TIMEOUT_MS);
+    } catch (error) {
+      /* 🔴 迟到的超时不算数：electron-updater 的结果常常是**事件**先给的
+         （`available` / `not-available` / `error`），而那个 promise 还挂在那儿没落地。
+         这时候再甩一句「连接超时」，会把已经出来的正确结果盖掉 ——
+         「明明刚说已经是最新版，一转眼又变成连不上」。所以只在**确实还没有结果**时才报。 */
+      if (updaterState().phase === 'checking') {
+        const message = errorText(error);
+        /* 快路径已经问出「远端有个更新的版本」时，错误要带上一句 —— 不然用户只知道
+           「连不上」，不知道其实有新版本、只是这份下不下来。 */
+        emit({
+          kind: 'error',
+          message: latestTag ? `${message}（远端最新是 ${latestTag}，只是这份下不下来。）` : message,
+        });
+      }
+    }
+    const phase = updaterState().phase;
+    if (phase !== 'checking' && phase !== 'error') {
+      lastProxyMode = mode;
+      return state;
     }
   }
   return state;
@@ -370,6 +424,8 @@ export async function downloadUpdate(): Promise<UpdateState> {
   const phase = state.phase;
   if (phase !== 'available' && phase !== 'error') return state;
   try {
+    /* 接着用检查那一步走通的那种代理 —— 241MB 不值得再试一遍两种。 */
+    await setUpdateProxyMode(lastProxyMode);
     if (phase === 'error') {
       /* 上一步失败过，重新问一次再下 —— 不然 `downloadUpdate()` 会因为
          「electron-updater 自己不记得有可用更新」而静默什么都不做。 */
@@ -393,11 +449,17 @@ export async function downloadUpdate(): Promise<UpdateState> {
  * 退出并安装。
  *
  * ⚠️ 只有 `downloaded` 才走这一步：没下载完就装，装的是一个半成品。
+ *
+ * 🔴 `isSilent = true`（2026-10-08 改，原先是 false）：打包配置是
+ *    `nsis.oneClick: false` + `allowToChangeInstallationDirectory: true`，
+ *    非静默的话会弹出 NSIS 安装向导、还要再选一次安装目录 —— 用户点的是「重启并安装」，
+ *    蹦出来一个问目录的向导，看着就是「安装失败了」。跟 `installDownloadedOnQuit()` 对齐成静默。
+ *
  * `isForceRunAfter = true` —— 装完自动拉起来，不然用户会以为软件被关掉了。
  */
 export function installUpdate(): void {
   if (state.phase !== 'downloaded') return;
-  autoUpdater.quitAndInstall(false, true);
+  autoUpdater.quitAndInstall(true, true);
 }
 
 /**
