@@ -9,6 +9,17 @@
  * `background_data.js`, `data.js`) converted to JSON at `src/public/danbooru/`.
  * It ships inside the package, so no network is needed for the lists.
  * Pose / background *preview images* are remote (jsDelivr) — those degrade silently.
+ *
+ * 🔴 `shots.json`（镜头，2026-10-09 徐先要的「中景 / 近景 / 特写」那类）**不是** Anima 的 ——
+ *    上游仓库里只有 character / clothing / pose / background 四类，没有镜头这一档。
+ *    它是**照 Danbooru 官方 `tag_group:image_composition` 那一页**抄下来的
+ *    （景别 "Framing the body" / 机位 "View Angle" / 透视 "Perspective/Depth" 三节），
+ *    每一个 tag 都逐个在官方标签库里查过存在（拼写照官方，连字符 / 下划线照抄：
+ *    `close-up`、`straight-on`、`upside-down` 是连字符，别的都是下划线）。
+ *    中文名 = 官方 wiki 那句括号说明的直译（`portrait` = "Face through shoulders" → 脸到肩），
+ *    前面那个「近景 / 中景」是影视里的对应叫法，方便搜。
+ *    `preview` 一律空串：这一档上游没有例图，Danbooru 的图也不能外链 —— 空着只是没缩略图，
+ *    行还在、照样能选（跟没版权的角色同一条降级规矩）。
  */
 
 /*
@@ -62,6 +73,13 @@ export type DanbooruData = {
   backgrounds: DanbooruScene[];
   /** 服装（2026-10-08 徐先要的「服装的分类」）。 */
   clothings: DanbooruScene[];
+  /**
+   * 镜头（2026-10-09 徐先：「添加镜头分组，中景，近景，特写之类的」）。
+   *
+   * 数据与上游那四档**不同源**（见文件顶那段）：来自 Danbooru 官方 image composition 标签组。
+   * 形状沿用 `DanbooruScene`，所以挑选 / 抽签 / 组装那一套一行都不用改。
+   */
+  shots: DanbooruScene[];
 };
 
 /*
@@ -105,6 +123,8 @@ export type TagSelection = {
   backgrounds: string[];
   /** Clothing ids. */
   clothings: string[];
+  /** Shot ids (`shots.json`) — 镜头，2026-10-09 加的第六档。 */
+  shots: string[];
   /** Artist names. */
   artists: string[];
   /**
@@ -166,12 +186,17 @@ export type TagMode = 'random' | 'fixed';
 /** 自定义分类在 `modes` / 选择里用的键前缀。面板与抽签两边共用这一份，别各写一遍。 */
 export const CUSTOM_KEY_PREFIX = 'dc:';
 
-/** 内置那几档的键（自由文本 `extra` 不参与抽签，所以不在里面）。 */
-export const TAG_KINDS = ['character', 'clothing', 'pose', 'background', 'artist'] as const;
+/**
+ * 内置那几档的键（自由文本 `extra` 不参与抽签，所以不在里面）。
+ *
+ * 🔴 `shot` 排在 `pose` 之后：它就是**拼进提示词的顺序**（`composeTags` 照这个次序出），
+ *    镜头那串接在姿势后面 —— 老画布上这一档是空的，所以既有的串**一个字都不会变**。
+ */
+export const TAG_KINDS = ['character', 'clothing', 'pose', 'background', 'shot', 'artist'] as const;
 
 export function emptyTagSelection(): TagSelection {
   return {
-    characters: [], poses: [], backgrounds: [], clothings: [], artists: [],
+    characters: [], poses: [], backgrounds: [], clothings: [], shots: [], artists: [],
     custom: {}, extra: '', modes: {}, mode: 'random',
     characterDetail: false, characterTagEdits: {},
   };
@@ -236,6 +261,8 @@ export function normalizeTagSelection(raw: unknown): TagSelection {
     poses: list(src.poses),
     backgrounds: list(src.backgrounds),
     clothings: list(src.clothings),
+    /* 老画布没有这一档 -> 空数组，拼出来的串跟加这一档之前一字不差。 */
+    shots: list(src.shots),
     artists: list(src.artists),
     custom: normalizeCustomPicks(src.custom),
     extra: typeof src.extra === 'string' ? src.extra : '',
@@ -313,6 +340,7 @@ const DATA_FILES = {
   poses: '/danbooru/poses.json',
   backgrounds: '/danbooru/backgrounds.json',
   clothings: '/danbooru/clothings.json',
+  shots: '/danbooru/shots.json',
 };
 
 let cache: Promise<DanbooruData> | null = null;
@@ -327,14 +355,15 @@ let cache: Promise<DanbooruData> | null = null;
 export function loadDanbooruData(): Promise<DanbooruData> {
   if (cache) return cache;
   cache = (async () => {
-    const [characters, artists, poses, backgrounds, clothings] = await Promise.all([
+    const [characters, artists, poses, backgrounds, clothings, shots] = await Promise.all([
       fetchJson<DanbooruCharacter[]>(DATA_FILES.characters),
       fetchJson<DanbooruArtist[]>(DATA_FILES.artists),
       fetchJson<DanbooruScene[]>(DATA_FILES.poses),
       fetchJson<DanbooruScene[]>(DATA_FILES.backgrounds),
       fetchJson<DanbooruScene[]>(DATA_FILES.clothings),
+      fetchJson<DanbooruScene[]>(DATA_FILES.shots),
     ]);
-    return { characters, artists, poses, backgrounds, clothings };
+    return { characters, artists, poses, backgrounds, clothings, shots };
   })().catch(error => {
     cache = null;
     throw error;
@@ -430,6 +459,7 @@ export function tagNeedsRedraw(selection: TagSelection): boolean {
   if (draws('clothing', selection.clothings.length > 0)) return true;
   if (draws('background', selection.backgrounds.length > 0)) return true;
   if (draws('pose', selection.poses.length > 0)) return true;
+  if (draws('shot', selection.shots.length > 0)) return true;
   for (const [id, picks] of Object.entries(selection.custom || {})) {
     if (picks.length && tagModeOf(selection, `${CUSTOM_KEY_PREFIX}${id}`) === 'random') return true;
   }
@@ -448,6 +478,8 @@ export type TagDraw = {
   pose: string;
   background: string;
   clothing: string;
+  /** 镜头这一轮抽到的那条（`shots.json` 的 id）。没选 / 抽空就是空串。 */
+  shot: string;
   artists: string[];
   /** 自定义分类这一轮真正要接上去的那几串（已经按各分类自己的模式抽过）。 */
   custom: string[];
@@ -498,6 +530,7 @@ export function drawTags(
     pose: pickOne(selection.poses, streamOf('pose')),
     background: pickOne(selection.backgrounds, streamOf('background')),
     clothing: pickOne(selection.clothings, streamOf('clothing')),
+    shot: pickOne(selection.shots, streamOf('shot')),
     artists: selection.artists.slice(),
     custom: drawCustom(selection.custom, custom, streamOf),
   };
@@ -579,6 +612,15 @@ export function composeTags(draw: TagDraw, data: DanbooruData, extra: string): s
   if (background?.tags) parts.push(background.tags);
   const pose = data.poses.find(item => item.id === draw.pose);
   if (pose?.tags) parts.push(pose.tags);
+  /*
+   * 镜头接在**姿势之后**（2026-10-09 加的这一档）。
+   *
+   * 为什么不插到更前面：既有的串是「画师 → 角色 → 服装 → 环境 → 姿势 → 自定义 → 自由文本」，
+   * 插在中间会悄悄改变老画布上那些已经调好的提示词里各段的相对位置；接在内置五档之后，
+   * 只有在**这一档真选了东西**时才多出一段 —— 老画布一份不多、一份不少。
+   */
+  const shot = data.shots.find(item => item.id === draw.shot);
+  if (shot?.tags) parts.push(shot.tags);
   for (const text of draw.custom || []) if (text) parts.push(text);
   const own = String(extra || '').trim().replace(/,\s*$/, '');
   if (own) parts.push(own);
@@ -629,7 +671,11 @@ export function matchScene(item: DanbooruScene, query: string): boolean {
 export const SEARCH_LIMIT = 120;
 
 /** Human label for a chosen id, used by the "已选" chips. */
-export function sceneLabelOf(data: DanbooruData, kind: 'poses' | 'backgrounds' | 'clothings', id: string): string {
+export function sceneLabelOf(
+  data: DanbooruData,
+  kind: 'poses' | 'backgrounds' | 'clothings' | 'shots',
+  id: string,
+): string {
   const item = data[kind].find(entry => entry.id === id);
   if (!item) return id;
   return item.name_zh || item.name || id;

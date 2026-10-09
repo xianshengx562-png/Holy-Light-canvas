@@ -62,7 +62,7 @@ import {
  *    画布节点上只存「选了哪些条目 id」。所以分类被删之后老画布不会炸 —— 那一档跳过就是。
  */
 
-type Tab = 'character' | 'clothing' | 'pose' | 'background' | 'artist' | 'extra';
+type Tab = 'character' | 'clothing' | 'pose' | 'background' | 'shot' | 'artist' | 'extra';
 
 /**
  * 自定义分类的 tab key：`dc:<分类 id>`。带前缀是为了和内置那六档放同一个 state 里。
@@ -78,35 +78,40 @@ const TAB_LABEL: Record<Tab, string> = {
   clothing: '服装',
   pose: '姿势',
   background: '环境',
+  /* 镜头（2026-10-09 徐先要的「中景 / 近景 / 特写」）—— 数据来自 Danbooru 官方
+     image composition 标签组，不是上游 Anima 那四档。见 `danbooruTags.ts` 顶那段。 */
+  shot: '镜头',
   artist: '画师',
   extra: '自定义',
 };
 
-/** tab 的顺序 = 挑的时候的思维顺序（先是谁、再穿什么、再什么姿势在哪、最后谁画的）。 */
-const TAB_ORDER: Tab[] = ['character', 'clothing', 'pose', 'background', 'artist', 'extra'];
+/** tab 的顺序 = 挑的时候的思维顺序（先是谁、再穿什么、再什么姿势在哪、怎么拍、最后谁画的）。 */
+const TAB_ORDER: Tab[] = ['character', 'clothing', 'pose', 'background', 'shot', 'artist', 'extra'];
 
 /** 这一档选中的是 `string[]` 里的哪一个键（画师是「全部串」，其余是「抽一个」）。 */
-const TAB_KEY: Record<Exclude<Tab, 'extra'>, keyof Pick<TagSelection, 'characters' | 'clothings' | 'poses' | 'backgrounds' | 'artists'>> = {
+const TAB_KEY: Record<Exclude<Tab, 'extra'>, keyof Pick<TagSelection, 'characters' | 'clothings' | 'poses' | 'backgrounds' | 'shots' | 'artists'>> = {
   character: 'characters',
   clothing: 'clothings',
   pose: 'poses',
   background: 'backgrounds',
+  shot: 'shots',
   artist: 'artists',
 };
 
-/** 这三档的行数据同源（姿势 / 环境 / 服装），取 id 的方式也一致。 */
-const SCENE_KEY = { pose: 'poses', background: 'backgrounds', clothing: 'clothings' } as const;
+/** 这四档的行数据同源（姿势 / 环境 / 服装 / 镜头），取 id 的方式也一致。 */
+const SCENE_KEY = { pose: 'poses', background: 'backgrounds', clothing: 'clothings', shot: 'shots' } as const;
 type SceneTab = keyof typeof SCENE_KEY;
 
-/** 「收藏已有」能收的四档（画师不收：它的标签是 `@名字`，自己打比收藏快）。 */
+/** 「收藏已有」能收的五档（画师不收：它的标签是 `@名字`，自己打比收藏快）。 */
 const COLLECT_LABEL = {
   character: '角色',
   clothing: '服装',
   pose: '姿势',
   background: '环境',
+  shot: '镜头',
 } as const;
 type CollectFrom = keyof typeof COLLECT_LABEL;
-const COLLECT_ORDER: CollectFrom[] = ['character', 'clothing', 'pose', 'background'];
+const COLLECT_ORDER: CollectFrom[] = ['character', 'clothing', 'pose', 'background', 'shot'];
 
 /** 列表里的一行（内置档与自定义档共用同一个形状）。 */
 type Row = { id: string; title: string; sub: string; preview?: string };
@@ -875,7 +880,7 @@ export default function DanbooruTagPicker({
           <button
             type="button"
             className={`cv-dtp-tool${collectFrom ? ' on' : ''}`}
-            title="从内置的角色 / 服装 / 姿势 / 环境里挑条目收进来"
+            title="从内置的角色 / 服装 / 姿势 / 环境 / 镜头里挑条目收进来"
             onClick={() => setCollectFrom(collectFrom ? null : 'character')}
           >
             <Star size={11} strokeWidth={2} aria-hidden />
@@ -1221,7 +1226,7 @@ export default function DanbooruTagPicker({
             {data && active && !active.entries.length && !collectFrom && (
               <p className="cv-dtp-error">
                 这个分类还是空的 —— 上面「加标签」自己打一条，「导入清单」从文件读一批，
-                「收藏已有」从角色/服装/姿势/环境里挑。
+                「收藏已有」从角色/服装/姿势/环境/镜头里挑。
               </p>
             )}
             {data && rows.map(row => {

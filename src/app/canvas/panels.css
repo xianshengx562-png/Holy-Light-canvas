@@ -4433,6 +4433,17 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   overflow: hidden;
 }
 
+/*
+ * 没有图的那一档（2026-10-09 加的「镜头」：上游没有例图，`preview` 一律空串）
+ * 把那个固定方块整个撤掉，别留一排一模一样的灰格子 —— 那看着像「图全没加载出来」。
+ *
+ * 🔴 只对**真没图**的那一行生效：`<img>` 是子节点，所以还没加载完的图不会被 `:empty` 命中。
+ *    顺带也修掉了没版权的角色（拼不出缩略图地址）原来露出来的那个空方块。
+ */
+.cv-dtp-thumb:empty {
+  display: none;
+}
+
 .cv-dtp-thumb img {
   width: 100%;
   height: 100%;

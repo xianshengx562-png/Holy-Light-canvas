@@ -1944,3 +1944,53 @@ https://blobs.animadex.net/Outputs/thumbs/<name>, <copyright>.webp      （都�
 删分类 / 删档两步确认（第一下变「确认删除」），删完 tab 回到三档、磁盘同步清空。
 全程**没碰他的 `dist` 与 `frame.db`**（验证：他的 `%APPDATA%\holy-light-canvas\creative-presets\mine.json` 不存在）。
 截图：`design-previews/2026-10-08-创作预设自建档分类/`。
+
+## 追加（2026-10-09）D站标签加「镜头」档（1.0.118）
+
+徐先：「d站标签添加镜头分组，中景，近景，特写之类的（**去网上找，不要自己加**）」。
+
+**数据不是自编的。** 上游 `nregret/AnimaTags-DB` 只有 character / clothing / pose / background
+四类，**没有镜头** —— 所以这一档另起一份 `src/public/danbooru/shots.json`（29 条），
+内容是照 **Danbooru 官方 `wiki_pages/tag_group:image_composition`** 那一页抄的三节：
+
+| 分节（官方原文） | 条数 | 举例 |
+| --- | --- | --- |
+| Framing the body（景别） | 12 | `close-up` / `portrait` / `upper_body` / `cowboy_shot` / `feet_out_of_frame` / `full_body` / `wide_shot` / `very_wide_shot` / `lower_body` / `head_out_of_frame` / `eyes_out_of_frame` / `profile` |
+| View Angle（机位） | 12 | `dutch_angle` / `from_above` / `from_below` / `from_behind` / `from_side` / `straight-on` / `three-quarter_view` / `high_up` / `sideways` / `upside-down` / `pov` / `multiple_views` |
+| Perspective / Depth（透视） | 5 | `atmospheric_perspective` / `fisheye` / `panorama` / `perspective` / `vanishing_point` |
+
+🔴 **每个 tag 都在官方标签库里逐个查过存在**（不是照着 wiki 的标题拼的）——
+wiki 上写的是带空格的标题，实际 tag 混用两种连接符：`close-up` / `straight-on` /
+`upside-down` / `three-quarter_view` 是**连字符**，别的一律下划线。
+顺手把搜索结果里那份「AI 编的清单」丢掉了：`movie_style` / `cinematic_shot` /
+`over_the_shoulder_shot` / `bird's-eye_view` / `worm's-eye_view` / `medium_shot`
+在 Danbooru 里**一个都不存在**（`medium_shot` 只有 `cowboy_shot` 这个等价物）。
+
+中文名 = 官方 wiki 那句括号说明的直译（`portrait` = "Face through shoulders" → 脸到肩），
+前面那个「近景 / 中景 / 特写」是影视里的对应叫法，纯粹为了**搜得到**（他嘴里说的就是这几个词）。
+`preview` 一律空串：这一档没有例图 —— 顺手在 `panels.css` 加 `.cv-dtp-thumb:empty { display: none }`，
+把那个空方块撤掉（`:empty` 只命中**真没图**的行，没加载完的 `<img>` 是子节点、不受影响）。
+
+**接线**：`DanbooruScene` 的形状原样复用，所以挑选 / 抽签 / 组装那三套一行没改，
+只加了一条数据通路 —— `DanbooruData.shots` / `TagSelection.shots` / `DATA_FILES` /
+`Promise.all` 一路 / `TAG_KINDS` / `tagNeedsRedraw` / `TagDraw.shot` / `drawTags` /
+`composeTags` / `sceneLabelOf` 的 kind 联合；面板那边是 `Tab` / `TAB_LABEL` / `TAB_ORDER` /
+`TAB_KEY` / `SCENE_KEY` / `COLLECT_LABEL` / `COLLECT_ORDER`。
+
+🔴 **组装位置定在姿势之后、自定义之前**（`TAG_KINDS` 里 `shot` 跟在 `pose` 后面）。
+不插到前面去：那会悄悄改掉老画布上那些已经调好的串里各段的相对位置。
+这一档在老画布上是空的 → 拼出来的串**逐字节不变**（单测里钉了一条）。
+
+**验收**（真机 + 隔离实例，临时包 `C:\Windows\Temp\_hlbuild118`、端口 9364，探针 `shot_probe.js`，**32 项 ALL PASS**）：
+`fetch('/danbooru/shots.json')` 在 `app://app` 下取到 29 条（含 4 个编造 tag 的否定断言）；
+tab 条 `["角色","服装","姿势","环境","镜头","画师","自定义"]`；点进去列出 29 行、
+中景 / 近景 / 特写都在；空缩略图 `display:none`；勾「中景」→ 底栏那串出现 `cowboy_shot, `；
+抽签模式那一行挂在 `shot` 这一档；中英文都能搜到。
+
+🔴 **这一轮真机撞到的坑**：点节点卡上那颗「标签」**什么都不会出现** ——
+因为 `inspectorOpen` **初值就是 `true`**，而浮动那一支的条件是 `!inspectorOpen`，
+就地那一支又只喂给「当前正被检查的那个节点」。探针里得先点顶栏那颗「节点参数」把它收起来。
+（这不是 bug，是既有设计；但「点标签没反应」在没有这条认知时会看着像坏了。）
+
+🔴 单测跑法（`_tagstest.ts`）编译完**要给 `@/` 补一份别名**，不然 `Cannot find module '@/lib/danbooruCats'`：
+`outDir/node_modules/@` 指向产物根（`cp -r lib components <out>/node_modules/@/`）。
