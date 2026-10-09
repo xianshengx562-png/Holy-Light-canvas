@@ -2466,3 +2466,49 @@ fixed 后代的包含块是视口，除非祖先带 `transform` / `filter`（这
 - 键盘 `→` / `←` 等价可用；焦点在输入框里时 `→` **不翻页**。
 - 开第 60 张（末尾）：按钮是「加载更多」、提示里写着「后面还有」；
   点它 → 卡片 60 → 120 → 落在「第 61 / 120 项」，按钮变回「下一张」，「上一张」仍在。
+
+## 2026-10-09 · 1.0.122（二）贴进画布的图被判成「尚未上传完成」—— 那道闸只认资产库地址
+
+徐先发来一张截图问「我复制粘贴的图片上传不了吗」：参考图节点上明明看得到图、
+写着「已放进画布」，右边的图片生成节点却挂着红字「参考图或 latent 尚未上传完成」。
+
+**真因不是上传，是前端那道就绪闸没认地址形状。**
+
+- 拖 / 粘进画布的图（`CanvasEditor.archiveMedia`）存的是**画布素材**：
+  `/api/canvas-media/<projectId>/<uuid>.<ext>` —— 刻意**不进资产库**、没有 Asset 记录
+  （2026-10-08 他定的：「从外面添加的图片拉入画布会自动进入资产库，这个 bug 也修复」）。
+- 服务端那条路早就认它了（`lib/referenceImages.ts` / `lib/upscale.ts` 里
+  `parseCanvasMediaUrl` 那一支，2026-10-08 加的）——**读盘取字节、重传给 RunningHub 都通**。
+- 但前端 **`src/components/canvas/mediaChain.ts` 只认 `/api/assets/`**（`LOCAL_ASSET_PREFIX`）：
+  `imageUrlsOf()` 对画布素材地址返回**空数组** → `pendingMedia` 判 true →
+  点运行被拦，红字就是那句笼统的「参考图或 latent 尚未上传完成」。
+  ⚠️ 而它**怎么重新上传都不会好** —— 缺的不是上传。
+
+**改了什么**（`mediaChain.ts`）
+
+- 新增 `CANVAS_MEDIA_PREFIX = '/api/canvas-media/'` 与 `isLocalMediaUrl()`：
+  「本机落盘、服务端读得到字节」现在**有两种形状**（资产库的 + 画布素材的）。
+- 四处判断改用 `isLocalMediaUrl()`：`isResolvableUrl()`、`imageUrlsOf()` 的
+  bytes / submit 两支、`videoUrlsOf()` 的本地那一支。
+- `CanvasEditor.tsx` 收参考图那句 `local.startsWith('/api/assets/')` 一并改掉
+  （同一把尺子，漏了它就会走到「请等上传完成」那句假话上）。
+- 🔴 前缀在 `mediaChain.ts` **又写了一遍**而不是 import `@/lib/canvas-media`：
+  那个文件是纯函数层，不许拖进带 `@/` 别名的工作流依赖链（文件头写着）。
+  风险由注释兜着：**改前缀要同时改 `lib/canvas-media.ts` 的 `CANVAS_MEDIA_PREFIX`。**
+
+**验收**
+
+- 单测（编译真代码跑断言，`_tsconfig.mediatest.json` + `_mediatest_run.js`）
+  **24 PASS / 0 FAIL**：画布素材地址算参考图 / 算「服务端取得到字节」；资产库地址与
+  http 链接照旧；`blob:` 与远端文件名照旧**不**算；`videoUrlsOf`、`pickMediaInput`
+  （看图反推）两条路都跟着通。
+- 真机探针（临时包 `_hlbuild122b` + 隔离实例，打开他那份带参考图的画布）
+  `refmedia_probe.js` **13 PASS / 0 FAIL**：
+  - 画布上原有的两个参考图节点是 `/api/assets/...`（从资产库来的，对照组）；
+  - 派一次真实的 `paste`（`DataTransfer` + `ClipboardEvent`，与用户复制粘贴同一条 `onPaste`）
+    → 新节点**先**是 `blob:` 中间态 → `archiveMedia` 落盘后变成
+    `/api/canvas-media/<projectId>/<uuid>.png`，回执「已放进画布」；
+  - 那条地址在同一台机器上 `fetch` 得到 **200 / image/png / 308 B**（服务端提交时读盘重传的正是它）；
+  - 老节点没被动过。
+  - ⚠️ 第一轮探针 FAIL 2 条是**探针自己量错了对象**：它在「刚贴上、还是 blob」那一刻就下了结论。
+    判据要等落盘之后的那个态 —— 这类「中间态」在画布上很常见，量之前先想清楚等的是哪一刻。

@@ -53,7 +53,8 @@ import { isRunningHubAppWorkflowId } from '@/lib/workflows/runninghubApp';
 import { optimizeInputOf as optimizeInputIn, promptTextOf as promptTextIn, resolveTextChain } from './textChain';
 import type { TextChainEdge, TextChainNode } from './textChain';
 import {
-  isImageSourceKind, isPinnedUploadKind, pickMediaInput as pickMediaInputIn, isVideoSourceKind, videoUrlsOf,
+  isImageSourceKind, isLocalMediaUrl, isPinnedUploadKind, pickMediaInput as pickMediaInputIn,
+  isVideoSourceKind, videoUrlsOf,
 } from './mediaChain';
 import type { MediaChain, MediaChainEdge, MediaChainNode } from './mediaChain';
 import { compositionPrompt, describeShot, readDirectorScene, type DirectorScene } from '@/lib/director';
@@ -2406,8 +2407,13 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         for (const item of wiredImages) {
           const preview = String(item.data.previewUrl || '').trim();
           const local = String(item.data.imageUrl || '').trim();
-          /** 首尾帧节点没有 previewUrl：它那两张图的地址在自己的字段里，取字节要的是那个。 */
-          const source = preview || (local.startsWith('/api/assets/') ? local : '') || referenceUrlsOf(item.data, 'bytes')[0] || '';
+          /**
+           * 首尾帧节点没有 previewUrl：它那两张图的地址在自己的字段里，取字节要的是那个。
+           * 🔴 `local` 那一支要认**两种落盘地址**（资产库的 + 拖 / 粘进画布的画布素材，见
+           * `isLocalMediaUrl`）—— 只认前者的话，粘进画布的图会走到上面那句「请等上传完成」，
+           * 而它早就落盘了，等到天亮也不会变。
+           */
+          const source = preview || (isLocalMediaUrl(local) ? local : '') || referenceUrlsOf(item.data, 'bytes')[0] || '';
           if (!source) {
             return `第 ${out.length + 1} 张参考图只有本地预览，服务端取不到它的字节 —— 请等上传完成，或重新上传这张图`;
           }

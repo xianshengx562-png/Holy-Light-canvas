@@ -15,6 +15,31 @@
 /** 已落盘媒体的地址形状。三处判断（能不能取字节、能不能提交、要不要补上传）必须认同一个前缀。 */
 export const LOCAL_ASSET_PREFIX = '/api/assets/';
 
+/**
+ * 画布素材的取流地址：`/api/canvas-media/<projectId>/<uuid>.<ext>`（2026-10-09 补）。
+ *
+ * 拖进 / 粘进画布的图**就是这一种**（`CanvasEditor.archiveMedia` 存的是这里，
+ * 刻意不进资产库、也没有 Asset 记录）。它跟资产库那份一样是**本机落盘**的，
+ * 服务端能读盘取字节（`lib/referenceImages.ts`、`lib/upscale.ts` 里那两支）。
+ *
+ * 🔴 前缀**在这里再写一遍**（不去 import `@/lib/canvas-media`）：这个文件是纯函数层，
+ *    不许拖进带 `@/` 别名的工作流依赖链（见文件头）。两处各写一份的风险由这条注释兜着：
+ *    **改前缀要同时改 `lib/canvas-media.ts` 的 `CANVAS_MEDIA_PREFIX`。**
+ */
+export const CANVAS_MEDIA_PREFIX = '/api/canvas-media/';
+
+/**
+ * 这个地址是不是**本机落盘**的媒体（服务端读得到字节）。
+ *
+ * 少了画布素材那一支的症状（2026-10-09 徐先贴了一张图报「参考图或 latent 尚未上传完成」）：
+ * 卡片上明明看得到图、线也连好了，点运行却被拦，而且**怎么重新上传都不会好** ——
+ * 因为它缺的不是上传，是这道判据没认它。
+ */
+export function isLocalMediaUrl(value: unknown) {
+  const text = String(value ?? '').trim();
+  return text.startsWith(LOCAL_ASSET_PREFIX) || text.startsWith(CANVAS_MEDIA_PREFIX);
+}
+
 /** 参与这条链的节点的最小形状（`Node<NodeData>` 天然满足）。 */
 export type MediaChainNode = {
   id: string;
@@ -110,7 +135,7 @@ export function isVideoSourceKind(kind: unknown) {
  */
 export function isResolvableUrl(value: unknown) {
   const text = String(value ?? '').trim();
-  return text.startsWith(LOCAL_ASSET_PREFIX) || /^https?:\/\//i.test(text);
+  return isLocalMediaUrl(text) || /^https?:\/\//i.test(text);
 }
 
 /** 地址后缀：视频。三处「这个结果该画成什么」的判定必须认同一份（见 `nodeMeta` 的注释）。 */
@@ -155,9 +180,9 @@ export function imageUrlsOf(data: MediaChainNode['data'], mode: 'submit' | 'byte
   if (bytes) {
     const preview = String(data.previewUrl || '').trim();
     if (preview) return [preview];
-    /** 只有落盘的资产地址能读盘取字节；本地 blob 服务端取不到。 */
+    /** 只有**落盘**的地址能读盘取字节（资产库的、画布素材的）；本地 blob 服务端取不到。 */
     const local = String(data.imageUrl || '').trim();
-    if (local.startsWith(LOCAL_ASSET_PREFIX)) return [local];
+    if (isLocalMediaUrl(local)) return [local];
     /*
      * 生成节点跑完之后身上**只有结果地址**（`resultUrl`），既没有 preview 也没有本地资产 ——
      * 漏掉它的症状正是这一层要防的那一种：卡片上看得到图，点反推却说「没有图」。
@@ -172,9 +197,12 @@ export function imageUrlsOf(data: MediaChainNode['data'], mode: 'submit' | 'byte
    * 从**资产库导入**的节点（以及首页带过来的预设）身上只有本站资产地址，没有远端文件名。
    * 这里必须把它算进来。漏掉它的症状是「卡片上看得到图、连好了线，点运行却说没有参考图」，
    * 而且用户没有任何办法修好它 —— 因为界面上根本没说缺的是什么。
+   *
+   * 🔴 **拖进 / 粘进画布的图走的是同一条**（地址是画布素材那种，见 `CANVAS_MEDIA_PREFIX`）：
+   *    漏掉它就会报「参考图或 latent 尚未上传完成」，而那张图其实什么都不缺、重新传一百遍也没用。
    */
   const local = String(data.imageUrl || data.previewUrl || '').trim();
-  return local.startsWith(LOCAL_ASSET_PREFIX) ? [local] : [];
+  return isLocalMediaUrl(local) ? [local] : [];
 }
 
 /**
@@ -198,7 +226,8 @@ export function videoUrlsOf(data: MediaChainNode['data'], mode: 'submit' | 'byte
   const remote = String(data.videoRemoteUrl || '').trim();
   if (remote && isResolvableUrl(remote)) return [remote];
   const local = String(data.videoUrl || '').trim();
-  if (local.startsWith(LOCAL_ASSET_PREFIX)) return [local];
+  /* 拖进 / 粘进画布的视频同样落在画布素材目录里（`CANVAS_MEDIA_PREFIX`），一并认。 */
+  if (isLocalMediaUrl(local)) return [local];
   if (mode === 'submit') {
     /* 提交那条路认对端平台的文件名（工作流里的 LoadVideo 吃的就是它）。 */
     const named = String(data.videoRemoteFile || data.remoteFile || '').trim();
