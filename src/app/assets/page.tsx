@@ -516,6 +516,9 @@ export default function Assets() {
             onChanged={reloadAll}
             onUpscale={startUpscale}
             upscalingId={upscaling?.assetId ?? null}
+            /* 灯箱翻页翻到已加载的最后一张时，由画廊自己叫一次「加载更多」再接着翻。 */
+            hasMore={hasMore}
+            onLoadMore={loadMore}
           />
 
           {/*

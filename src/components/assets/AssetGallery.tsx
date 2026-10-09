@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
-  Check, Copy, Eye, FileArchive, FileText, FolderOpen, ImageIcon, Music, Pencil, Sparkles, Trash2, Video, X,
+  Check, ChevronLeft, ChevronRight, Copy, Eye, FileArchive, FileText, FolderOpen, ImageIcon, Music, Pencil, Sparkles, Trash2, Video, X,
 } from 'lucide-react';
 import { apiPatch, apiPost } from '@/lib/client';
 import { revealFilePath } from '@/lib/desktop-fs';
@@ -62,7 +62,7 @@ function Glyph({ kind }: { kind: Kind }) {
   return <FileArchive size={22} strokeWidth={1.5} aria-hidden />;
 }
 
-export default function AssetGallery({ items, categories, onChanged, onUpscale, upscalingId }: {
+export default function AssetGallery({ items, categories, onChanged, onUpscale, upscalingId, hasMore, onLoadMore }: {
   items: GalleryItem[];
   /** 用户自己维护的分类表。灯箱里的分类按钮与批量「归类」都按它来画。 */
   categories: AssetCategoryItem[];
@@ -80,6 +80,14 @@ export default function AssetGallery({ items, categories, onChanged, onUpscale, 
   onUpscale?: (item: GalleryItem) => void;
   /** 正在超清的那一条（页面在轮询）。卡片 / 按钮按它显形，不另开一套状态。 */
   upscalingId?: string | null;
+  /**
+   * 列表后面还有没有下一页（2026-10-09 起资产库一次只给 60 条）。
+   * 给了它，「下一张」翻到已加载的最后一张时会**先把下一页要来再接着翻**，
+   * 而不是就地停住 —— 停住会让人以为是「就这些了」。不给就是单一页，翻到尾即止。
+   */
+  hasMore?: boolean;
+  /** 要下一页（上层往 `items` 后面追加）。 */
+  onLoadMore?: () => void | Promise<void>;
 }) {
   const router = useRouter();
   const [openId, setOpenId] = useState<string | null>(null);
@@ -88,6 +96,8 @@ export default function AssetGallery({ items, categories, onChanged, onUpscale, 
   const [catBusy, setCatBusy] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
   const open = items.find(item => item.id === openId) || null;
+  /** 灯箱里当前是第几张（`-1` = 列表里已经没有它了，比如刚被删掉）。 */
+  const openIndex = openId ? items.findIndex(item => item.id === openId) : -1;
 
   /* ── 右键菜单 / 改名（2026-09-26）──────────────────────────── */
   const [menu, setMenu] = useState<{ x: number; y: number; item: GalleryItem } | null>(null);
@@ -137,6 +147,62 @@ export default function AssetGallery({ items, categories, onChanged, onUpscale, 
     setCopied(false);
     if (copyTimer.current) { window.clearTimeout(copyTimer.current); copyTimer.current = null; }
   }, []);
+
+  /* ── 灯箱翻页（2026-10-10 徐先：「资产库图片的预览可以添加上一张，下一张的按钮」）── */
+  /*
+   * 换张 = 换 `openId`，其余自己会跟着走：文本那一段的 useEffect 认的是 `open.id`，
+   * 视频换 `src`、图片换 `src` 都是 React 里同一件事。
+   *
+   * 🔴 换张时**必须把上一张留下的中间状态清掉**：「已复制」那两颗字的回执、
+   *    上一张报的红字、正在打分类那个 `busy` —— 不清的话新一张上会挂着上一张的回执，
+   *    看着像「这张已经复制过了 / 这张也报错了」。
+   */
+  const showAt = useCallback((index: number) => {
+    const target = items[index];
+    if (!target) return;
+    setOpenId(target.id);
+    setError('');
+    setCopied(false);
+    if (copyTimer.current) { window.clearTimeout(copyTimer.current); copyTimer.current = null; }
+  }, [items]);
+
+  /** 往后一页再落一条（见 `hasMore`）。`moreBase` 记下「要页之前加载到哪」—— 下一张就是那个下标。 */
+  const [awaitingMore, setAwaitingMore] = useState(false);
+  const moreBase = useRef(0);
+
+  const step = useCallback((delta: number) => {
+    if (openIndex < 0) return;
+    const target = openIndex + delta;
+    if (target < 0 || target > items.length - 1) return;
+    showAt(target);
+  }, [openIndex, items.length, showAt]);
+
+  const goNext = useCallback(() => {
+    if (openIndex < 0) return;
+    if (openIndex < items.length - 1) { showAt(openIndex + 1); return; }
+    /* 已经是已加载的最后一张：后面还有的话，先把下一页要来再接着翻（不能就地停住）。 */
+    if (hasMore && onLoadMore) {
+      moreBase.current = items.length;
+      setAwaitingMore(true);
+      void onLoadMore();
+    }
+  }, [openIndex, items.length, hasMore, onLoadMore, showAt]);
+
+  /* 新一页到了 → 落在原先那个「最后一张」的下一条上。 */
+  useEffect(() => {
+    if (!awaitingMore) return;
+    if (items.length > moreBase.current) {
+      setAwaitingMore(false);
+      showAt(Math.min(moreBase.current, items.length - 1));
+    }
+  }, [awaitingMore, items.length, showAt]);
+
+  /* 要不到（离线 / 接口错）也得把等待收掉，不能一直挂在「下一张」上。 */
+  useEffect(() => {
+    if (!awaitingMore) return;
+    const timer = window.setTimeout(() => setAwaitingMore(false), 10000);
+    return () => window.clearTimeout(timer);
+  }, [awaitingMore]);
 
   /** 打开文件所在位置：资源管理器里定位到这一份，而不是只打开目录。 */
   const reveal = useCallback(async (item: GalleryItem) => {
@@ -215,12 +281,25 @@ export default function AssetGallery({ items, categories, onChanged, onUpscale, 
     }
   }
 
+  /*
+   * Esc 关灯箱；`←` / `→` 翻上一张 / 下一张（翻页那两颗按钮的键盘版）。
+   * 🔴 焦点在输入框里时左右键是「移动光标」，别抢 —— 灯箱里没有输入框，
+   *    但改名那一次是在卡片上的，键盘监听是挂在 window 上的，写死一次省得以后踩。
+   */
   useEffect(() => {
     if (!open) return;
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') close(); };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { close(); return; }
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+      const el = event.target as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+      event.preventDefault();
+      if (event.key === 'ArrowLeft') step(-1);
+      else goNext();
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, close]);
+  }, [open, close, step, goNext]);
 
   /*
    * 文本资产在灯箱里要**把那一段话显示出来**，而不是只摆一个图标 —— 图标等于什么都没看到。
@@ -630,52 +709,92 @@ export default function AssetGallery({ items, categories, onChanged, onUpscale, 
                 <strong>{open.name}</strong>
                 <p className="muted">
                   {KIND_TEXT[open.type]}{open.category ? ` · ${open.category}` : ''} · {open.sizeLabel} · {open.createdLabel}
+                  {/* 「第几张」只在**翻得动**时才说：只有一张时那句话是废话。 */}
+                  {openIndex >= 0 && items.length > 1 && ` · 第 ${openIndex + 1} / ${items.length} 项`}
                 </p>
               </div>
               <button className="asset-lightbox-close" type="button" onClick={close} aria-label="关闭">
                 <X size={18} strokeWidth={2} aria-hidden />
               </button>
             </header>
-            <div className="asset-lightbox-stage">
-              {/* 灯箱里这两样也能直接拖出去（图片拖进 PS、视频拖进剪辑软件都是常见一步）。 */}
-              {open.type === 'image' && (
-                <img
-                  ref={stageImgRef}
-                  src={open.url}
-                  alt={open.name}
-                  draggable
-                  onPointerDown={() => prefetchPath(open.id)}
-                  onDragStart={event => startDrag(event, open.id)}
-                />
+            {/*
+              翻页那一层：两颗按钮贴在预览区**两侧、垂直居中**。
+              🔴 定位宿主是这一层而不是 `.asset-lightbox-stage`：stage 自己 `overflow:hidden`，
+                 按钮放进去会被裁掉一半（图片撑满时它跟图片一样大）。
+            */}
+            <div className="asset-lightbox-viewport">
+              {openIndex > 0 && (
+                <button
+                  className="asset-lightbox-nav prev"
+                  type="button"
+                  data-asset-lightbox-prev
+                  aria-label="上一张"
+                  title="上一张（←）"
+                  onClick={() => step(-1)}
+                >
+                  <ChevronLeft size={22} strokeWidth={2} aria-hidden />
+                </button>
               )}
-              {open.type === 'video' && (
-                <video
-                  src={open.url}
-                  controls
-                  autoPlay
-                  playsInline
-                  draggable
-                  onPointerDown={() => prefetchPath(open.id)}
-                  onDragStart={event => startDrag(event, open.id)}
-                />
-              )}
-              {open.type === 'audio' && (
-                <audio className="asset-lightbox-audio" src={open.url} controls preload="metadata" />
-              )}
-              {open.type === 'latent' && (
-                <div className="asset-lightbox-note">
-                  <Glyph kind="latent" />
-                  <p>latent 是给「接续上一段」用的中间态，不能预览。用下面的「打开文件所在位置」在文件夹里找到它，拖进画布的接续节点就行。</p>
-                </div>
-              )}
-              {open.type === 'text' && (
-                <div className="asset-lightbox-note asset-lightbox-text">
-                  {textBody ? (
-                    <pre>{textBody}</pre>
-                  ) : (
-                    <p>内容没能读出来，用下面的「打开文件所在位置」找到这份 .txt 打开看看。</p>
-                  )}
-                </div>
+              <div className="asset-lightbox-stage">
+                {/* 灯箱里这两样也能直接拖出去（图片拖进 PS、视频拖进剪辑软件都是常见一步）。 */}
+                {open.type === 'image' && (
+                  <img
+                    ref={stageImgRef}
+                    src={open.url}
+                    alt={open.name}
+                    draggable
+                    onPointerDown={() => prefetchPath(open.id)}
+                    onDragStart={event => startDrag(event, open.id)}
+                  />
+                )}
+                {open.type === 'video' && (
+                  <video
+                    src={open.url}
+                    controls
+                    autoPlay
+                    playsInline
+                    draggable
+                    onPointerDown={() => prefetchPath(open.id)}
+                    onDragStart={event => startDrag(event, open.id)}
+                  />
+                )}
+                {open.type === 'audio' && (
+                  <audio className="asset-lightbox-audio" src={open.url} controls preload="metadata" />
+                )}
+                {open.type === 'latent' && (
+                  <div className="asset-lightbox-note">
+                    <Glyph kind="latent" />
+                    <p>latent 是给「接续上一段」用的中间态，不能预览。用下面的「打开文件所在位置」在文件夹里找到它，拖进画布的接续节点就行。</p>
+                  </div>
+                )}
+                {open.type === 'text' && (
+                  <div className="asset-lightbox-note asset-lightbox-text">
+                    {textBody ? (
+                      <pre>{textBody}</pre>
+                    ) : (
+                      <p>内容没能读出来，用下面的「打开文件所在位置」找到这份 .txt 打开看看。</p>
+                    )}
+                  </div>
+                )}
+              </div>
+              {/*
+                最后一张时这颗按钮**不消失**：后面还有下一页的话它是「加载更多」，
+                点了先把下一页要来再落到下一条（见 `hasMore`）。真的一张都不剩了才不画。
+              */}
+              {openIndex >= 0 && (openIndex < items.length - 1 || hasMore) && (
+                <button
+                  className="asset-lightbox-nav next"
+                  type="button"
+                  data-asset-lightbox-next
+                  disabled={awaitingMore}
+                  aria-label={awaitingMore ? '正在加载' : openIndex < items.length - 1 ? '下一张' : '加载更多'}
+                  title={awaitingMore
+                    ? '正在加载下一页…'
+                    : openIndex < items.length - 1 ? '下一张（→）' : '后面还有，先加载再继续（→）'}
+                  onClick={goNext}
+                >
+                  <ChevronRight size={22} strokeWidth={2} aria-hidden />
+                </button>
               )}
             </div>
             {/*

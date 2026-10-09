@@ -2033,6 +2033,38 @@ h1 { margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.02em; }
   cursor: pointer;
 }
 .asset-lightbox-close:hover { color: var(--text); border-color: var(--line-strong); }
+/*
+ * 灯箱翻页（2026-10-10 徐先：「资产库图片的预览可以添加上一张，下一张的按钮」）。
+ *
+ * 两颗按钮贴在预览区**两侧、垂直居中**。
+ * 🔴 定位宿主是 `.asset-lightbox-viewport`（这一层为了定位而存在）而不是 `.asset-lightbox-stage`：
+ *    stage 自己 `overflow: hidden`，按钮放进去会被裁掉一半。
+ * 🔴 半透明**写死 alpha**（`opacity` 而不是 `color-mix`）—— 背景色令牌在两套主题下不一样，
+ *    `color-mix` 出来的东西在深档里会糊成一片。
+ */
+.asset-lightbox-viewport { position: relative; display: grid; }
+.asset-lightbox-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  box-shadow: var(--sh-1);
+  opacity: 0.94;
+  cursor: pointer;
+}
+.asset-lightbox-nav.prev { left: 12px; }
+.asset-lightbox-nav.next { right: 12px; }
+.asset-lightbox-nav:hover:not(:disabled) { color: var(--text); border-color: var(--line-strong); opacity: 1; }
+.asset-lightbox-nav:disabled { opacity: 0.45; cursor: default; }
 .asset-lightbox-stage {
   display: grid;
   place-items: center;
