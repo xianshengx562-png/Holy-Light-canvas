@@ -20,6 +20,17 @@
  *    前面那个「近景 / 中景」是影视里的对应叫法，方便搜。
  *    `preview` 一律空串：这一档上游没有例图，Danbooru 的图也不能外链 —— 空着只是没缩略图，
  *    行还在、照样能选（跟没版权的角色同一条降级规矩）。
+ *
+ * 🔴 `effects.json`（画面效果，2026-10-10 徐先要的「丁达尔效应」那类）也**不是** Anima 的，
+ *    同样是从 Danbooru 官方抄的，而且抄的是**两页**：
+ *      · `tag_group:lighting` 的 Types / Directional / Absence of light 三节
+ *        （丁达尔效应在官方库里叫 `light_rays` —— `tyndall_effect` 这个词**根本不存在**，
+ *         `god_rays` / `crepuscular_rays` 虽然建了却 0 条、也没进官方那一页，都不收）；
+ *      · `tag_group:image_composition` 的 Techniques 一节里的光学 / 渲染效果
+ *        （`bokeh`、`depth_of_field`、`lens_flare`、`film_grain` …）。
+ *    每一个 tag 都逐个在标签库里查过存在。官方页面上标了
+ *    "This wiki page does not have a tag" 的那几个（`moonlight` / `caustics` /
+ *    `crack_of_light` / `darkness`）一律**不收** —— 那句话的意思就是它不是一个真 tag。
  */
 
 /*
@@ -80,6 +91,13 @@ export type DanbooruData = {
    * 形状沿用 `DanbooruScene`，所以挑选 / 抽签 / 组装那一套一行都不用改。
    */
   shots: DanbooruScene[];
+  /**
+   * 画面效果（2026-10-10 徐先：「添加分类，画面效果，比如丁达尔效应」）。
+   *
+   * 与 `shots` 同一条路子：数据来自 Danbooru 官方那两页（见文件顶），形状沿用
+   * `DanbooruScene`，所以挑选 / 抽签 / 组装那套一行都不用改。
+   */
+  effects: DanbooruScene[];
 };
 
 /*
@@ -125,6 +143,8 @@ export type TagSelection = {
   clothings: string[];
   /** Shot ids (`shots.json`) — 镜头，2026-10-09 加的第六档。 */
   shots: string[];
+  /** Effect ids (`effects.json`) — 画面效果（丁达尔效应那类），2026-10-10 加的第七档。 */
+  effects: string[];
   /** Artist names. */
   artists: string[];
   /**
@@ -189,14 +209,15 @@ export const CUSTOM_KEY_PREFIX = 'dc:';
 /**
  * 内置那几档的键（自由文本 `extra` 不参与抽签，所以不在里面）。
  *
- * 🔴 `shot` 排在 `pose` 之后：它就是**拼进提示词的顺序**（`composeTags` 照这个次序出），
- *    镜头那串接在姿势后面 —— 老画布上这一档是空的，所以既有的串**一个字都不会变**。
+ * 🔴 `shot` 排在 `pose` 之后、`effect` 排在 `shot` 之后：这就是**拼进提示词的顺序**
+ *    （`composeTags` 照这个次序出），镜头接在姿势后面、画面效果接在镜头后面 ——
+ *    老画布上这两档都是空的，所以既有的串**一个字都不会变**。
  */
-export const TAG_KINDS = ['character', 'clothing', 'pose', 'background', 'shot', 'artist'] as const;
+export const TAG_KINDS = ['character', 'clothing', 'pose', 'background', 'shot', 'effect', 'artist'] as const;
 
 export function emptyTagSelection(): TagSelection {
   return {
-    characters: [], poses: [], backgrounds: [], clothings: [], shots: [], artists: [],
+    characters: [], poses: [], backgrounds: [], clothings: [], shots: [], effects: [], artists: [],
     custom: {}, extra: '', modes: {}, mode: 'random',
     characterDetail: false, characterTagEdits: {},
   };
@@ -263,6 +284,8 @@ export function normalizeTagSelection(raw: unknown): TagSelection {
     clothings: list(src.clothings),
     /* 老画布没有这一档 -> 空数组，拼出来的串跟加这一档之前一字不差。 */
     shots: list(src.shots),
+    /* 同上：画面效果这一档老画布上也是空的。 */
+    effects: list(src.effects),
     artists: list(src.artists),
     custom: normalizeCustomPicks(src.custom),
     extra: typeof src.extra === 'string' ? src.extra : '',
@@ -341,6 +364,7 @@ const DATA_FILES = {
   backgrounds: '/danbooru/backgrounds.json',
   clothings: '/danbooru/clothings.json',
   shots: '/danbooru/shots.json',
+  effects: '/danbooru/effects.json',
 };
 
 let cache: Promise<DanbooruData> | null = null;
@@ -355,15 +379,16 @@ let cache: Promise<DanbooruData> | null = null;
 export function loadDanbooruData(): Promise<DanbooruData> {
   if (cache) return cache;
   cache = (async () => {
-    const [characters, artists, poses, backgrounds, clothings, shots] = await Promise.all([
+    const [characters, artists, poses, backgrounds, clothings, shots, effects] = await Promise.all([
       fetchJson<DanbooruCharacter[]>(DATA_FILES.characters),
       fetchJson<DanbooruArtist[]>(DATA_FILES.artists),
       fetchJson<DanbooruScene[]>(DATA_FILES.poses),
       fetchJson<DanbooruScene[]>(DATA_FILES.backgrounds),
       fetchJson<DanbooruScene[]>(DATA_FILES.clothings),
       fetchJson<DanbooruScene[]>(DATA_FILES.shots),
+      fetchJson<DanbooruScene[]>(DATA_FILES.effects),
     ]);
-    return { characters, artists, poses, backgrounds, clothings, shots };
+    return { characters, artists, poses, backgrounds, clothings, shots, effects };
   })().catch(error => {
     cache = null;
     throw error;
@@ -460,6 +485,7 @@ export function tagNeedsRedraw(selection: TagSelection): boolean {
   if (draws('background', selection.backgrounds.length > 0)) return true;
   if (draws('pose', selection.poses.length > 0)) return true;
   if (draws('shot', selection.shots.length > 0)) return true;
+  if (draws('effect', selection.effects.length > 0)) return true;
   for (const [id, picks] of Object.entries(selection.custom || {})) {
     if (picks.length && tagModeOf(selection, `${CUSTOM_KEY_PREFIX}${id}`) === 'random') return true;
   }
@@ -480,6 +506,8 @@ export type TagDraw = {
   clothing: string;
   /** 镜头这一轮抽到的那条（`shots.json` 的 id）。没选 / 抽空就是空串。 */
   shot: string;
+  /** 画面效果这一轮抽到的那条（`effects.json` 的 id）。没选 / 抽空就是空串。 */
+  effect: string;
   artists: string[];
   /** 自定义分类这一轮真正要接上去的那几串（已经按各分类自己的模式抽过）。 */
   custom: string[];
@@ -531,6 +559,7 @@ export function drawTags(
     background: pickOne(selection.backgrounds, streamOf('background')),
     clothing: pickOne(selection.clothings, streamOf('clothing')),
     shot: pickOne(selection.shots, streamOf('shot')),
+    effect: pickOne(selection.effects, streamOf('effect')),
     artists: selection.artists.slice(),
     custom: drawCustom(selection.custom, custom, streamOf),
   };
@@ -621,6 +650,13 @@ export function composeTags(draw: TagDraw, data: DanbooruData, extra: string): s
    */
   const shot = data.shots.find(item => item.id === draw.shot);
   if (shot?.tags) parts.push(shot.tags);
+  /*
+   * 画面效果接在**镜头之后**（2026-10-10 加的这一档）。理由跟上面那句一模一样：
+   * 接在内置那几档的**最后面**，只有在「这一档真选了东西」时才多出一段 ——
+   * 老画布（这一档为空）拼出来的串一份不多、一份不少。
+   */
+  const effect = data.effects.find(item => item.id === draw.effect);
+  if (effect?.tags) parts.push(effect.tags);
   for (const text of draw.custom || []) if (text) parts.push(text);
   const own = String(extra || '').trim().replace(/,\s*$/, '');
   if (own) parts.push(own);
@@ -673,7 +709,7 @@ export const SEARCH_LIMIT = 120;
 /** Human label for a chosen id, used by the "已选" chips. */
 export function sceneLabelOf(
   data: DanbooruData,
-  kind: 'poses' | 'backgrounds' | 'clothings' | 'shots',
+  kind: 'poses' | 'backgrounds' | 'clothings' | 'shots' | 'effects',
   id: string,
 ): string {
   const item = data[kind].find(entry => entry.id === id);

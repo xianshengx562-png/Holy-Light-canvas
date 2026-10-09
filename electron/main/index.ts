@@ -813,6 +813,59 @@ ipcMain.handle('open-folder', async (_event, dir: string) => {
   return message ? { ok: false, message } : { ok: true, message: '' };
 });
 
+/*
+ * 在系统文件管理器里**打开这个文件所在的目录，并把它选中**（2026-10-09 徐先：
+ * 「怎么还有下载，这不是本地的吗，直接换成打开文件所在位置就行了吧」——资产灯箱那颗按钮）。
+ *
+ * 与上面 `open-folder` 的区别：那个打开的是目录本身，这个定位到具体那一份文件。
+ * 资产是本机落盘的，用户要的从来不是「再存一份」，是「它到底在哪」。
+ *
+ * 🔴 `shell.showItemInFolder` **不返回任何值**，文件不存在时它静默什么都不做。
+ *    「点了没反应」是所有反馈里最难查的一种，所以这里先自己判一次存在，
+ *    把「文件已经不在了」变成一句看得见的提示。
+ */
+ipcMain.handle('reveal-file', async (_event, filePath: string) => {
+  const target = String(filePath || '').trim();
+  if (!target) return { ok: false, message: '文件路径为空。' };
+  if (!fs.existsSync(target)) return { ok: false, message: '这个文件已经不在了（可能被移走或删掉了）。' };
+  shell.showItemInFolder(target);
+  return { ok: true, message: '' };
+});
+
+/*
+ * 把一份资产**拖到别的软件里**（2026-10-09 徐先：「也可以直接将拖入别的软件」）。
+ *
+ * 🔴 必须走 `event.sender.startDrag()`：渲染进程里那套 HTML5 拖拽（`dataTransfer` 里塞个
+ *    `DownloadURL`）在 Chromium 里**带不出真实文件**，落到 Photoshop / 微信 / 资源管理器只会是一坨文本。
+ *    `startDrag` 把它变成「操作系统级的一次拖拽」，落到哪儿都是**文件本体**。
+ *
+ * ⚠️ 用 `ipcMain.on`（不是 `handle`）—— 调用方 `ipcRenderer.send` 是**不等回话**的：
+ *    `startDrag` 要在 dragstart 那一刻就交给系统。用 handle 走一个 Promise 往返，
+ *    等回来时用户的拖拽会话可能已经结束了（表现就是「拖了没反应」）。
+ *
+ * ⚠️ `icon` **不能是空的**（运行时会对空 NativeImage 报 "Must specify non-empty 'icon' option"），
+ *    所以这里必须 `await app.getFileIcon`。拿不到就退一张自己画的 1x1 —— 光标底下没有缩略图，
+ *    但文件照样拖得出去，这比整件事失败强。
+ */
+ipcMain.on('start-drag', async (event, filePath: string) => {
+  const target = String(filePath || '').trim();
+  if (!target || !fs.existsSync(target)) return;
+  let icon = nativeImage.createFromDataURL(
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+  );
+  try {
+    const got = await app.getFileIcon(target, { size: 'large' });
+    if (got && !got.isEmpty()) icon = got;
+  } catch {
+    /* 拿不到系统图标就用那张 1x1 兜底。 */
+  }
+  try {
+    event.sender.startDrag({ file: target, icon });
+  } catch {
+    /* 拖拽会话已经结束了（用户松手了）—— 静默，别在用户没做错事的时候弹错。 */
+  }
+});
+
 /** 找 WorkBuddy 的几个落点：能用环境变量指定，正常走默认安装目录。 */
 const WORKBUDDY_EXE_GUESSES = [
   process.env.WORKBUDDY_EXE || '',

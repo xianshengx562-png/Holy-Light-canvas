@@ -10,6 +10,13 @@ export type DesktopApi = {
   pickFolder?: (options?: { title?: string; defaultPath?: string }) => Promise<string | null>;
   pickFiles?: (options?: { title?: string; filters?: { name: string; extensions: string[] }[] }) => Promise<string[]>;
   openFolder?: (dir: string) => Promise<{ ok: boolean; message: string }>;
+  /** 打开这个文件所在的目录并**选中它**（资产灯箱的「打开文件所在位置」）。web 版没有。 */
+  revealFile?: (filePath: string) => Promise<{ ok: boolean; message: string }>;
+  /**
+   * 把一份文件交给系统去拖（从资产卡片往别的软件里拖）。web 版没有。
+   * **没有回执** —— 见下面 `startDragFilePath` 的注释：这条链路上一次 await 都不能有。
+   */
+  startDrag?: (filePath: string) => void;
   /** 桌面版恒为 false：单窗口 hash 路由下，开新窗口只会得到一个没有 hash 的白页。 */
   canOpenWindow?: boolean;
   /** 本机 ComfyUI 启动器（见 `electron/main/comfyui-supervisor.ts`）。web 版没有这几个字段。 */
@@ -134,9 +141,46 @@ export async function openFolderPath(dir: string): Promise<{ ok: boolean; messag
   }
 }
 
+/**
+ * 在系统文件管理器里打开这个文件所在的目录，并把它选中。
+ *
+ * ⚠️ 同 `openFolderPath`：`ok: false` 时那句 `message` 一定要显示出来 ——
+ * 「文件已经不在了」如果被吞掉，界面上的表现就是那颗按钮坏了。
+ */
+export async function revealFilePath(filePath: string): Promise<{ ok: boolean; message: string }> {
+  const api = desktopApi();
+  if (!api?.revealFile) return { ok: false, message: '只有桌面版能打开本机文件夹。' };
+  try {
+    return await api.revealFile(filePath);
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : '打开文件位置失败。' };
+  }
+}
+
 /** 界面上要不要显示那两个按钮（web 版不该显示一个点了没反应的按钮）。 */
 export function canBrowseFolders(): boolean {
   return Boolean(desktopApi()?.pickFolder);
+}
+
+/**
+ * 把一份文件交给系统去拖 —— 用户从卡片上按下往外拖，落到 Photoshop / 微信 / 资源管理器里
+ * 就是**那个文件本体**（2026-10-09 徐先：「也可以直接将拖入别的软件」）。
+ *
+ * 🔴 返回 `false` 只有一个意思：**这台机器上没法拖**（web 版）。
+ *    所以调用方在 `dragstart` 里要 `event.preventDefault()` 之后再调它 —— 拖不动就干脆别拖，
+ *    别让浏览器自己拖出一坨「路径文本」掉在目标软件里，那比拖不动更让人困惑。
+ *
+ * ⚠️ 不是 async 的：这条链路上**一次 await 都不能有**（见 preload 里 `startDrag` 那段）。
+ */
+export function startDragFilePath(filePath: string): boolean {
+  const api = desktopApi();
+  if (!api?.startDrag) return false;
+  try {
+    api.startDrag(filePath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**

@@ -157,6 +157,24 @@ contextBridge.exposeInMainWorld('api', {
   openFolder: (dir: string) =>
     ipcRenderer.invoke('open-folder', dir) as Promise<{ ok: boolean; message: string }>,
   /**
+   * 在系统文件管理器里打开这个文件所在的目录并选中它（资产灯箱的「打开文件所在位置」）。
+   *
+   * 🔴 与 `openFolder` 的区别是**定位到文件**而不是只打开目录；文件不存在时主进程会
+   * 回一句 `ok: false`（`shell.showItemInFolder` 自己是静默的，不判就变成「点了没反应」）。
+   */
+  revealFile: (filePath: string) =>
+    ipcRenderer.invoke('reveal-file', filePath) as Promise<{ ok: boolean; message: string }>,
+  /**
+   * 把一份文件当作**操作系统级的拖拽**交给系统 —— 让用户能把它拖到别的软件里
+   * （2026-10-09 徐先：「也可以直接将拖入别的软件」）。
+   *
+   * 🔴 用 `send` 而不是 `invoke`：渲染进程的 `dragstart` 处理函数里调它，
+   *    必须**立刻**把拖拽交给系统（`startDrag` 要在拖拽会话还活着的时候被调用）。
+   *    走 `invoke` 等一个 Promise 往返，回来时用户可能已经松手了 —— 表现是「拖了没反应」。
+   *    所以这里**不返回任何东西**，调用方也不需要回执。
+   */
+  startDrag: (filePath: string) => ipcRenderer.send('start-drag', filePath),
+  /**
    * 后端进程**当前**的状态。挂载时先查一次 —— 推送只在状态变化时发，
    * 页面比后端 ready 晚加载的话一条都收不到，界面会一直卡在「正在连接」。
    */

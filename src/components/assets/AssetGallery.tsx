@@ -3,9 +3,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
-  Check, Download, Eye, FileArchive, FileText, ImageIcon, Music, Pencil, Sparkles, Trash2, Video, X,
+  Check, Copy, Eye, FileArchive, FileText, FolderOpen, ImageIcon, Music, Pencil, Sparkles, Trash2, Video, X,
 } from 'lucide-react';
 import { apiPatch, apiPost } from '@/lib/client';
+import { revealFilePath, startDragFilePath } from '@/lib/desktop-fs';
 import type { AssetCategoryItem } from '@/lib/asset-kinds';
 /* 类型清单只认 `AssetFilters` 那一份（见那边的注释）：抄第二份迟早两边不同步。 */
 import type { Kind } from './AssetFilters';
@@ -34,6 +35,11 @@ export type GalleryItem = {
   /** 分类名本身（`assets.category` 里存的就是它，不再需要「值 → 标签」的映射表）。 */
   category: string | null;
   url: string;
+  /**
+   * 接口还在给这个字段，但**界面已经不用它了**（2026-10-09）：
+   * 灯箱上那颗「下载」换成了「打开文件所在位置」—— 资产本来就是本机落盘的，
+   * 再存一份没有意义，用户要的是「它到底在哪」。
+   */
   downloadUrl: string;
   createdLabel: string;
   sizeLabel: string;
@@ -104,13 +110,155 @@ export default function AssetGallery({ items, categories, onChanged, onUpscale, 
     else router.refresh();
   }, [onChanged, router]);
 
+  /*
+   * 「复制」那颗按钮的短暂回执（2026-10-09 徐先：「我要可以复制的功能」）。
+   * 用**按钮自己改字**（复制 → 已复制）而不是在别处加一行提示：
+   * 复制是就地一下的动作，回执也该长在他按的那颗按钮上。
+   */
+  const [copied, setCopied] = useState(false);
+  const copyTimer = useRef<number | null>(null);
+  /** 灯箱里那张图 —— 复制图片要拿它进 canvas，不再多取一次网络。 */
+  const stageImgRef = useRef<HTMLImageElement>(null);
+  /**
+   * 「这条资产在本机哪」的缓存（2026-10-09 徐先：「也可以直接将拖入别的软件」）。
+   *
+   * 🔴 拖拽**没有**「先等一下再拖」的余地：`dragstart` 那一刻必须已经把路径交给主进程
+   *    （见 preload 里 `startDrag` 那段，晚一步用户的拖拽会话就结束了）。
+   *    所以路径只能在**按下鼠标**时就开始取 —— 人到真正拖起来中间那几十~几百毫秒，
+   *    足够本地那条接口跑完。
+   */
+  const pathCache = useRef<Record<string, string>>({});
+
   /** 关灯箱时把删除的中间状态一起清掉，免得下次打开还停在「确认删除」上。 */
   const close = useCallback(() => {
     setOpenId(null);
     setBusy(false);
     setError('');
     setCatBusy(false);
+    setCopied(false);
+    if (copyTimer.current) { window.clearTimeout(copyTimer.current); copyTimer.current = null; }
   }, []);
+
+  /**
+   * 这条资产在**本机磁盘上的绝对路径**。
+   *
+   * 单开一条接口按需取，不放进列表：列表一次六十行，每行都要摸一次盘才算出这个字段，
+   * 而它只在一颗**按下去才会用到**的按钮里出现（见 `server/api/assets/[id]/path/route.ts`）。
+   */
+  const localPathOf = useCallback(async (id: string): Promise<string> => {
+    const res = await fetch(`/api/assets/${id}/path`);
+    if (res.status === 404) throw new Error('这条资产的文件已经不在磁盘上了。');
+    if (!res.ok) throw new Error(`取文件位置失败（${res.status}）。`);
+    const body = (await res.json()) as { path?: unknown };
+    const file = String(body?.path || '');
+    if (!file) throw new Error('没拿到文件位置。');
+    return file;
+  }, []);
+
+  /** 打开文件所在位置：资源管理器里定位到这一份，而不是只打开目录。 */
+  const reveal = useCallback(async (item: GalleryItem) => {
+    setError('');
+    try {
+      const file = await localPathOf(item.id);
+      const outcome = await revealFilePath(file);
+      if (!outcome.ok) throw new Error(outcome.message || '打开文件位置失败。');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '打开文件位置失败。');
+    }
+  }, [localPathOf]);
+
+  /**
+   * 复制。
+   *
+   * · 图片 → **把它本身放进剪贴板**（不是路径）：画到 canvas 再 `toBlob('image/png')`，
+   *   这样 WebP / GIF 这类 `nativeImage` 读不了的格式也能复制（Chromium 解得开就行），
+   *   粘到别处统一是 PNG，最不容易出问题。
+   * · 文本 → 那一段字。
+   * · 视频 / 音频 / latent → **文件路径**。剪贴板装不下一个视频，
+   *   这时候「把路径给他」才是能用的那件事（粘到 ComfyUI / 播放器里就能打开）。
+   *
+   * ⚠️ 刻意**不是 `useCallback`**：要从两个地方被调用（灯箱底栏那颗按钮、卡片右键菜单），
+   *   而「灯箱开着吗」决定了那句报错往哪儿显示，闭包必须拿到当前这次渲染的 `openId`。
+   */
+  async function copy(item: GalleryItem) {
+    if (openId) setError('');
+    try {
+      if (item.type === 'image') {
+        /*
+         * 图源：灯箱里**已经解码好的那一张**能省一次取图，但只有它确实就是这一条资产时才能用。
+         * 🔴 右键菜单是在**卡片**上按的，那时灯箱可能开着的是另一张、甚至根本没开 ——
+         *    照搬 `stageImgRef` 会安安静静地复制错图（比报错难查得多）。
+         *    比 URL 而不是比 id：`<img>.src` 拿到的是解析后的绝对地址，跟 `item.url` 不一定同形。
+         */
+        const staged = stageImgRef.current;
+        const wanted = new URL(item.url, window.location.href).href;
+        const img = staged && staged.naturalWidth > 0 && staged.src === wanted
+          ? staged
+          : await new Promise<HTMLImageElement>((resolve, reject) => {
+              const fresh = new Image();
+              fresh.onload = () => resolve(fresh);
+              fresh.onerror = () => reject(new Error('这张图没读出来，等一下再复制。'));
+              fresh.src = item.url;
+            });
+        if (!img.naturalWidth) throw new Error('这张图还没加载出来，等一下再复制。');
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('这台机器上没能把图转成可复制的格式。');
+        ctx.drawImage(img, 0, 0);
+        const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
+        if (!blob) throw new Error('这张图没法转成可复制的格式。');
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      } else if (item.type === 'text') {
+        /* 现取一次（.txt 就几 KB）。不借用灯箱里那份 `textBody`：那个 state 声明在下面，
+           写进依赖数组会在渲染时就撞上 TDZ —— 为一个几 KB 的请求赔上一次执行顺序的坑不值。 */
+        await navigator.clipboard.writeText(await (await fetch(item.url)).text());
+      } else {
+        await navigator.clipboard.writeText(await localPathOf(item.id));
+      }
+      setCopied(true);
+      if (copyTimer.current) window.clearTimeout(copyTimer.current);
+      copyTimer.current = window.setTimeout(() => { setCopied(false); copyTimer.current = null; }, 1800);
+    } catch (err) {
+      /*
+       * 报错往哪显示，看这次是从哪儿按的：
+       *   · 灯箱开着 → 灯箱里那行红字（就在他眼睛底下）；
+       *   · **卡片右键菜单** → 灯箱根本没开，那行红字谁也看不见，必须让顶部那条提示接住。
+       */
+      const message = err instanceof Error ? err.message : '复制失败。';
+      if (openId) setError(message);
+      else setNotice({ text: message });
+    }
+  }
+
+  /** 提前把路径取回来（鼠标一按下就叫，见 `pathCache` 那段注释）。失败就静默 —— 拖的时候再说。 */
+  const prefetchPath = useCallback((id: string) => {
+    if (pathCache.current[id]) return;
+    void localPathOf(id).then(file => { pathCache.current[id] = file; }).catch(() => {});
+  }, [localPathOf]);
+
+  /**
+   * 开始往外拖。
+   *
+   * 🔴 一定要 `preventDefault()`：不拦的话 Chromium 会自己起一次 HTML5 拖拽，
+   *    落到目标软件里的是一张「图片」或一坨文本，**不是那个文件**；
+   *    而且它跟主进程那次 `startDrag` 会打架，表现就是「拖过去的东西不对/拖不动」。
+   *
+   * 路径还没取回来时也照拦 —— 宁可这次拖不动（并说一句），
+   * 也不要让用户以为自己拖出去了、结果粘进去的是别的什么东西。
+   */
+  const beginDrag = useCallback((event: React.DragEvent, item: GalleryItem) => {
+    event.preventDefault();
+    const file = pathCache.current[item.id];
+    if (!file) {
+      prefetchPath(item.id);
+      setNotice({ text: '正在取这个文件的位置，稍等一下再拖。' });
+      return;
+    }
+    if (!startDragFilePath(file)) setNotice({ text: '这一版没法把文件拖出去（只有桌面版可以）。' });
+  }, [prefetchPath]);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') close(); };
@@ -181,6 +329,17 @@ export default function AssetGallery({ items, categories, onChanged, onUpscale, 
       label: '预览',
       icon: <Eye size={14} strokeWidth={1.8} aria-hidden />,
       run: () => { const it = menu.item; setMenu(null); setOpenId(it.id); },
+    },
+    {
+      /*
+       * 右键就能复制（2026-10-09 徐先：「右键就可以复制」）。
+       * 复制的是什么按类型分，跟灯箱底栏那颗按钮**完全同一套**（见 `copy`）——
+       * 从哪儿按只是入口不同，出去的东西必须一致。
+       */
+      id: 'copy',
+      label: menu.item.type === 'image' || menu.item.type === 'text' ? '复制' : '复制路径',
+      icon: <Copy size={14} strokeWidth={1.8} aria-hidden />,
+      run: () => { const it = menu.item; setMenu(null); void copy(it); },
     },
     {
       id: 'rename',
@@ -442,6 +601,16 @@ export default function AssetGallery({ items, categories, onChanged, onUpscale, 
               data-asset-picked={on ? 'yes' : 'no'}
               onContextMenu={event => { if (!selecting && !editing) openMenu(event, item); }}
               onClick={selecting && !editing ? () => togglePick(item.id) : undefined}
+              /*
+               * 拖出去（2026-10-09 徐先：「也可以直接将拖入别的软件」）。
+               *
+               * · 选择模式下不给拖 —— 那时左键是「勾选」，拖拽会跟它抢同一个手势；
+               * · 正在改名的那张也不给拖（那一行已经是输入框，拖它会顺手选中文字）。
+               * 路径在**按下鼠标**时就开始取（`onPointerDown`），到真正拖起来时基本已经有了。
+               */
+              draggable={!selecting && !editing}
+              onPointerDown={() => prefetchPath(item.id)}
+              onDragStart={event => beginDrag(event, item)}
             >
               <button
                 className="asset-thumb"
@@ -451,8 +620,8 @@ export default function AssetGallery({ items, categories, onChanged, onUpscale, 
                   ? `${on ? '取消选中' : '选中'} ${item.name}`
                   : `预览 ${item.name}`}
               >
-                {item.type === 'image' && <img src={item.url} alt={item.name} loading="lazy" />}
-                {item.type === 'video' && <video src={item.url} preload="metadata" muted playsInline />}
+                {item.type === 'image' && <img src={item.url} alt={item.name} loading="lazy" draggable={false} />}
+                {item.type === 'video' && <video src={item.url} preload="metadata" muted playsInline draggable={false} />}
                 {/* 音频、文本和 latent 一样没有画面：格子中间放一个图标，看内容在灯箱里做 */}
                 {(item.type === 'latent' || item.type === 'audio' || item.type === 'text') && (
                   <span className="asset-thumb-icon"><Glyph kind={item.type} /></span>
@@ -512,15 +681,35 @@ export default function AssetGallery({ items, categories, onChanged, onUpscale, 
               </button>
             </header>
             <div className="asset-lightbox-stage">
-              {open.type === 'image' && <img src={open.url} alt={open.name} />}
-              {open.type === 'video' && <video src={open.url} controls autoPlay playsInline />}
+              {/* 灯箱里这两样也能直接拖出去（图片拖进 PS、视频拖进剪辑软件都是常见一步）。 */}
+              {open.type === 'image' && (
+                <img
+                  ref={stageImgRef}
+                  src={open.url}
+                  alt={open.name}
+                  draggable
+                  onPointerDown={() => prefetchPath(open.id)}
+                  onDragStart={event => beginDrag(event, open)}
+                />
+              )}
+              {open.type === 'video' && (
+                <video
+                  src={open.url}
+                  controls
+                  autoPlay
+                  playsInline
+                  draggable
+                  onPointerDown={() => prefetchPath(open.id)}
+                  onDragStart={event => beginDrag(event, open)}
+                />
+              )}
               {open.type === 'audio' && (
                 <audio className="asset-lightbox-audio" src={open.url} controls preload="metadata" />
               )}
               {open.type === 'latent' && (
                 <div className="asset-lightbox-note">
                   <Glyph kind="latent" />
-                  <p>latent 是给「接续上一段」用的中间态，不能预览。下载后到画布的接续节点里上传即可。</p>
+                  <p>latent 是给「接续上一段」用的中间态，不能预览。用下面的「打开文件所在位置」在文件夹里找到它，拖进画布的接续节点就行。</p>
                 </div>
               )}
               {open.type === 'text' && (
@@ -528,7 +717,7 @@ export default function AssetGallery({ items, categories, onChanged, onUpscale, 
                   {textBody ? (
                     <pre>{textBody}</pre>
                   ) : (
-                    <p>内容没能读出来，可以直接下载这份 .txt 打开。</p>
+                    <p>内容没能读出来，用下面的「打开文件所在位置」找到这份 .txt 打开看看。</p>
                   )}
                 </div>
               )}
@@ -588,9 +777,34 @@ export default function AssetGallery({ items, categories, onChanged, onUpscale, 
               )}
               <span className="asset-lightbox-spacer" />
               <Link className="button secondary" href={`/projects/${open.projectId}`}>打开所在项目</Link>
-              <a className="button" href={open.downloadUrl} download>
-                <Download size={16} strokeWidth={2} aria-hidden /> 下载
-              </a>
+              {/*
+                2026-10-09 徐先：「怎么还有下载，这不是本地的吗，直接换成打开文件所在位置就行了吧」。
+                🔴 那颗「下载」**撤了**：资产本来就是本机文件，再存一份没有意义 ——
+                   它真正回答不了「这东西到底在哪」，而那才是用户点它的动机。
+                   换成的这一颗会在资源管理器里打开父目录、并选中这一份。
+              */}
+              <button
+                className="button secondary"
+                type="button"
+                data-asset-lightbox-reveal
+                onClick={() => void reveal(open)}
+              >
+                <FolderOpen size={16} strokeWidth={2} aria-hidden /> 打开文件所在位置
+              </button>
+              {/*
+                复制。图片复制的**是图本身**（不是路径），文本复制那段字，
+                视频 / 音频 / latent 这一类剪贴板装不下的给文件路径（见 `copy`）。
+              */}
+              <button
+                className="button"
+                type="button"
+                data-asset-lightbox-copy
+                onClick={() => void copy(open)}
+              >
+                {copied
+                  ? <><Check size={16} strokeWidth={2} aria-hidden /> 已复制</>
+                  : <><Copy size={16} strokeWidth={2} aria-hidden /> {open.type === 'image' || open.type === 'text' ? '复制' : '复制路径'}</>}
+              </button>
             </footer>
           </div>
         </div>

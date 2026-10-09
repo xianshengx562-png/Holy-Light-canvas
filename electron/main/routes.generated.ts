@@ -96,6 +96,7 @@ import * as m80 from '@/server/api/prompt/describe/route';
 /* 2026-10-08 手工补的两条（画布素材：落盘但不建资产记录）。生成器下次重跑时要确认没被冲掉。 */
 import * as m81 from '@/server/api/canvas-media/route';
 import * as m82 from '@/server/api/canvas-media/[projectId]/[file]/route';
+import * as m83 from '@/server/api/assets/[id]/path/route';
 
 export type RouteEntry = {
   /** `/api/projects/[id]/canvas` 这样的原始模式，报错信息里要用 */
@@ -207,6 +208,18 @@ export const ROUTES: RouteEntry[] = [
     regex: /^\/api\/assets\/([^\/]+)\/download$/,
     keys: ['id'],
     mod: m16 as unknown as ApiModule,
+  },
+  {
+    /*
+     * 🔴 这一条**必须排在 `/api/assets/[id]/[file]` 前面** ——
+     * 那个 `[file]` 能匹配任意一段，排在它后面的话 `/api/assets/<id>/path` 会被它接走、
+     * 当成「名叫 path 的媒体文件」去取流，表现是 404 而不是这条路由。
+     * （`dispatch.ts` 是 `for (const route of ROUTES)` 取**第一个**命中的，顺序就是判据。）
+     */
+    pattern: '/api/assets/[id]/path',
+    regex: /^\/api\/assets\/([^\/]+)\/path$/,
+    keys: ['id'],
+    mod: m83 as unknown as ApiModule,
   },
   {
     pattern: '/api/projects/[id]/canvas',

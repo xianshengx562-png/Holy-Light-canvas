@@ -40,6 +40,11 @@ const DATA: DanbooruData = {
     { id: 's1', name: 'Cowboy Shot', name_zh: '中景', tags: 'cowboy_shot', categories: ['景别 (Framing the body)'], preview: '' },
     { id: 's2', name: 'Close-Up', name_zh: '特写', tags: 'close-up', categories: ['景别 (Framing the body)'], preview: '' },
   ],
+  /* 画面效果那一档（2026-10-10）：真清单是 Danbooru 官方 lighting + Techniques 两页，33 条。 */
+  effects: [
+    { id: 'e1', name: 'Light Rays', name_zh: '丁达尔效应', tags: 'light_rays', categories: ['光效 (Lighting)'], preview: '' },
+    { id: 'e2', name: 'Bokeh', name_zh: '散景', tags: 'bokeh', categories: ['镜头与质感 (Optics & Texture)'], preview: '' },
+  ],
 };
 
 const sel = (part: Partial<TagSelection>): TagSelection => ({ ...emptyTagSelection(), ...part });
@@ -86,7 +91,7 @@ ok('单个候选时怎么抽都是它', drawTags(sel({ characters: ['only'] }), 
 console.log('3) 组装');
 const composed = composeTags(
   {
-    character: 'hatsune miku', characterTags: [], pose: 'p1', background: 'b1', clothing: 'c1', shot: '',
+    character: 'hatsune miku', characterTags: [], pose: 'p1', background: 'b1', clothing: 'c1', shot: '', effect: '',
     artists: ['dairi', 'ebifurya'], custom: [],
   },
   DATA,
@@ -96,7 +101,7 @@ ok('画师带 @ 前缀', composed.indexOf('@dairi, @ebifurya') === 0, composed);
 ok('顺序 = 画师 → 角色 → 服装 → 环境 → 姿势 → 自定义',
   composed === '@dairi, @ebifurya, hatsune miku, sailor dress, serafuku, beach, sand, armpits, armpit, masterpiece, ', composed);
 ok('结尾带 ", "（要接下游的字，不能粘住）', composed.endsWith(', '), composed.slice(-4));
-const none: TagDraw = { character: '', characterTags: [], pose: '', background: '', clothing: '', shot: '', artists: [], custom: [] };
+const none: TagDraw = { character: '', characterTags: [], pose: '', background: '', clothing: '', shot: '', effect: '', artists: [], custom: [] };
 ok('啥都没选 = 空串', composeTags(none, DATA, '') === '');
 ok('只有自定义时也要拼出来', composeTags(none, DATA, '1girl') === '1girl, ');
 ok('自定义尾部的逗号会被削掉', composeTags(none, DATA, '1girl, ') === '1girl, ');
@@ -351,6 +356,46 @@ ok('镜头这一档有自己的种子（不是跟姿势共用）', (() => {
 ok('抽到的镜头 id 不在清单里时不炸、其余照拼',
   composeTags({ ...none, shot: 'gone', character: 'x' }, DATA, '') === 'x, ',
   composeTags({ ...none, shot: 'gone', character: 'x' }, DATA, ''));
+
+console.log('11) 画面效果（2026-10-10 徐先要的「丁达尔效应」那类）');
+const effSel = sel({ effects: ['e1', 'e2'] });
+ok('画面效果这一档能抽到', drawTags(effSel, DATA, 7).effect.length > 0, drawTags(effSel, DATA, 7).effect);
+ok('同一个 seed 抽到同一个效果', drawTags(effSel, DATA, 7).effect === drawTags(effSel, DATA, 7).effect);
+const effSeen = new Set<string>();
+for (let i = 0; i < 200; i++) effSeen.add(drawTags(effSel, DATA, i).effect);
+ok('换 seed 能抽到池里两个效果', effSeen.size === 2, Array.from(effSeen));
+/* 顺序：姿势 → 镜头 → **效果** → 自定义 → 自由文本。 */
+ok('效果接在镜头之后、自定义之前',
+  composeTags({ ...none, pose: 'p1', shot: 's1', effect: 'e1' }, DATA, '') === 'armpits, armpit, cowboy_shot, light_rays, ',
+  composeTags({ ...none, pose: 'p1', shot: 's1', effect: 'e1' }, DATA, ''));
+const withEff = rollTagText(sel({ poses: ['p1'], shots: ['s1'], effects: ['e1'], custom: { q: ['q1'] } }), DATA, 3, cats);
+ok('效果排在自定义分类之前',
+  withEff === 'armpits, armpit, cowboy_shot, light_rays, masterpiece, ', withEff);
+/*
+ * 🔴 老画布兼容（这一档最要紧的一条）：老节点上没有 `effects` 这个字段，
+ *    读回来必须是空数组 —— 于是拼出来的串跟加这一档之前**逐字节相同**。
+ */
+ok('老画布读回来 effects 是空数组',
+  JSON.stringify(normalizeTagSelection({ characters: ['a'], mode: 'fixed' }).effects) === '[]',
+  normalizeTagSelection({ characters: ['a'], mode: 'fixed' }).effects);
+ok('老画布那串一个字都不变（镜头 + 效果两档都在了，串仍逐字节相同）',
+  rollTagText(sel({ characters: ['a'], poses: ['p1'], backgrounds: ['b1'], clothings: ['c1'] }), DATA, 5)
+    === 'a, sailor dress, serafuku, beach, sand, armpits, armpit, ',
+  rollTagText(sel({ characters: ['a'], poses: ['p1'], backgrounds: ['b1'], clothings: ['c1'] }), DATA, 5));
+/* 独立随机流：多挑一档效果，别的档抽到的不许变（这条挂了「固定」就废了）。 */
+ok('加了效果那一档，角色抽到的还是同一个',
+  drawTags(sel({ characters: ['a', 'b', 'c', 'd'] }), DATA, 42).character
+    === drawTags(sel({ characters: ['a', 'b', 'c', 'd'], effects: ['e1', 'e2'] }), DATA, 42).character);
+ok('效果与镜头两条流互不干扰（各自一把种子）', (() => {
+  const seeds = nextTagSeeds(sel({ shots: ['s1', 's2'], effects: ['e1', 'e2'] }), undefined, 'advance');
+  return typeof seeds.effect === 'number' && seeds.effect !== seeds.shot;
+})());
+ok('效果设成「每次运行抽」→ 要重抽', tagNeedsRedraw(sel({ effects: ['e1', 'e2'] })) === true);
+ok('效果设成「固定这一批」→ 不重抽',
+  tagNeedsRedraw(sel({ effects: ['e1', 'e2'], modes: { effect: 'fixed' } })) === false);
+ok('抽到的效果 id 不在清单里时不炸、其余照拼',
+  composeTags({ ...none, effect: 'gone', character: 'x' }, DATA, '') === 'x, ',
+  composeTags({ ...none, effect: 'gone', character: 'x' }, DATA, ''));
 
 console.log(failed === 0 ? '\nALL PASS' : '\nFAILED ' + failed);
 process.exit(failed === 0 ? 0 : 1);

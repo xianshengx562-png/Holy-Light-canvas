@@ -623,6 +623,37 @@ export async function deleteAsset(input: { assetId: string; userId: string; forc
 }
 
 /* ------------------------------------------------------------------ *
+ * 本机路径：给「打开文件所在位置」用（2026-10-09）
+ * ------------------------------------------------------------------ */
+
+/**
+ * 这一条资产在**本机磁盘上的绝对路径**。找不到（记录没写 path / 文件已经不在了）返回 `null`。
+ *
+ * 🔴 路径必须过一遍 `resolveStoredPath()`，不能把 `metadata.path` 直接甩出去：
+ *    那个字段是**落盘当时**写下的。它会先在原处找一遍（找得到就原样返回 —— 真机实测：
+ *    库里那 60 条返回的都是当初那个绝对路径，不是"现在这个数据目录"下的），
+ *    找不到才拿 `media` / `latents` 这类锚点在**当前**产出目录下重定位一次。
+ *    所以数据目录改过名（`frame-studio` → `holy-light-canvas`）、换过产出目录、
+ *    甚至整份数据搬到另一台机器上，它都还有救回来的可能；搬丢了的才落到
+ *    最后那个 `exists()` 上返回 `null`。
+ *
+ * 🔴 返回 `null` 不是"可以凑合着用"：拿一个不存在的路径去「打开文件所在位置」，
+ *    资源管理器只会打开一个空白目录（甚至毫无反应，`shell.showItemInFolder` 不报错），
+ *    看着像功能坏了。上层要把它翻成人话（"这个文件已经不在了"）。
+ *    库里另外三处（取流 / 下载 / 删除）全都走这个函数，这里跟它们保持一致。
+ */
+export async function assetLocalPath(input: { assetId: string; userId: string }): Promise<string | null> {
+  const asset = await db.asset.findFirst({
+    where: { id: input.assetId, userId: input.userId },
+    select: { metadata: true },
+  });
+  const stored = (asset?.metadata as { path?: string } | null)?.path || '';
+  if (!stored) return null;
+  const file = await resolveStoredPath(stored);
+  return (await exists(file)) ? file : null;
+}
+
+/* ------------------------------------------------------------------ *
  * 磁盘概览与孤儿文件：看得见，也清得掉
  * ------------------------------------------------------------------ */
 
