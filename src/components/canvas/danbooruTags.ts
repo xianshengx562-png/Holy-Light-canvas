@@ -31,6 +31,45 @@
  *    每一个 tag 都逐个在标签库里查过存在。官方页面上标了
  *    "This wiki page does not have a tag" 的那几个（`moonlight` / `caustics` /
  *    `crack_of_light` / `darkness`）一律**不收** —— 那句话的意思就是它不是一个真 tag。
+ *
+ * 🔴 `expressions.json`（表情，2026-10-10 徐先：「添加表情分类」）也**不是** Anima 的，
+ *    照抄 Danbooru 官方 **`tag_group:face_tags`** 那一页（注意页面名是 face tags，
+ *    不是 expression）—— 79 条，只收「表情本体」，官方那页上另外四节一律没收，
+ *    理由跟上一轮完全一致：
+ *      · Sexual（`ahegao` / `aroused` / `fucked_silly` / `torogao` …）—— 成人向；
+ *      · Emotes（`:d` `:3` `^_^` `o_o` …）—— 颜文字，不是表情；
+ *      · Meme faces（`troll_face` / `awesome_face` / `henohenomoheji` …）—— 梗图；
+ *      · Drawing styles（`constricted_pupils` / `dot_nose` / `chestnut_mouth` …）
+ *        —— 五官**画法**，属画风不是表情。
+ *    另外 `rape_face` / `glasgow_smile` 不合适没收，`portrait` / `profile` 镜头档已收过不重复。
+ *
+ *    ⚠️ 查 tag 存在性时踩到一个坑，记一下：**批量查会整批失败**。
+ *    一次查 20 条那一批被 SSL 握手超时 + RST 打掉三次，脚本把它整批记成「不存在」——
+ *    里面躺着 `sad` / `surprised` / `serious` 这种核心表情。差一点就把它们当编的删掉。
+ *    **「没返回」≠「不存在」**，查不到必须重查，不能照失败结果裁清单。
+ *
+ * 🔴 2026-10-10 又加四档（徐先看了「还差什么分类」那张表之后只说两个字「加上」）：
+ *    `hairs` / `eyes` / `styles` / `creatures`。同样**不是** Anima 的，照官方抄：
+ *      · 头发 = `tag_group:hair_color`（发色 25 条）+ `tag_group:hair_styles`（发型 / 刘海 / 发质）。
+ *        官方是三页（还有一页 `tag_group:hair` 讲「跟头发有关的动作 / 物件 / 胡须 / 幻想头发」），
+ *        **只收前两页**：第三页里的 `hairjob`、`cum on hair`、`intestine hair` 这些不能收，
+ *        `hair over breasts` 那类也是成人向，剩下的是「拿着梳子」这种跟造型无关的。
+ *        合并成**一档**、内部用 `categories` 分四个小节（发色 / 长度与发型 / 刘海与额发 / 顶部与发质）。
+ *      · 眼睛 = `tag_group:eyes_tags`。只收「眼睛长什么样 / 怎么看」：眼色、瞳孔、眼形神态、遮挡装饰。
+ *        颜文字那几节（`> <`、`@ @`、`^ ^`、`o o` …）**不收**（跟表情档同一个口径），
+ *        成人向的 `looking at breasts / pussy / penis / crotch` 不收，
+ *        作品专属的 `Geass` / `Sharingan` / `Byakugan` 不收。
+ *      · 画风 = `tag_group:visual_aesthetic`（美学 21 条 + 艺术流派 13 条）+ 通用媒介。
+ *        `list_of_style_parodies` 那一页是「模仿某个具体作者 / 作品」的几百条，**只取它开头
+ *        「By Decade / By Design」那十来条通用的**（`retro_artstyle`、`animification` …），
+ *        作者名那一大片不收 —— 那是「画师」档的事，而且盯着一个人名对出图没意义。
+ *        媒介那十几条（`watercolor (medium)` 这种带括号的）**逐个在标签库里查过**才收。
+ *      · 种族生物 = `tag_group:legendary_creatures` + `tag_group:ears_tags` / `tag_group:tail`
+ *        里的兽耳兽尾 + `list_of_animals` 里常见的那批。
+ *        官方页按「文化归属」又列了一遍（Greek / Egyptian / Japanese …），那份**重复的不收**。
+ *    四档共 345 条，每条都逐个在标签库里查过存在。
+ *    ⚠️ 这一轮踩到同一个坑的变体：`cos.booru.nl` 这个镜像的 `post_count` **不可靠**
+ *    （`dragon` 返回 0、`cat_ears` 返回 553），所以**只看「查得到 / 查不到」，不看计数**。
  */
 
 /*
@@ -98,6 +137,26 @@ export type DanbooruData = {
    * `DanbooruScene`，所以挑选 / 抽签 / 组装那套一行都不用改。
    */
   effects: DanbooruScene[];
+  /**
+   * 表情（2026-10-10 徐先：「d站标签添加表情分类」）。
+   *
+   * 与 `shots` / `effects` 同一条路子：数据来自 Danbooru 官方 `tag_group:face_tags`
+   * 那一页（见文件顶），形状沿用 `DanbooruScene`，所以挑选 / 抽签 / 组装那套一行都不用改。
+   */
+  expressions: DanbooruScene[];
+  /**
+   * 头发（`hairs.json`，2026-10-10 徐先：「加上」）。
+   *
+   * 官方三页合并成一档（发色 `tag_group:hair_color` + 发型 `tag_group:hair_styles`），
+   * 内部分四个小节 —— 用 `categories` 分组，不拆成四个 tab（他那边 tab 条已经 13 个了）。
+   */
+  hairs: DanbooruScene[];
+  /** 眼睛（`eyes.json`）—— 官方 `tag_group:eyes_tags` 那一页，同样只收「眼睛本体」。 */
+  eyes: DanbooruScene[];
+  /** 画风（`styles.json`）—— 官方 `tag_group:visual_aesthetic` + 通用媒介标签。 */
+  styles: DanbooruScene[];
+  /** 种族生物（`creatures.json`）—— 官方 `tag_group:legendary_creatures` + 兽耳 / 常见动物。 */
+  creatures: DanbooruScene[];
 };
 
 /*
@@ -145,6 +204,16 @@ export type TagSelection = {
   shots: string[];
   /** Effect ids (`effects.json`) — 画面效果（丁达尔效应那类），2026-10-10 加的第七档。 */
   effects: string[];
+  /** Expression ids (`expressions.json`) — 表情（微笑 / 脸红 / 惊讶 …），2026-10-10 加的第八档。 */
+  expressions: string[];
+  /** Hair ids (`hairs.json`) — 头发（发色 / 发型 / 刘海 / 发质），2026-10-10 加的第九档。 */
+  hairs: string[];
+  /** Eye ids (`eyes.json`) — 眼睛（眼色 / 瞳孔 / 眼形神态 / 遮挡装饰），2026-10-10 加的第十档。 */
+  eyes: string[];
+  /** Style ids (`styles.json`) — 画风（美学 / 艺术流派 / 绘画媒介），2026-10-10 加的第十一档。 */
+  styles: string[];
+  /** Creature ids (`creatures.json`) — 种族生物（幻想种族 / 兽耳尾巴 / 常见动物），2026-10-10 加的第十二档。 */
+  creatures: string[];
   /** Artist names. */
   artists: string[];
   /**
@@ -209,15 +278,19 @@ export const CUSTOM_KEY_PREFIX = 'dc:';
 /**
  * 内置那几档的键（自由文本 `extra` 不参与抽签，所以不在里面）。
  *
- * 🔴 `shot` 排在 `pose` 之后、`effect` 排在 `shot` 之后：这就是**拼进提示词的顺序**
- *    （`composeTags` 照这个次序出），镜头接在姿势后面、画面效果接在镜头后面 ——
- *    老画布上这两档都是空的，所以既有的串**一个字都不会变**。
+ * 🔴 `shot` 排在 `pose` 之后、`effect` 排在 `shot` 之后、`expression` 排在 `effect` 之后、
+ *    头发 / 眼睛 / 画风 / 种族这四档排在 `expression` 之后（2026-10-10 徐先「加上」）：
+ *    这就是**拼进提示词的顺序**（`composeTags` 照这个次序出），镜头接在姿势后面、
+ *    画面效果接在镜头后面、表情接在画面效果后面、这四档接在表情后面 ——
+ *    老画布上这些档都是空的，所以既有的串**一个字都不会变**。
  */
-export const TAG_KINDS = ['character', 'clothing', 'pose', 'background', 'shot', 'effect', 'artist'] as const;
+export const TAG_KINDS = ['character', 'clothing', 'pose', 'background', 'shot', 'effect', 'expression', 'hair', 'eyes', 'style', 'creature', 'artist'] as const;
 
 export function emptyTagSelection(): TagSelection {
   return {
-    characters: [], poses: [], backgrounds: [], clothings: [], shots: [], effects: [], artists: [],
+    characters: [], poses: [], backgrounds: [], clothings: [], shots: [], effects: [], expressions: [],
+    hairs: [], eyes: [], styles: [], creatures: [],
+    artists: [],
     custom: {}, extra: '', modes: {}, mode: 'random',
     characterDetail: false, characterTagEdits: {},
   };
@@ -286,6 +359,13 @@ export function normalizeTagSelection(raw: unknown): TagSelection {
     shots: list(src.shots),
     /* 同上：画面效果这一档老画布上也是空的。 */
     effects: list(src.effects),
+    /* 同上：表情这一档老画布上也是空的。 */
+    expressions: list(src.expressions),
+    /* 同上：头发 / 眼睛 / 画风 / 种族这四档老画布上也是空的。 */
+    hairs: list(src.hairs),
+    eyes: list(src.eyes),
+    styles: list(src.styles),
+    creatures: list(src.creatures),
     artists: list(src.artists),
     custom: normalizeCustomPicks(src.custom),
     extra: typeof src.extra === 'string' ? src.extra : '',
@@ -365,6 +445,11 @@ const DATA_FILES = {
   clothings: '/danbooru/clothings.json',
   shots: '/danbooru/shots.json',
   effects: '/danbooru/effects.json',
+  expressions: '/danbooru/expressions.json',
+  hairs: '/danbooru/hairs.json',
+  eyes: '/danbooru/eyes.json',
+  styles: '/danbooru/styles.json',
+  creatures: '/danbooru/creatures.json',
 };
 
 let cache: Promise<DanbooruData> | null = null;
@@ -379,7 +464,10 @@ let cache: Promise<DanbooruData> | null = null;
 export function loadDanbooruData(): Promise<DanbooruData> {
   if (cache) return cache;
   cache = (async () => {
-    const [characters, artists, poses, backgrounds, clothings, shots, effects] = await Promise.all([
+    const [
+      characters, artists, poses, backgrounds, clothings, shots, effects, expressions,
+      hairs, eyes, styles, creatures,
+    ] = await Promise.all([
       fetchJson<DanbooruCharacter[]>(DATA_FILES.characters),
       fetchJson<DanbooruArtist[]>(DATA_FILES.artists),
       fetchJson<DanbooruScene[]>(DATA_FILES.poses),
@@ -387,8 +475,13 @@ export function loadDanbooruData(): Promise<DanbooruData> {
       fetchJson<DanbooruScene[]>(DATA_FILES.clothings),
       fetchJson<DanbooruScene[]>(DATA_FILES.shots),
       fetchJson<DanbooruScene[]>(DATA_FILES.effects),
+      fetchJson<DanbooruScene[]>(DATA_FILES.expressions),
+      fetchJson<DanbooruScene[]>(DATA_FILES.hairs),
+      fetchJson<DanbooruScene[]>(DATA_FILES.eyes),
+      fetchJson<DanbooruScene[]>(DATA_FILES.styles),
+      fetchJson<DanbooruScene[]>(DATA_FILES.creatures),
     ]);
-    return { characters, artists, poses, backgrounds, clothings, shots, effects };
+    return { characters, artists, poses, backgrounds, clothings, shots, effects, expressions, hairs, eyes, styles, creatures };
   })().catch(error => {
     cache = null;
     throw error;
@@ -486,6 +579,11 @@ export function tagNeedsRedraw(selection: TagSelection): boolean {
   if (draws('pose', selection.poses.length > 0)) return true;
   if (draws('shot', selection.shots.length > 0)) return true;
   if (draws('effect', selection.effects.length > 0)) return true;
+  if (draws('expression', selection.expressions.length > 0)) return true;
+  if (draws('hair', selection.hairs.length > 0)) return true;
+  if (draws('eyes', selection.eyes.length > 0)) return true;
+  if (draws('style', selection.styles.length > 0)) return true;
+  if (draws('creature', selection.creatures.length > 0)) return true;
   for (const [id, picks] of Object.entries(selection.custom || {})) {
     if (picks.length && tagModeOf(selection, `${CUSTOM_KEY_PREFIX}${id}`) === 'random') return true;
   }
@@ -508,6 +606,16 @@ export type TagDraw = {
   shot: string;
   /** 画面效果这一轮抽到的那条（`effects.json` 的 id）。没选 / 抽空就是空串。 */
   effect: string;
+  /** 表情这一轮抽到的那条（`expressions.json` 的 id）。没选 / 抽空就是空串。 */
+  expression: string;
+  /** 头发这一轮抽到的那条（`hairs.json` 的 id）。没选 / 抽空就是空串。 */
+  hair: string;
+  /** 眼睛这一轮抽到的那条（`eyes.json` 的 id）。没选 / 抽空就是空串。 */
+  eye: string;
+  /** 画风这一轮抽到的那条（`styles.json` 的 id）。没选 / 抽空就是空串。 */
+  style: string;
+  /** 种族生物这一轮抽到的那条（`creatures.json` 的 id）。没选 / 抽空就是空串。 */
+  creature: string;
   artists: string[];
   /** 自定义分类这一轮真正要接上去的那几串（已经按各分类自己的模式抽过）。 */
   custom: string[];
@@ -560,6 +668,11 @@ export function drawTags(
     clothing: pickOne(selection.clothings, streamOf('clothing')),
     shot: pickOne(selection.shots, streamOf('shot')),
     effect: pickOne(selection.effects, streamOf('effect')),
+    expression: pickOne(selection.expressions, streamOf('expression')),
+    hair: pickOne(selection.hairs, streamOf('hair')),
+    eye: pickOne(selection.eyes, streamOf('eyes')),
+    style: pickOne(selection.styles, streamOf('style')),
+    creature: pickOne(selection.creatures, streamOf('creature')),
     artists: selection.artists.slice(),
     custom: drawCustom(selection.custom, custom, streamOf),
   };
@@ -657,6 +770,26 @@ export function composeTags(draw: TagDraw, data: DanbooruData, extra: string): s
    */
   const effect = data.effects.find(item => item.id === draw.effect);
   if (effect?.tags) parts.push(effect.tags);
+  /*
+   * 表情接在**画面效果之后**（2026-10-10 加的这一档）。理由跟上面两句一模一样：
+   * 接在内置那几档的**最后面**，只有在「这一档真选了东西」时才多出一段 ——
+   * 老画布（这一档为空）拼出来的串一份不多、一份不少。
+   */
+  const expression = data.expressions.find(item => item.id === draw.expression);
+  if (expression?.tags) parts.push(expression.tags);
+  /*
+   * 头发 / 眼睛 / 画风 / 种族这四档接在**表情之后**（2026-10-10 加的）。
+   * 理由跟上面几句一模一样：接在内置那几档的**最后面**，只有在「这一档真选了东西」
+   * 时才多出一段 —— 老画布（这四档为空）拼出来的串一份不多、一份不少。
+   */
+  const hair = data.hairs.find(item => item.id === draw.hair);
+  if (hair?.tags) parts.push(hair.tags);
+  const eye = data.eyes.find(item => item.id === draw.eye);
+  if (eye?.tags) parts.push(eye.tags);
+  const style = data.styles.find(item => item.id === draw.style);
+  if (style?.tags) parts.push(style.tags);
+  const creature = data.creatures.find(item => item.id === draw.creature);
+  if (creature?.tags) parts.push(creature.tags);
   for (const text of draw.custom || []) if (text) parts.push(text);
   const own = String(extra || '').trim().replace(/,\s*$/, '');
   if (own) parts.push(own);
@@ -709,7 +842,8 @@ export const SEARCH_LIMIT = 120;
 /** Human label for a chosen id, used by the "已选" chips. */
 export function sceneLabelOf(
   data: DanbooruData,
-  kind: 'poses' | 'backgrounds' | 'clothings' | 'shots' | 'effects',
+  kind: 'poses' | 'backgrounds' | 'clothings' | 'shots' | 'effects' | 'expressions'
+    | 'hairs' | 'eyes' | 'styles' | 'creatures',
   id: string,
 ): string {
   const item = data[kind].find(entry => entry.id === id);

@@ -6,6 +6,7 @@ import { localGraphToFields, providerFromWorkflowId, readWorkflowProvider, workf
 import { isRunningHubAppWorkflowId, webAppFieldsToWorkflowFields, webAppIdOf } from '@/lib/workflows/runninghubApp';
 import { getWebAppInfo } from '@/lib/providers/runninghub/webapp';
 import { resolveRunningHub } from '@/lib/providers/runninghub/connection';
+import { enrichFieldOptions } from '@/lib/workflows/fieldOptions';
 
 /*
  * 这份工作流里**有哪些字段可以挑** —— 画布参数块的「添加参数」下拉、以及配置页的
@@ -26,6 +27,13 @@ type Context = { params: Promise<{ workflowId: string }> };
 export type WorkflowFieldOption = Pick<WorkflowField, 'key' | 'nodeId' | 'fieldName' | 'label' | 'kind' | 'classType'> & {
   enabled: boolean;
   binding: WorkflowField['binding'];
+  /**
+   * 这一条能填哪些值（本机 ComfyUI 的 `/object_info` 说的；RunningHub 应用则来自它自己的元信息）。
+   *
+   * 带出去是为了让「挑这个字段」的那一侧（画布参数块 / 配置页）也能直接渲染成下拉 ——
+   * 以前只有 RunningHub 应用有这份清单，从图上扫出来的永远是个文本框。
+   */
+  options?: string[];
 };
 
 /** 一次最多返回多少项：下拉里几千条是没有意义的，人也不会拉到底。 */
@@ -39,6 +47,8 @@ function toOption(field: Record<string, unknown>): WorkflowFieldOption | null {
   return {
     key: f.key, nodeId: f.nodeId, fieldName: f.fieldName, label: f.label,
     kind: f.kind, classType: f.classType, enabled: f.enabled, binding: f.binding,
+    /* 存过的选项原样带出去；没存过的由下面那一步去本机 ComfyUI 问。 */
+    ...(f.options?.length ? { options: f.options } : {}),
   };
 }
 
@@ -102,8 +112,14 @@ export async function GET(_request: Request, context: Context) {
       options = saved.slice(0, MAX_FIELDS).map(toOption);
     }
 
+    /*
+     * 与配置页那条同源：能查到的枚举字段把选项挂上（详见 `lib/workflows/fieldOptions.ts`）。
+     * 挂上之后，画布上「添加参数」拿到的候选就带着可选项，不用人去 ComfyUI 那边抄。
+     */
+    const enriched = await enrichFieldOptions(options as unknown[], user.id);
     /* `.filter(Boolean)` 在 TS 里不带类型收窄，这里显式判一次（顺便让「跳过了几条」能进计数）。 */
-    const fields = options.filter((item): item is WorkflowFieldOption => item !== null);
+    const fields = (enriched.fields as Array<WorkflowFieldOption | null>)
+      .filter((item): item is WorkflowFieldOption => item !== null);
     return Response.json({ workflowId, provider, source, fields });
   });
 }

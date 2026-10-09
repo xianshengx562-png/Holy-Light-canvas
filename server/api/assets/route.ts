@@ -10,10 +10,28 @@ import {
  * web 版这一页是服务端组件，直接在服务端调 `listAssets()`；桌面版没有服务端渲染，
  * 只能补一个接口。`?type=` / `?sub=` / `?project=` 三个筛选条件与页面上的筛选器一一对应。
  *
- * 一次最多 60 条，与页面上的 `PAGE_SIZE` 保持同一个数 ——
- * 两处不一致的表现是「明明有 80 项，却写着显示最近 60 项」这种对不上的话。
+ * 一次 60 条。以前这一页**只有**这 60 条（`take` 就是全部），翻不动也说不出口 ——
+ * 徐先 2026-10-09 报的就是它：「资产库只能显示最近60」。
+ *
+ * 现在改成**分页**：`?page=N`（从 1 起）→ `skip = (N-1) * PAGE_SIZE`，
+ * 接口额外回 `hasMore`，页面滚到底就再要一页。
+ * 为什么不干脆把 60 调成 400：四百来张缩略图一次进 DOM，这一页会明显卡住，
+ * 而「往下滚继续出」在画廊里比翻页器顺手（也不需要人去找页码）。
  */
 const PAGE_SIZE = 60;
+
+/**
+ * 一页最多几页（安全带）。
+ * 分页是给「往下滚」用的，真有人拿脚本一路刷到底也不该让它无限往上翻。
+ */
+const PAGE_MAX = 500;
+
+/** `?page=` 认不出来（没传 / 传了乱码）一律当第一页 —— 少一个参数不该让整页 400。 */
+function pageOf(raw: string | null): number {
+  const value = Number(raw);
+  if (!Number.isFinite(value)) return 1;
+  return Math.min(Math.max(Math.trunc(value), 1), PAGE_MAX);
+}
 
 /**
  * 列之前先自动收掉「文件已经没了」的记录（2026-10-03 徐先：「没有的图就自动删除记录」）。
@@ -56,17 +74,34 @@ export async function GET(request: Request) {
     const rawSub = params.get('sub') ?? '';
     const known = rawSub === 'none' || categories.some((item) => item.name === rawSub);
     const category = (known ? rawSub : 'all') as CategoryFilter;
+    const page = pageOf(params.get('page'));
+    const skip = (page - 1) * PAGE_SIZE;
+
+    /*
+     * 第二页往后只回**列表本身**。
+     *
+     * 那几样（`projects` / `storage` / `categories` / `latentCount`）是给页头、
+     * 筛选器和存储条用的，第一页已经给过了；跟着每一页重算一遍纯属浪费 ——
+     * `storageOverview()` 要逐条 `stat` 全库文件，四百多条盘 IO 每翻一页来一次。
+     *
+     * 同理 **自动清理只在第一页做**：翻页过程中记录被删会让下一页的 `skip`
+     * 整体错位（少一条就重复一条 / 漏一条），把写操作留在「重新进这一页」的时刻最稳。
+     */
+    if (page > 1) {
+      const assets = await listAssets({ userId: user.id, type, category, projectId, take: PAGE_SIZE, skip });
+      return Response.json({ ...assets, page, pageSize: PAGE_SIZE });
+    }
 
     /* 先收掉幽灵记录，再列 —— 顺序不能反，见 `autoPrune` 那段。 */
     await autoPrune(user.id, projectId);
 
     const [assets, projects, storage, latentCount] = await Promise.all([
-      listAssets({ userId: user.id, type, category, projectId, take: PAGE_SIZE }),
+      listAssets({ userId: user.id, type, category, projectId, take: PAGE_SIZE, skip }),
       listAssetProjects(user.id),
       storageOverview(user.id),
       /* 给「一键删除 Latent」那颗按钮用：没有 latent 时按钮不出现。 */
       countAssetsOfKind(user.id, 'latent'),
     ]);
-    return Response.json({ ...assets, projects, storage, categories, latentCount });
+    return Response.json({ ...assets, page, pageSize: PAGE_SIZE, projects, storage, categories, latentCount });
   });
 }

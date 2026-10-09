@@ -708,7 +708,7 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
             <button
               type="button"
               className="cv-node-director nodrag"
-              title="打开 D站标签选择器，挑角色 / 服装 / 姿势 / 环境 / 镜头 / 效果 / 画师"
+              title="打开 D站标签选择器，挑角色 / 服装 / 姿势 / 环境 / 镜头 / 效果 / 表情 / 画师"
               aria-label="打开标签选择器"
               data-tags-open=""
               onClick={event => { event.stopPropagation(); data.onOpenTags?.(); }}

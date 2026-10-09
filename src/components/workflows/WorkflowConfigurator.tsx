@@ -220,6 +220,46 @@ export default function WorkflowConfigurator({ initialWorkflowId, initialKind = 
     } catch (err) { setError(err instanceof Error ? err.message : '上传失败。'); }
     finally { setBusy(null); }
   }
+  /**
+   * 值那一栏的编辑控件 —— **有可选项就给下拉**（2026-10-10 徐先）。
+   *
+   * `aspect` 这类字段在 ComfyUI 里是九选一（`adaptive / 16:9 / 9:16 / …`），但工作流图里
+   * 只存着**当前那一个字符串值**，光看着它我们只能画个文本框 —— 于是出现了
+   * 「明明是个枚举，却要手打 `16:9`」这种事。选项由服务端拿 `classType + fieldName`
+   * 去问本机 ComfyUI 的 `/object_info` 得来（见 `lib/workflows/fieldOptions.ts`），
+   * 查不到就没有、界面照旧是文本框 —— **没查到不等于没有选项**，所以这里不另作提示。
+   *
+   * 🔴 **存着的值不在选项里时要单独给一条**：受控 `<select>` 的 value 若不在 options 里，
+   * 浏览器会显示成第一项，看上去值没变、一保存却被悄悄改掉了 —— 正是这套界面一直在防的那种静默失败。
+   */
+  /**
+   * 这一条该不该用下拉呈现：**有可选项、且它本来就是「填一个值」的字段**。
+   *
+   * 后半个条件是为了不越界：媒体类型（image / video / audio / latent）的值是文件路径，
+   * 服务端也不会给它们挂选项（见 `lib/workflows/fieldOptions.ts` 的媒体那一条），
+   * 但用户手动把「输入类型」改成图片时，这一栏不该从上传控件变成下拉。
+   */
+  function choiceListOf(field: WorkflowField): string[] {
+    if (field.kind !== 'text' && field.kind !== 'number') return [];
+    return field.options ?? [];
+  }
+
+  function valueEditor(field: WorkflowField) {
+    if (field.kind === 'boolean')
+      return <input type="checkbox" checked={field.value === 'true'} onChange={e => patch(field.key, { value: String(e.target.checked) })} />;
+    const options = choiceListOf(field);
+    if (options.length)
+      return (
+        <select data-workflow-options="" aria-label={`${field.label} 可选项`} value={field.value} onChange={e => patch(field.key, { value: e.target.value })}>
+          {!options.includes(field.value) && <option value={field.value}>{field.value || '（空）'}</option>}
+          {options.map(option => <option key={option} value={option}>{option}</option>)}
+        </select>
+      );
+    if (field.kind === 'text')
+      return <textarea rows={9} value={field.value} onChange={e => patch(field.key, { value: e.target.value })} />;
+    return <input type={field.kind === 'number' ? 'number' : 'text'} step="any" value={field.value} onChange={e => patch(field.key, { value: e.target.value, uploadedAt: undefined })} />;
+  }
+
   function addField(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -306,7 +346,9 @@ export default function WorkflowConfigurator({ initialWorkflowId, initialKind = 
         })()}
         {selected ? <fieldset disabled={!!busy}><div className="workflow-editor-head"><div><span className="workflow-kicker">NODE {selected.nodeId}</span><h2>{selected.label}</h2><span className="workflow-muted">{selected.classType}</span></div><label className="workflow-toggle"><input type="checkbox" checked={selected.enabled} onChange={e => patch(selected.key, { enabled: e.target.checked })} />启用覆盖</label></div>
           <div className="workflow-grid"><label>节点 ID<input value={selected.nodeId} onChange={e => patch(selected.key, { nodeId: e.target.value })} /></label><label>字段名<input value={selected.fieldName} onChange={e => patch(selected.key, { fieldName: e.target.value })} /></label><label>显示名称<input value={selected.label} onChange={e => patch(selected.key, { label: e.target.value })} /></label><label>输入类型<select value={selected.kind} onChange={e => { const kind = e.target.value as WorkflowField['kind']; patch(selected.key, { kind, value: kind === 'boolean' ? 'false' : selected.value, uploadedAt: undefined }); }}>{kinds.map(kind => <option key={kind} value={kind}>{kindLabels[kind]}</option>)}</select></label></div>
-          <label className="workflow-value">{selected.kind === 'text' ? '文本内容' : selected.kind === 'number' ? '数值' : selected.kind === 'boolean' ? '参数开关' : '文件路径 / URL'}{selected.kind === 'text' ? <textarea rows={9} value={selected.value} onChange={e => patch(selected.key, { value: e.target.value })} /> : selected.kind === 'boolean' ? <input type="checkbox" checked={selected.value === 'true'} onChange={e => patch(selected.key, { value: String(e.target.checked) })} /> : <input type={selected.kind === 'number' ? 'number' : 'text'} step="any" value={selected.value} onChange={e => patch(selected.key, { value: e.target.value, uploadedAt: undefined })} />}</label>
+          <label className="workflow-value">{selected.kind === 'boolean' ? '参数开关' : choiceListOf(selected).length ? `可选项（${choiceListOf(selected).length} 项）` : selected.kind === 'text' ? '文本内容' : selected.kind === 'number' ? '数值' : '文件路径 / URL'}{valueEditor(selected)}</label>
+          {/* 选项是从本机 ComfyUI 问来的，说清出处：用户改了节点包、又发现下拉没跟着变时，至少知道该去看哪一边。 */}
+          {choiceListOf(selected).length > 0 && <span className="workflow-muted">这些取值由本机 ComfyUI 的 {selected.classType} 节点给出 —— 节点包更新后重新加载这份配置才会刷新。</span>}
           {['image', 'video', 'audio', 'latent'].includes(selected.kind) && <div className="workflow-upload"><label className="button secondary"><Upload size={16} />{busy === 'upload' ? '正在上传…' : '上传文件'}<input type="file" aria-label="上传素材文件" accept={selected.kind === 'image' ? 'image/*' : selected.kind === 'video' ? 'video/*' : selected.kind === 'audio' ? 'audio/*' : '.latent,.safetensors,.pt,.pth,.bin'} onChange={e => { const file = e.target.files?.[0]; if (file) void upload(file, selected); e.target.value = ''; }} /></label><span className="workflow-muted">最大 100 MB</span>{selected.uploadedAt && <p className="workflow-muted">上传于 {new Date(selected.uploadedAt).toLocaleString()}。RunningHub 上传链接有效期为 24 小时。</p>}</div>}
           {/*
             媒体字段那句「当前导入的工作流没有 X 加载节点」。

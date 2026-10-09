@@ -45,6 +45,31 @@ const DATA: DanbooruData = {
     { id: 'e1', name: 'Light Rays', name_zh: '丁达尔效应', tags: 'light_rays', categories: ['光效 (Lighting)'], preview: '' },
     { id: 'e2', name: 'Bokeh', name_zh: '散景', tags: 'bokeh', categories: ['镜头与质感 (Optics & Texture)'], preview: '' },
   ],
+  /* 表情那一档（2026-10-10）：真清单是 Danbooru 官方 tag_group:face_tags，79 条。 */
+  expressions: [
+    { id: 'x1', name: 'Smile', name_zh: '微笑（闭嘴）', tags: 'smile', categories: ['笑 (Smile)'], preview: '' },
+    { id: 'x2', name: 'Blush', name_zh: '脸红', tags: 'blush', categories: ['情绪 (Emotions)'], preview: '' },
+  ],
+  /*
+   * 头发 / 眼睛 / 画风 / 种族这四档（2026-10-10 徐先：「加上」）。
+   * 真清单分别是 112 / 61 / 56 / 116 条，每条都逐个在标签库里查过存在。
+   */
+  hairs: [
+    { id: 'h1', name: 'Blonde Hair', name_zh: '金发', tags: 'blonde_hair', categories: ['发色 (Hair color)'], preview: '' },
+    { id: 'h2', name: 'Twintails', name_zh: '双马尾', tags: 'twintails', categories: ['长度与发型 (Length & hairstyle)'], preview: '' },
+  ],
+  eyes: [
+    { id: 'y1', name: 'Blue Eyes', name_zh: '蓝眼', tags: 'blue_eyes', categories: ['眼色 (Iris color)'], preview: '' },
+    { id: 'y2', name: 'Heterochromia', name_zh: '异色瞳', tags: 'heterochromia', categories: ['眼色 (Iris color)'], preview: '' },
+  ],
+  styles: [
+    { id: 'f1', name: 'Cyberpunk', name_zh: '赛博朋克', tags: 'cyberpunk', categories: ['美学风格 (Aesthetics)'], preview: '' },
+    { id: 'f2', name: 'Ukiyo-e', name_zh: '浮世绘', tags: 'ukiyo-e', categories: ['艺术流派 (Art movements)'], preview: '' },
+  ],
+  creatures: [
+    { id: 'k1', name: 'Elf', name_zh: '精灵', tags: 'elf', categories: ['幻想种族 (Races)'], preview: '' },
+    { id: 'k2', name: 'Cat Ears', name_zh: '猫耳', tags: 'cat_ears', categories: ['兽耳与尾巴 (Kemonomimi)'], preview: '' },
+  ],
 };
 
 const sel = (part: Partial<TagSelection>): TagSelection => ({ ...emptyTagSelection(), ...part });
@@ -92,7 +117,7 @@ console.log('3) 组装');
 const composed = composeTags(
   {
     character: 'hatsune miku', characterTags: [], pose: 'p1', background: 'b1', clothing: 'c1', shot: '', effect: '',
-    artists: ['dairi', 'ebifurya'], custom: [],
+    expression: '', hair: '', eye: '', style: '', creature: '', artists: ['dairi', 'ebifurya'], custom: [],
   },
   DATA,
   'masterpiece',
@@ -101,7 +126,11 @@ ok('画师带 @ 前缀', composed.indexOf('@dairi, @ebifurya') === 0, composed);
 ok('顺序 = 画师 → 角色 → 服装 → 环境 → 姿势 → 自定义',
   composed === '@dairi, @ebifurya, hatsune miku, sailor dress, serafuku, beach, sand, armpits, armpit, masterpiece, ', composed);
 ok('结尾带 ", "（要接下游的字，不能粘住）', composed.endsWith(', '), composed.slice(-4));
-const none: TagDraw = { character: '', characterTags: [], pose: '', background: '', clothing: '', shot: '', effect: '', artists: [], custom: [] };
+const none: TagDraw = {
+  character: '', characterTags: [], pose: '', background: '', clothing: '', shot: '', effect: '', expression: '',
+  hair: '', eye: '', style: '', creature: '',
+  artists: [], custom: [],
+};
 ok('啥都没选 = 空串', composeTags(none, DATA, '') === '');
 ok('只有自定义时也要拼出来', composeTags(none, DATA, '1girl') === '1girl, ');
 ok('自定义尾部的逗号会被削掉', composeTags(none, DATA, '1girl, ') === '1girl, ');
@@ -396,6 +425,86 @@ ok('效果设成「固定这一批」→ 不重抽',
 ok('抽到的效果 id 不在清单里时不炸、其余照拼',
   composeTags({ ...none, effect: 'gone', character: 'x' }, DATA, '') === 'x, ',
   composeTags({ ...none, effect: 'gone', character: 'x' }, DATA, ''));
+
+console.log('12) 表情（2026-10-10 徐先：「d站标签添加表情分类」）');
+const exprSel = sel({ expressions: ['x1', 'x2'] });
+ok('表情这一档能抽到', drawTags(exprSel, DATA, 7).expression.length > 0, drawTags(exprSel, DATA, 7).expression);
+ok('同一个 seed 抽到同一个表情', drawTags(exprSel, DATA, 7).expression === drawTags(exprSel, DATA, 7).expression);
+const exprSeen = new Set<string>();
+for (let i = 0; i < 200; i++) exprSeen.add(drawTags(exprSel, DATA, i).expression);
+ok('换 seed 能抽到池里两个表情', exprSeen.size === 2, Array.from(exprSeen));
+/*
+ * 顺序：姿势 → 镜头 → 效果 → **表情** → 自定义 → 自由文本。
+ * 🔴 表情接在内置那几档的**最后面**，跟镜头 / 效果同一个理由：只有这一档真选了东西
+ *    才多出一段，老画布上这一档是空的 → 串逐字节不变。
+ */
+ok('表情接在效果之后、自定义之前',
+  composeTags({ ...none, pose: 'p1', shot: 's1', effect: 'e1', expression: 'x1' }, DATA, '')
+    === 'armpits, armpit, cowboy_shot, light_rays, smile, ',
+  composeTags({ ...none, pose: 'p1', shot: 's1', effect: 'e1', expression: 'x1' }, DATA, ''));
+const withExpr = rollTagText(
+  sel({ poses: ['p1'], shots: ['s1'], effects: ['e1'], expressions: ['x1'], custom: { q: ['q1'] } }), DATA, 3, cats,
+);
+ok('表情排在自定义分类之前、效果之后',
+  withExpr === 'armpits, armpit, cowboy_shot, light_rays, smile, masterpiece, ', withExpr);
+/* 🔴 老画布兼容（这一档最要紧的一条）：老节点没有 `expressions` 字段 → 空数组。 */
+ok('老画布读回来 expressions 是空数组',
+  JSON.stringify(normalizeTagSelection({ characters: ['a'], mode: 'fixed' }).expressions) === '[]',
+  normalizeTagSelection({ characters: ['a'], mode: 'fixed' }).expressions);
+ok('老画布那串一个字都不变（镜头 + 效果 + 表情三档都在了，串仍逐字节相同）',
+  rollTagText(sel({ characters: ['a'], poses: ['p1'], backgrounds: ['b1'], clothings: ['c1'] }), DATA, 5)
+    === 'a, sailor dress, serafuku, beach, sand, armpits, armpit, ',
+  rollTagText(sel({ characters: ['a'], poses: ['p1'], backgrounds: ['b1'], clothings: ['c1'] }), DATA, 5));
+/* 独立随机流：多挑一档表情，别的档抽到的不许变（这条挂了「固定」就废了）。 */
+ok('加了表情那一档，角色抽到的还是同一个',
+  drawTags(sel({ characters: ['a', 'b', 'c', 'd'] }), DATA, 42).character
+    === drawTags(sel({ characters: ['a', 'b', 'c', 'd'], expressions: ['x1', 'x2'] }), DATA, 42).character);
+ok('表情与效果两条流互不干扰（各自一把种子）', (() => {
+  const seeds = nextTagSeeds(sel({ effects: ['e1', 'e2'], expressions: ['x1', 'x2'] }), undefined, 'advance');
+  return typeof seeds.expression === 'number' && seeds.expression !== seeds.effect;
+})());
+ok('表情设成「每次运行抽」→ 要重抽', tagNeedsRedraw(sel({ expressions: ['x1', 'x2'] })) === true);
+ok('表情设成「固定这一批」→ 不重抽',
+  tagNeedsRedraw(sel({ expressions: ['x1', 'x2'], modes: { expression: 'fixed' } })) === false);
+ok('抽到的表情 id 不在清单里时不炸、其余照拼',
+  composeTags({ ...none, expression: 'gone', character: 'x' }, DATA, '') === 'x, ',
+  composeTags({ ...none, expression: 'gone', character: 'x' }, DATA, ''));
+
+console.log('5g) 头发 / 眼睛 / 画风 / 种族这四档（2026-10-10 徐先：「加上」）');
+ok('四档接在表情之后、自定义之前，次序是 头发→眼睛→画风→种族',
+  composeTags({ ...none, expression: 'x1', hair: 'h1', eye: 'y1', style: 'f1', creature: 'k1' }, DATA, '')
+    === 'smile, blonde_hair, blue_eyes, cyberpunk, elf, ',
+  composeTags({ ...none, expression: 'x1', hair: 'h1', eye: 'y1', style: 'f1', creature: 'k1' }, DATA, ''));
+const withFour = rollTagText(
+  sel({ hairs: ['h1', 'h2'], eyes: ['y1'], styles: ['f2'], creatures: ['k2'], custom: { q: ['q1'] } }), DATA, 7, cats,
+);
+ok('四档排在自定义分类之前',
+  withFour === 'blonde_hair, blue_eyes, ukiyo-e, cat_ears, masterpiece, ', withFour);
+/* 🔴 老画布兼容（这四档最要紧的那条）：老节点没有这四个字段 → 空数组。 */
+const oldSel = normalizeTagSelection({ characters: ['a'], mode: 'fixed' });
+ok('老画布读回来 hairs / eyes / styles / creatures 都是空数组',
+  JSON.stringify([oldSel.hairs, oldSel.eyes, oldSel.styles, oldSel.creatures]) === '[[],[],[],[]]',
+  [oldSel.hairs, oldSel.eyes, oldSel.styles, oldSel.creatures]);
+ok('老画布那串一个字都不变（镜头 + 效果 + 表情 + 这四档都在了，串仍逐字节相同）',
+  rollTagText(sel({ characters: ['a'], poses: ['p1'], backgrounds: ['b1'], clothings: ['c1'] }), DATA, 5)
+    === 'a, sailor dress, serafuku, beach, sand, armpits, armpit, ',
+  rollTagText(sel({ characters: ['a'], poses: ['p1'], backgrounds: ['b1'], clothings: ['c1'] }), DATA, 5));
+/* 独立随机流：多挑一档，别的档抽到的不许变（这条挂了「固定」就废了）。 */
+ok('加了头发那一档，角色抽到的还是同一个',
+  drawTags(sel({ characters: ['a', 'b', 'c', 'd'] }), DATA, 42).character
+    === drawTags(sel({ characters: ['a', 'b', 'c', 'd'], hairs: ['h1', 'h2'] }), DATA, 42).character);
+ok('这四档各有一把种子（互不干扰）', (() => {
+  const seeds = nextTagSeeds(sel({ hairs: ['h1'], eyes: ['y1'], styles: ['f1'], creatures: ['k1'] }), undefined, 'advance');
+  const keys = ['hair', 'eyes', 'style', 'creature'];
+  const nums = keys.map(k => seeds[k]);
+  return nums.every(n => typeof n === 'number') && new Set(nums).size === keys.length;
+})());
+ok('头发设成「每次运行抽」→ 要重抽', tagNeedsRedraw(sel({ hairs: ['h1', 'h2'] })) === true);
+ok('画风设成「固定这一批」→ 不重抽',
+  tagNeedsRedraw(sel({ styles: ['f1', 'f2'], modes: { style: 'fixed' } })) === false);
+ok('抽到的种族 id 不在清单里时不炸、其余照拼',
+  composeTags({ ...none, creature: 'gone', character: 'x' }, DATA, '') === 'x, ',
+  composeTags({ ...none, creature: 'gone', character: 'x' }, DATA, ''));
 
 console.log(failed === 0 ? '\nALL PASS' : '\nFAILED ' + failed);
 process.exit(failed === 0 ? 0 : 1);

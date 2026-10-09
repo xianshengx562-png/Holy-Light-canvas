@@ -14,6 +14,11 @@ import {
   newCategoryId, replaceCustomCategories, subscribeCustomCategories,
   type CustomCategory, type CustomEntry,
 } from '@/lib/danbooruCats';
+/* 收藏（2026-10-09 徐先：「可以每个选项都有收藏功能」）—— 每一档的每一行都能标星。 */
+import {
+  favBucketOf, favoritesNow, isFavorite, loadFavorites, subscribeFavorites, toggleFavorite,
+  type FavoriteMap,
+} from '@/lib/danbooruFavs';
 
 /**
  * D站标签选择器面板（2026-10-08）—— 挑角色 / 服装 / 姿势 / 环境 / 画师，
@@ -62,7 +67,7 @@ import {
  *    画布节点上只存「选了哪些条目 id」。所以分类被删之后老画布不会炸 —— 那一档跳过就是。
  */
 
-type Tab = 'character' | 'clothing' | 'pose' | 'background' | 'shot' | 'effect' | 'artist' | 'extra';
+type Tab = 'character' | 'hair' | 'eyes' | 'creature' | 'clothing' | 'pose' | 'background' | 'shot' | 'effect' | 'style' | 'expression' | 'artist' | 'extra';
 
 /**
  * 自定义分类的 tab key：`dc:<分类 id>`。带前缀是为了和内置那六档放同一个 state 里。
@@ -84,29 +89,52 @@ const TAB_LABEL: Record<Tab, string> = {
   /* 画面效果（2026-10-10 徐先要的「丁达尔效应」那类）—— 数据同样来自 Danbooru 官方
      那两页（lighting + image composition 的 Techniques），见 `danbooruTags.ts` 顶那段。 */
   effect: '效果',
+  /* 表情（2026-10-10 徐先：「d站标签添加表情分类」）—— 数据来自官方 tag_group:face_tags，
+     见 `danbooruTags.ts` 顶那段。 */
+  expression: '表情',
+  /* 头发（2026-10-10 徐先：「加上」）—— 官方 hair color + hair styles 两页合并成一档，
+     内部分四小节。见 `danbooruTags.ts` 顶那段。 */
+  hair: '头发',
+  /* 眼睛 —— 官方 tag_group:eyes_tags，只收「眼睛本体」。 */
+  eyes: '眼睛',
+  /* 画风 —— 官方 tag_group:visual_aesthetic + 通用媒介标签。 */
+  style: '画风',
+  /* 种族生物 —— 官方 legendary_creatures + 兽耳兽尾 + 常见动物。 */
+  creature: '种族',
   artist: '画师',
   extra: '自定义',
 };
 
-/** tab 的顺序 = 挑的时候的思维顺序（先是谁、再穿什么、再什么姿势在哪、怎么拍、画面什么效果、最后谁画的）。 */
-const TAB_ORDER: Tab[] = ['character', 'clothing', 'pose', 'background', 'shot', 'effect', 'artist', 'extra'];
+/**
+ * tab 的顺序 = 挑的时候的思维顺序（先是谁、再长什么样、再穿什么、再什么姿势在哪、
+ * 怎么拍、画面什么效果、什么画风、什么表情、什么种族、最后谁画的）。
+ *
+ * 🔴 2026-10-10 加到 13 个：tab 条**会换行**（`.cv-dtp .cv-cpk-tabs` 已经是
+ *    `flex-wrap: wrap`），所以放不下只是多占一行，不会像横滑那样把最后一档藏起来。
+ */
+const TAB_ORDER: Tab[] = ['character', 'hair', 'eyes', 'creature', 'clothing', 'pose', 'background', 'shot', 'effect', 'style', 'expression', 'artist', 'extra'];
 
 /** 这一档选中的是 `string[]` 里的哪一个键（画师是「全部串」，其余是「抽一个」）。 */
-const TAB_KEY: Record<Exclude<Tab, 'extra'>, keyof Pick<TagSelection, 'characters' | 'clothings' | 'poses' | 'backgrounds' | 'shots' | 'effects' | 'artists'>> = {
+const TAB_KEY: Record<Exclude<Tab, 'extra'>, keyof Pick<TagSelection, 'characters' | 'clothings' | 'poses' | 'backgrounds' | 'shots' | 'effects' | 'expressions' | 'hairs' | 'eyes' | 'styles' | 'creatures' | 'artists'>> = {
   character: 'characters',
   clothing: 'clothings',
   pose: 'poses',
   background: 'backgrounds',
   shot: 'shots',
   effect: 'effects',
+  expression: 'expressions',
+  hair: 'hairs',
+  eyes: 'eyes',
+  style: 'styles',
+  creature: 'creatures',
   artist: 'artists',
 };
 
-/** 这五档的行数据同源（姿势 / 环境 / 服装 / 镜头 / 效果），取 id 的方式也一致。 */
-const SCENE_KEY = { pose: 'poses', background: 'backgrounds', clothing: 'clothings', shot: 'shots', effect: 'effects' } as const;
+/** 这几档的行数据同源（姿势 / 环境 / 服装 / 镜头 / 效果 / 表情 / 头发 / 眼睛 / 画风 / 种族），取 id 的方式也一致。 */
+const SCENE_KEY = { pose: 'poses', background: 'backgrounds', clothing: 'clothings', shot: 'shots', effect: 'effects', expression: 'expressions', hair: 'hairs', eyes: 'eyes', style: 'styles', creature: 'creatures' } as const;
 type SceneTab = keyof typeof SCENE_KEY;
 
-/** 「收藏已有」能收的五档（画师不收：它的标签是 `@名字`，自己打比收藏快）。 */
+/** 「收藏已有」能收的几档（画师不收：它的标签是 `@名字`，自己打比收藏快）。 */
 const COLLECT_LABEL = {
   character: '角色',
   clothing: '服装',
@@ -114,9 +142,14 @@ const COLLECT_LABEL = {
   background: '环境',
   shot: '镜头',
   effect: '效果',
+  expression: '表情',
+  hair: '头发',
+  eyes: '眼睛',
+  style: '画风',
+  creature: '种族',
 } as const;
 type CollectFrom = keyof typeof COLLECT_LABEL;
-const COLLECT_ORDER: CollectFrom[] = ['character', 'clothing', 'pose', 'background', 'shot', 'effect'];
+const COLLECT_ORDER: CollectFrom[] = ['character', 'hair', 'eyes', 'creature', 'clothing', 'pose', 'background', 'shot', 'effect', 'style', 'expression'];
 
 /** 列表里的一行（内置档与自定义档共用同一个形状）。 */
 type Row = { id: string; title: string; sub: string; preview?: string };
@@ -200,6 +233,18 @@ export default function DanbooruTagPicker({
    *    做成面板里自己的一步状态，取消也顺手（切 tab / 点别处就复位）。
    */
   const [confirmDel, setConfirmDel] = useState('');
+  /**
+   * 收藏（2026-10-09 徐先：「可以每个选项都有收藏功能」）—— 每一档的每一行都能标星。
+   *
+   * 🔴 这份 state 只是**模块级缓存的一个影子**：真身在 `@/lib/danbooruFavs`。
+   *    点星那一刻那边就把缓存换了并通知订阅者，这里收到通知整块重取 ——
+   *    所以点完立刻重排，不用等 IPC 回来（等回来再变会让点击看着没反应）。
+   *
+   * `onlyFav` = 只看收藏。它是**面板内**的一次性筛选，不进持久数据：
+   * 下次打开面板时默认还是看全部，不然会变成「我的列表怎么只剩几条」。
+   */
+  const [favs, setFavs] = useState<FavoriteMap>(() => favoritesNow());
+  const [onlyFav, setOnlyFav] = useState(false);
 
   /* 数据是随包内置的 1.1MB JSON，模块级缓存 —— 关掉再开不会重新拉一遍。 */
   useEffect(() => {
@@ -208,6 +253,20 @@ export default function DanbooruTagPicker({
       .then(loaded => { if (alive) setData(loaded); })
       .catch(err => { if (alive) setError(String(err?.message || err || '标签库加载失败')); });
     return () => { alive = false; };
+  }, []);
+
+  /*
+   * 收藏：磁盘上那份（第一次打开这个面板时读一次）+ 订阅。
+   *
+   * 🔴 为什么也要订阅（跟自定义分类那条一个道理）：星是在**这里**点的，但缓存是模块级的 ——
+   *    面板关了再开，读到的必须还是刚才那份。读失败一律当「还没收藏过」，不抛：
+   *    收藏丢了只是列表不再把那几条排前面，不该变成「面板打不开」。
+   */
+  useEffect(() => {
+    let alive = true;
+    void loadFavorites().then(() => { if (alive) setFavs(favoritesNow()); });
+    const off = subscribeFavorites(() => { if (alive) setFavs(favoritesNow()); });
+    return () => { alive = false; off(); };
   }, []);
 
   /*
@@ -367,6 +426,30 @@ export default function DanbooruTagPicker({
     }
     return out;
   }, [data, query, shown, tab, active, collectFrom]);
+
+  /*
+   * 收藏（2026-10-09）：这一档的「桶」+ 里面标了星的那几条。
+   *
+   * 🔴 桶名**按档分**（内置档用 tab 键、自定义分类用 `custom:<id>`）：
+   *    内置清单里的 `eff_0001` 和某个自定义分类里同名的条目 id 撞上是可能的
+   *    （条目 id 是 tags 的哈希，而自定义分类经常就是"从效果那档收进来的"）——
+   *    不分档的话，在效果档点一下星，那个分类里同一条也会跟着亮。
+   */
+  const favBucket = useMemo(() => favBucketOf(tab, customId || undefined), [tab, customId]);
+  const favSet = useMemo(() => new Set(favs[favBucket] || []), [favs, favBucket]);
+
+  /**
+   * 真正画出来的那几行：先按「只看收藏」筛，再把收藏的**排到最前面**。
+   *
+   * 🔴 排序是**稳定**的（`Array.prototype.sort` 在现代 JS 里保证稳定），
+   *    所以收藏的那批彼此之间、没收藏的那批彼此之间，都还是清单里原来的顺序 ——
+   *    不能因为标了星就把「微笑」挪到「脸红」前面，那等于又发明了一套顺序。
+   */
+  const visibleRows = useMemo(() => {
+    const list = onlyFav ? rows.filter(row => favSet.has(row.id)) : rows;
+    if (!favSet.size) return list;
+    return [...list].sort((a, b) => Number(favSet.has(b.id)) - Number(favSet.has(a.id)));
+  }, [rows, favSet, onlyFav]);
 
   const total = useMemo(() => {
     if (!data) return 0;
@@ -679,6 +762,37 @@ export default function DanbooruTagPicker({
   const chips = active
     ? active.entries.filter(entry => picked.includes(entry.id)).map(entry => ({ id: entry.id, label: entry.label }))
     : [];
+
+  /**
+   * 行尾那颗星（2026-10-09 徐先：「可以每个选项都有收藏功能」）。
+   *
+   * 内置档和自定义分类的行都挂这一颗 —— 他要的是「每个选项」，
+   * 只给新加的那一档做的话，最常用的角色那档反而没有。
+   *
+   * 🔴 收藏**不影响选中**：星归星、勾归勾。收藏是「把这几条记住、排前面、能筛出来」，
+   *    选中才是「这一轮要抽谁」。合成一颗按钮的话，标个星就把标签选上了 —— 那是两回事。
+   */
+  const favStar = (row: Row) => {
+    const on = favSet.has(row.id);
+    return (
+      <button
+        type="button"
+        className={`cv-dtp-row-act cv-dtp-row-fav${on ? ' on' : ''}`}
+        data-dtp-fav={row.id}
+        aria-pressed={on}
+        aria-label={on ? `取消收藏「${row.title}」` : `收藏「${row.title}」`}
+        title={on ? '取消收藏（这一条会掉回列表里原来的位置）' : '收藏（排到这一档最前面，可用「只看收藏」筛出来）'}
+        onClick={() => toggleFavorite(favBucket, row.id)}
+      >
+        <Star
+          size={11}
+          strokeWidth={2}
+          fill={on ? 'currentColor' : 'none'}
+          aria-hidden
+        />
+      </button>
+    );
+  };
 
   const panel = (
     <div
@@ -1048,6 +1162,29 @@ export default function DanbooruTagPicker({
                 : active ? `搜索${active.name}` : `搜索${TAB_LABEL[tab as Tab] || ''}`}
               onChange={event => setQuery(event.target.value)}
             />
+            {/*
+              「只看收藏」（2026-10-09）—— 跟搜索框同一个横条里，不另起一行：
+              这一块的高度是**按像素数着用**的（tab / 抽签 / 搜索 / 已选 / 列表 / 底栏），
+              多一整行就要从列表里再扣 30px。
+            */}
+            {!collectFrom && (
+              <button
+                type="button"
+                className={`cv-dtp-onlyfav${onlyFav ? ' on' : ''}`}
+                data-dtp-onlyfav={onlyFav ? 'on' : 'off'}
+                aria-pressed={onlyFav}
+                title="只列出这一档里标了星的那几条"
+                onClick={() => setOnlyFav(value => !value)}
+              >
+                <Star
+                  size={11}
+                  strokeWidth={2}
+                  fill={onlyFav ? 'currentColor' : 'none'}
+                  aria-hidden
+                />
+                <span>只看收藏{favSet.size ? ` ${favSet.size}` : ''}</span>
+              </button>
+            )}
           </div>
 
           <div className="cv-dtp-picked">
@@ -1230,11 +1367,11 @@ export default function DanbooruTagPicker({
             {!error && !data && <p className="cv-dtp-error">标签库载入中…</p>}
             {data && active && !active.entries.length && !collectFrom && (
               <p className="cv-dtp-error">
-                这个分类还是空的 —— 上面「加标签」自己打一条，「导入清单」从文件读一批，
-                「收藏已有」从角色/服装/姿势/环境/镜头/效果里挑。
+                这个分类还是空的 ——                 上面「加标签」自己打一条，「导入清单」从文件读一批，
+                「收藏已有」从角色/服装/姿势/环境/镜头/效果/表情里挑。
               </p>
             )}
-            {data && rows.map(row => {
+            {data && visibleRows.map(row => {
               const entry = collectFrom ? collectEntryOf(row) : null;
               const on = entry ? ownedIds.has(entry.id) : picked.includes(row.id);
               const body = (
@@ -1253,11 +1390,11 @@ export default function DanbooruTagPicker({
                 </>
               );
               /*
-               * 自定义分类的行右边多一颗「从分类里删掉」—— 它**不能**放进行按钮里面：
-               * `<button>` 里套 `<button>` 是非法结构（浏览器会把外层的提前闭合），
-               * 而且里层点击本来就要阻止冒泡才不会被当成「选中」。所以外面套一层定位容器。
+               * 行尾那几颗小钮**不能**放进行按钮里面：`<button>` 里套 `<button>` 是非法结构
+               * （浏览器会把外层的提前闭合），而且里层点击本来就要阻止冒泡才不会被当成「选中」。
+               * 所以外面套一层定位容器。
                */
-              if (collectFrom || !active) {
+              if (collectFrom) {
                 return (
                   <button
                     key={row.id}
@@ -1265,15 +1402,29 @@ export default function DanbooruTagPicker({
                     className={`cv-dtp-row${on ? ' on' : ''}`}
                     aria-pressed={on}
                     onClick={() => {
-                      if (collectFrom && active) collect(active, row);
+                      if (active) collect(active, row);
                       else toggle(row.id);
                     }}
                   >
                     {body}
-                    {collectFrom && (
-                      <span className={`cv-dtp-collect-mark${on ? ' on' : ''}`}>{on ? '已收' : '＋'}</span>
-                    )}
+                    <span className={`cv-dtp-collect-mark${on ? ' on' : ''}`}>{on ? '已收' : '＋'}</span>
                   </button>
+                );
+              }
+              /* 内置那几档：行 + 一颗星。 */
+              if (!active) {
+                return (
+                  <div key={row.id} className="cv-dtp-row-wrap">
+                    <button
+                      type="button"
+                      className={`cv-dtp-row${on ? ' on' : ''}`}
+                      aria-pressed={on}
+                      onClick={() => toggle(row.id)}
+                    >
+                      {body}
+                    </button>
+                    {favStar(row)}
+                  </div>
                 );
               }
               return (
@@ -1313,10 +1464,17 @@ export default function DanbooruTagPicker({
                   >
                     <Trash2 size={11} strokeWidth={2} aria-hidden />
                   </button>
+                  {favStar(row)}
                 </div>
               );
             })}
-            {data && !rows.length && !error && !active && <p className="cv-dtp-error">没搜到</p>}
+            {data && !visibleRows.length && !error && !active && (
+              <p className="cv-dtp-error">
+                {onlyFav && !favSet.size
+                  ? '这一档还没标星 —— 每一行右边那颗 ☆ 点一下就收进来了'
+                  : '没搜到'}
+              </p>
+            )}
           </div>
         </>
       )}
@@ -1329,7 +1487,11 @@ export default function DanbooruTagPicker({
             ? `${COLLECT_LABEL[collectFrom]} ${total} 条 · 已收 ${active?.entries.length || 0}`
             : customId
               ? `${active?.name || ''} 共 ${active?.entries.length || 0} 条`
-              : tab === 'artist' ? '画师全部串上' : `共 ${total} 条`}
+              : onlyFav
+                /* 「只看收藏」开着的时候，底下那一串就是筛剩下的 —— 还报「共 N 条」（全档的
+                   数量）会让人以为筛选没生效。 */
+                ? `收藏 ${visibleRows.length} 条`
+                : tab === 'artist' ? '画师全部串上' : `共 ${total} 条`}
         </span>
         <span className="cv-dtp-foot-preview" title={preview}>{preview || '（还没抽）'}</span>
       </div>

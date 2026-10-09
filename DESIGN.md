@@ -2161,3 +2161,267 @@ fixed 后代的包含块是视口，除非祖先带 `transform` / `filter`（这
 
 ⚠️ **「真拖一次」没做自动验证** —— `startDrag` 会把鼠标交给系统进一个拖拽会话，
 没有真人松手就一直挂着，探针会僵死。这一步**要人手动试**（把卡片拖到资源管理器 / PS 里）。
+
+
+---
+
+## 追加（2026-10-09）D站标签第八档「表情」+ 每一档每一行都能收藏（1.0.120）
+
+徐先两句话：「d站标签添加表情分类」、「可以每个选项都有收藏功能」。
+问清了两处才动手：**收藏覆盖所有档的每个选项**（不只是新加的表情档），
+用起来是**标星 + 只看收藏 + 收藏的排最前**。
+
+### 一、表情这一档
+
+- 数据 `src/public/danbooru/expressions.json`，**79 条**，照 Danbooru 官方
+  **`tag_group:face_tags`** 那一页抄（注意页面名是 face **tags**，不是 expression）。
+- 🔴 **只收「表情本体」**，官方那页上另外四节一律没收，与上一轮「效果」档同一个口径：
+  Sexual（`ahegao` / `aroused` / `fucked_silly` / `torogao` …）、
+  Emotes（`:d` `:3` `^_^` `o_o` … 颜文字）、
+  Meme faces（`troll_face` / `awesome_face` / `henohenomoheji` …）、
+  Drawing styles（`constricted_pupils` / `dot_nose` / `chestnut_mouth` … 五官**画法**，属画风）。
+  另 `rape_face` / `glasgow_smile` 不合适没收；`portrait` / `profile` 镜头档已收过，不重复。
+- ⚠️ **查 tag 存在性踩到一个坑，必须记住**：一次批 20 条查，那一批被 SSL 握手超时 + RST
+  打掉三次，脚本把**整批记成「不存在」** —— 里面躺着 `sad` / `surprised` / `serious`
+  这种核心表情，差一点就被当编的删掉。**「没返回」≠「不存在」**，
+  批量查失败必须小批重查（这次一条一查、重试 5 次，20 条全在）。
+- 拼串顺序：画师 → 角色 → 服装 → 环境 → 姿势 → 镜头 → 效果 → **表情** → 自定义。
+  接在内置档的**最后面**，老画布上这一档是空的 → 既有的串**逐字节不变**（单测钉住）。
+
+### 二、收藏（所有档）
+
+- 存储 `<dataDir>/danbooru-favorites.json`（`electron/main/danbooru-favs.ts`），
+  形状 `{ version: 1, favs: { 桶: [id…] } }`。
+- 🔴 **桶按档分**：内置档用 tab 键（`character` / … / `expression` / `artist`），
+  自定义分类用 `custom:<分类 id>`。不分桶的话，在效果档标一条星，
+  某个「从效果那档收进来的」自定义分类里同一条也会跟着亮 —— 它们的 id 是同一个哈希。
+- 🔴 **只存 id，不存内容**：内置清单随版本增删，抄一份标签串进来，
+  「收藏了什么」会跟列表里实际显示的对不上。
+- 渲染层 `src/lib/danbooruFavs.ts`：模块级缓存 + 订阅 + **乐观写**
+  （先改缓存再发 IPC）。点星要立刻看见，等写盘回来才变会显得没点上；
+  写盘失败也不弹红字 —— 星已经点上了，下次开机丢掉而已。
+- 🔴 **收藏不影响选中**：星归星、勾归勾，两颗分开的按钮。
+  合成一颗的话「标个星」就等于「把这条标签选上」，那是两回事。
+- 「只看收藏」是个**面板内**的一次性开关（不进持久数据）：下次打开默认还是看全部，
+  否则会变成「我的列表怎么只剩几条」。它摆在搜索框那条横杠的右端**不另起一行** ——
+  这一块的高度是按像素数着用的，多一行要从列表里再扣 30px。
+- 排序是**稳定**的：收藏的整批挪到前面，两批内部都保持清单里原来的顺序。
+
+**验收**（隔离实例、端口 9380、临时包 `_hlbuild120`、项目 `cmuu1v0o80n7oniyti`，
+`expr_probe.js` **45 项 ALL PASS**）：`expressions.json` 取到 79 条分四节且**每条都有中文名**；
+不收的那 10 条一个都没混进来；tab 条 `["角色","服装","姿势","环境","镜头","效果","表情","画师","自定义"]`；
+列出 79 行、**79 颗星**；点「脸红」的星 → 星亮 + 排到第一行 + 「已选」没变；
+「只看收藏」→ 只剩它、底栏「收藏 1 条」；关面板再开星还在；切到效果档也能标星
+且两档各存各的（切回表情档，之前那条仍在最前）。
+
+另**盘上核对**：`<根>/danbooru-favorites.json` 内容是
+`{"version":1,"favs":{"expression":["exp_0006"],"effect":["eff_0019"]}}` —— 两个桶分开，没有串档。
+
+🔴 单测 `_tagstest.ts` 加了第 12 节（13 条），连同 1~11 节 **ALL PASS**；
+`typecheck` rc=0。
+
+
+---
+
+## 2026-10-09 · 1.0.120（二）资产库分页 + 生成结果能拖出去
+
+徐先：「**生成结果也能拖到别的软件；资产库只能显示最近60，请修复**」。
+他随后确认了方案：**分页，一次拉 60**（不是把 60 调成 400 一次给完 ——
+四百来张缩略图一次进 DOM，这一页会明显卡住）。
+
+### 一、资产库分页
+
+- `lib/assets.ts` 的 `listAssets()` 加了 `skip`（以前只有 `take`，所以那一页**就是**全部），
+  并回 `hasMore`。🔴 `hasMore` 拿**查回来的行数**比，不是 `items.length` ——
+  认不出类型的行会被 `items` 丢掉，用 `items.length` 会在最后一页上多报一次「还有」，
+  于是滚到底永远在加载、却永远加载不出东西。
+- `/api/assets` 认 `?page=N`（认不出当第 1 页），`skip = (N-1) * 60`，上限 `PAGE_MAX = 500`。
+- 🔴 **第二页往后只回列表本身**，不带 `projects` / `storage` / `categories` / `latentCount`：
+  那几样是给页头、筛选器、存储条用的，第一页已经给过；而 `storageOverview()`
+  要逐条 `stat` 全库文件，四百多条盘 IO 每翻一页来一次纯属浪费。
+- 🔴 **自动清理（`autoPrune`）只在第一页做**：翻页过程中记录被删会让下一页的 `skip`
+  整体错位（少一条就重复一条 / 漏一条），把写操作留在「重新进这一页」的时刻最稳。
+- 资产页：第一页照旧由 `useApi` 管，第二页往后攒在 `extra` 里；`items` = 第一页 + `extra`。
+  🔴 **任何让第一页重取的动作都要 `resetPaging()`**（删除 / 打分类 / 上传 / 换筛选）——
+  对外一律走 `reloadAll`，不用裸 `reload`。不清的话旧的第二页挂在新第一页后面，
+  看着像「删掉的那条又回来了」。
+- 追加时**按 id 去重**：两页之间可能有人删了东西，`skip` 是按「当前还剩多少」算的，
+  下一条会往上顶一位出现两次。
+- 计数那行从「显示最近 60 项」（那句是在替一个翻不动的实现打圆场）
+  改成「**已显示 N 项**」。
+- 🔴 **刻意不用 `IntersectionObserver` 做「滚到底自动加载」**：真机实测滚到底之后，
+  哨兵的 `getBoundingClientRect()` 明明白白落在视口里（top 770 / 视口 900），
+  observer 却**一次回调都没给**；在页面里另起一个一模一样的 observer 也是 0 次 ——
+  不是挂错地方。改成监听**真正滚动的那个容器**的 `scroll` + 自己量一次 rect
+  （顺带在挂载后先量一次：第一页没填满一屏时接着往下要）。
+- 「加载更多（还有 N 项）」那颗按钮**留着**：它既是兜底入口，
+  也把「还有多少没看到」这句话摆给用户。
+
+### 二、生成结果也能拖到别的软件
+
+- 拖拽那一套抽到 `src/lib/file-drag.ts`（`assetIdFromUrl` / `localPathOfAsset` /
+  `useAssetFileDrag`），资产卡片、资产灯箱、生成结果三处**共用同一份** ——
+  各写一份的话「路径还没取回来时该说哪句」迟早说成三种。
+- 🔴 **只有本机那种形状拖得动**：`assetIdFromUrl()` 只认 `/api/assets/<id>/<file>`。
+  RunningHub 那类远程结果**没有本机文件**，不给拖也不假装能拖 ——
+  让它拖起来、掉到目标软件里却是一串地址，比拖不动更让人困惑。
+- 🔴 `<img>` 与 `<a href>` **默认就是可拖的**，必须显式 `draggable={false}`：
+  不给的话这次拖拽的源头是那张图/那个链接，`dragstart` 落到内层，
+  拖出去的是「一张图片」或一串地址，而不是那个文件。
+- `prefetch` 加了「正在取」的并发保护：没有这一层的话，
+  「冷拖一下（没取到顺手发起一次）+ 立刻按下鼠标」就是**两趟一模一样的请求**（真机实测过）。
+- 提示（「正在取这个文件的位置，稍等一下再拖。」）自己留一行、1.8s 自动收掉 ——
+  拖拽是「试一下才知道」的动作，回执一直挂着会挡住结果本身。
+
+### 三、探针写法上踩到的两个坑（值得记）
+
+- 🔴 **`window.api` 是完全冻结的**：属性 `configurable:false / writable:false`，
+  连 `window.api` 自身也是。`window.api.startDrag = fn` 在 sloppy 模式下**静默失败**
+  （不抛，所以 `try/catch` 兜底那支根本不会跑到），`Object.defineProperty` 直接抛
+  `Cannot redefine property`。→ 想验「拖出去」只能换路子：给 `window.fetch` 记账，
+  看 `pointerdown` 那一下有没有真的去取 `/api/assets/<id>/path`、路径接口给的是不是
+  真绝对路径、取到之后再拖走的是不是「有路径」那一支（不再弹提示）。
+  最后一层「交给系统去拖」**真调 `startDrag` 会把鼠标交给系统、探针僵死**，只能手动试。
+- 🔴 探针自己发的请求会污染 `fetch` 账本 —— 自己那趟要走 `window.__origFetch`。
+
+---
+
+## 2026-10-10 · 1.0.121 —— D站标签再加四档（头发 / 眼睛 / 画风 / 种族）
+
+徐先看了「我们的 D 站标签还差什么分类」那张表之后，只回了两个字：**「加上」**。
+
+### 一、这四档从哪来（都不是 Anima 那份上游）
+
+上游 `Comfyui-Anima-Tools` 只有 character / clothing / pose / background 四类，
+镜头（1.0.118）、效果（1.0.119）、表情（1.0.120）都是照 **Danbooru 官方 tag group** 抄的，
+这一轮四档同一条路子：
+
+| 档 | 官方来源 | 条数 |
+| --- | --- | --- |
+| 头发 `hairs.json` | `tag_group:hair_color`（发色）+ `tag_group:hair_styles`（发型 / 刘海 / 发质） | 112 |
+| 眼睛 `eyes.json` | `tag_group:eyes_tags` | 61 |
+| 画风 `styles.json` | `tag_group:visual_aesthetic` + 通用媒介标签 | 56 |
+| 种族 `creatures.json` | `tag_group:legendary_creatures` + `tag_group:ears_tags` / `tag_group:tail` + `list_of_animals` | 116 |
+
+取舍口径跟效果 / 表情那两轮**完全一致**：
+
+- 头发：官方还有第三页 `tag_group:hair`（讲「跟头发有关的动作 / 物件 / 胡须 / 幻想头发」），
+  **只收前两页**。`hairjob`、`cum on hair`、`hair_over_breasts` 那类是成人向；
+  `biting hair` / `hair brush` 是动作与道具，不是造型；`intestine hair` / `food-themed hair`
+  是怪诞造型，不进常规造型档。
+- 眼睛：只收「眼睛长什么样 / 怎么看」。颜文字那几节（`> <`、`@ @`、`^ ^`、`o o` …）
+  不收（跟表情档同一条理由）；`looking at breasts / pussy / penis / crotch` 不收；
+  作品专属的 `Geass` / `Sharingan` / `Byakugan` 不收。
+- 画风：`list_of_style_parodies` 几百条是「模仿某个具体作者 / 作品」的，
+  **只取开头「By Decade / By Design」那十来条通用的**（`retro_artstyle`、`animification`…），
+  作者名那一大片不收 —— 那是「画师」档的事，盯着一个人名对出图没意义。
+- 种族：官方那页按文化归属（Greek / Egyptian / Japanese …）又列了一遍，
+  那份是**同一个 tag 的第二次出现**，不收；只收「Type」那一节的种族名，
+  再加上兽耳 / 兽尾与几十条常见动物。
+
+每条都逐个在标签库里查过存在，**共 345 条**。
+
+### 二、为什么头发是一档四小节，不是四个 tab
+
+发色 / 发型 / 刘海 / 发质如果各拆一个 tab，tab 条直接二十个。
+`DanbooruScene` 本来就有 `categories` 这个分组字段（镜头档用它分「景别 / 机位 / 透视」），
+所以合并成一档、内部按 `categories` 分四节，面板那边的渲染一行都不用改。
+
+### 三、🔴 拼进提示词的次序：四档一律接在**最后**
+
+`TAG_KINDS` 里排在 `expression` 之后（= `composeTags` 里接在表情之后）：
+
+```
+画师 → 角色 → 服装 → 环境 → 姿势 → 镜头 → 效果 → 表情 → 头发 → 眼睛 → 画风 → 种族 → 自定义 → 自由文本
+```
+
+理由和加镜头 / 效果 / 表情那三轮一字不差：接在**末尾**，只有「这一档真选了东西」
+时才多出一段 —— 老画布（这四档为空）拼出来的串**逐字节不变**。单测里有一条专门盯着它。
+
+### 四、13 个 tab 会不会挤爆（他问过）
+
+**不会**。`.cv-dtp .cv-cpk-tabs` 早就是 `flex-wrap: wrap`（自建分类可以一直加，
+横滑的 tab 条「看不出还能滑」，最后一档会就那么消失）。真机实测：
+
+- tab 条 13 个：角色 / 头发 / 眼睛 / 种族 / 服装 / 姿势 / 环境 / 镜头 / 效果 / 画风 / 表情 / 画师 / 自定义
+- 排成**两行**；13 个的 `rect` 宽高全部 > 0，且 `elementFromPoint` 在中心点命中的都是自己
+  —— 没有被裁掉、也没有被面板边缘压住
+
+### 五、🔴 这一轮查 tag 存在性踩到的坑（跟上一轮不同）
+
+上一轮（表情）的坑是「批量查被 SSL 打掉、整批记成 MISS」。这一轮是：
+
+**镜像的 `post_count` 不可靠。** `cos.booru.nl` 上 `dragon` 返回 `post_count: 0`、
+`cat_ears` 返回 553、`watercolor_(medium)` 返回 0 —— 同一批请求里有的对有的不对。
+所以这一轮**只看「查得到 / 查不到」，不看计数**。差一点就因为「0 条」把
+`dragon` / `elf` / `cat_ears` 这些核心 tag 全判成无效。
+
+另外 `cos.booru.nl` 与 `donmai.moe` 的可用性也是轮着变的：
+上一次 `donmai.moe` 通、`cos.booru.nl` 521；这一次反过来（`donmai.moe` 403 / Cloudflare，
+`cos.booru.nl` 200）。**每次动手前先探一遍**，别照抄上一轮的结论。
+
+最后 8 条查不到的（`big_eyes` / `acid_graphics` / `cyber_sigilism` / `sketch_(medium)` /
+`digital_media_(medium)` / `3d_(medium)` / `woodcut_(medium)` / `therianthrope`）
+用**三种查法**（精确名 / 通配 / 别名表）都查不到，对照组（`dragon` / `cat_ears` /
+`watercolor_(medium)`）三种都正常 —— 这才敢删。**「没返回」≠「不存在」这条依然有效**，
+只是这次用「对照组正常」把它钉死了。
+
+### 六、验收
+
+- 单测 `_tagstest.ts`：新增 5g 段 9 条（次序 / 老画布空数组 / 老画布串逐字节不变 /
+  独立随机流 / 各自一把种子 / 重抽判定 / id 不在清单不炸），**ALL PASS**。
+- 真机探针 `db4_probe.js`（临时包 `_hlbuild121`，隔离实例）：**82 PASS / 0 FAIL**。
+  含每份 JSON 的条数 / 小节数 / 该有的在 / 不该收的不在 / 每条都有中文名，
+  13 个 tab 的顺序与可见性，四档各选一条 → 串里出现对应 tag，
+  四档同选 → 串里四段次序正确，中英文搜索各一条。
+
+
+## 2026-10-10 · 1.0.121 —— 工作流配置里「其实是个枚举」的字段换成下拉
+
+**他报的**：配置页绑定参数时，某些字段是个光秃秃的输入框，而它在 ComfyUI 里是九选一
+（`MiniMaxH3IntegrationGH.aspect`：`adaptive / 16:9 / 9:16 / 3:2 / 2:3 / 4:3 / 3:4 / 1:1 / 21:9`）。
+
+**根因**：字段列表是从**工作流图**上扫出来的（`graphToFields`），图上只存着「当前那个值」——
+`'adaptive'` 就是个字符串，`inferFieldKind` 只能给出 `text`。真正的答案在 ComfyUI 的
+`/object_info/<节点类型>` 里：那一项的规格写着 `['COMBO', { options: [...] }]`
+（老式节点写成 `[['a','b'], {}]`）。而 `fieldSchema.options` 在此之前**只有 RunningHub 应用**
+那条路会填（从应用的 `fieldData` 里解析），本地 / 云端 ComfyUI 图的 COMBO 从来没被补过 ——
+所以「明明有九个档，却要人照着截图手打」。
+
+**改法**（新增 `lib/workflows/fieldOptions.ts`，外加两处调用与一处渲染）：
+1. `enrichFieldOptions(fields, userId)`：拿 `classType + fieldName` 去问本机 ComfyUI，
+   把选项挂回字段的 `options` 上。`/config` 与 `/fields` 两个 GET 都在**所有来源之后**调它一遍 ——
+   从图上扫的、从 RunningHub 拉的、库里存着的老配置，都得到同一份选项。
+2. `WorkflowConfigurator` 的值那一栏按 `selected.options` 渲染 `<select>`（新抽的 `valueEditor()`），
+   存着的值不在选项里时**单独补一条**：受控下拉会把不在 `options` 里的 value 显示成第一项，
+   看上去值没变、一保存却被悄悄改掉了 —— 正是这套界面一直在防的那种静默失败。
+3. 画布那侧的「应用参数」面板本来就支持（`GenerateDock` 早就是 `options?.length ? select : input`），
+   这次只是终于有人给它喂了选项。
+
+**四条硬边界**（都是为了让改动只会把界面变好、不会把配置弄坏）：
+- **查不到就是查不到**：服务没开 / 机器上没这个节点 / 这一项本来就不是挑选型 → 保持文本框，绝不猜。
+- **只挂小得像枚举的清单**：2~60 项、每项 ≤80 字（与 `fieldSchema.options` 的上限一致）。
+  模型 / LoRA 那种（名单会随用户往 `models` 里丢文件而变）一律不挂 —— 冻进配置里的清单会过期，
+  比文本框更糟；超限还会让整份配置在 `safeParse` 处失败，表现出来是「保存不了」。
+  判据与 `diagnose.ts` 同一份 `RESOURCE_FIELD` 正则。
+- **媒体字段不挂**（kind = image / video / audio / latent，那是上传或文件路径）。
+- **整段尽力而为**：读库失败 / 超时 / 形状认不出 → 吞掉，原样返回。它没有把配置页弄挂的能力。
+
+**性能与两个坑**：
+- 整份 `/object_info` 在他那台机器上实测 **11.6 MB / 8.2 秒**，所以 `readObjectInfo` 加了
+  `{ fullFallback: false }`：`fieldChoices` 只按类型问（`/object_info/<class>`，几毫秒），
+  **不退回整份**。关掉退路后 `unavailable` **不缓存**（这个状态多半是「服务这一刻不正常」——
+  实测他关掉 ComfyUI 后 8188 上还挂着个转发进程回 502；缓存住会让「打开 ComfyUI 再刷新」拿不到选项）。
+- 单次预算 4 秒 / 最多 40 个类型 / 并发 8；动手前先探一次 `/system_stats`，服务没开就一个请求都不发。
+- 选项挂在字段上会**跟着配置一起存进去**：用户保存过一次之后，即使 ComfyUI 关着下拉也还在
+  （下次查得到仍以本机为准覆盖）。
+
+**验收**（临时包 `_hlbuild122`，隔离实例，靶子是 `wfopt_stub.py` 那个假 ComfyUI ——
+他那一刻真机 ComfyUI 没开着，而这个功能有「查不到 / 选项不含当前值 / 清单太大 / 资源字段」
+几条分支要逐个走到，拿桩当靶子判据才稳定）：
+- `wfopt_probe.js` **35 PASS / 0 FAIL**：9 项枚举与 2 项枚举各成下拉、选项与 ComfyUI 逐字一致；
+  70 项的**仍是文本框**（超上限）；`STRING` 的仍是文本框；`unet_name`（资源字段）仍是文本框；
+  `sampler_name` 的 3 项都不含当前值时下拉是 4 行（第 1 行是当前值兜底，标题仍写「3 项」）；
+  改成 9:16 → 保存 → 重新加载仍是 9:16；`/config`、`/fields` 都带着 options（4 / 69）。
+- 无桩模式（= 本机 ComfyUI 关着）**5 PASS / 0 FAIL**：一律退回 textarea，页面不报错。
+- 顺带确认：靶子指到哨兵端口时页面仍正常加载 —— 这条能力失败时**绝不**影响配置页本身。

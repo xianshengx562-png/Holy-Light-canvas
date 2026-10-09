@@ -18,6 +18,7 @@ import { DEFAULT_WORKFLOW_OPERATION, readWorkflowOperation, WORKFLOW_OPERATIONS 
 import {
   graphNodeCount, localGraphToFields, providerFromWorkflowId, readWorkflowProvider, workflowIdError,
 } from '@/lib/workflows/local';
+import { enrichFieldOptions } from '@/lib/workflows/fieldOptions';
 
 type Context = { params: Promise<{ workflowId: string }> };
 /*
@@ -127,6 +128,16 @@ export async function GET(request: Request, context: Context) {
         nodeNotice = `未能从 RunningHub 拉取节点字段：${err instanceof Error ? err.message : '未知错误'}（可在下方手动添加节点字段，或确认 API Key 与工作流 ID 是否正确）。`;
       }
     }
+    /*
+     * 最后一道：给「其实是个枚举、却显示成文本框」的字段补上选项（2026-10-10 徐先）。
+     *
+     * 上面四条来源拿到的字段都只有「当前值」，`aspect` 存着 `'16:9'` —— 光看它不知道是九选一。
+     * 问本机 ComfyUI（`/object_info/<节点类型>`）才知道，所以这一步放在**所有来源之后**统一做：
+     * 无论是从图上扫的、从 RunningHub 拉的、还是库里存着的老配置，都该得到同一份选项。
+     * 查不到 / 服务没开 → 原样返回（文本框），调用方无需判空。详见 `lib/workflows/fieldOptions.ts`。
+     */
+    const enriched = await enrichFieldOptions(configFields, user.id);
+    configFields = enriched.fields;
     return Response.json({
       config: { fields: configFields },
       version: draft?.version ?? -1,

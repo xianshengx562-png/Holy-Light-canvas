@@ -1,10 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Download, Loader2, RefreshCw } from 'lucide-react';
 import { latentLabel } from './nodeMeta';
-import type { RunRecord } from '@/lib/runs';
+import { assetIdFromUrl, useAssetFileDrag } from '@/lib/file-drag';
+import type { RunRecord, RunResultItem } from '@/lib/runs';
 import type { GenerationRun, LatentRecord } from './types';
 
 /**
@@ -26,6 +27,12 @@ import type { GenerationRun, LatentRecord } from './types';
  *    顺带：拉的是一份几百条的记录，比拉整张画布小得多。
  * 3. **没有结果也要把话说清楚。** 「还没开始生成」和「加载失败了」是两回事，
  *    静默空列表会让人以为功能坏了。
+ *
+ * 结果**能直接拖到别的软件里**（2026-10-09 徐先：「生成结果也能拖到别的软件」）：
+ * 图拖进 PS、视频拖进剪辑软件都是常见的一步。拖拽那一套与资产卡片共用一份
+ * （`lib/file-drag.ts`），这里只多判一件事 —— **这条结果有没有本机文件**。
+ * RunningHub 那类远程结果（`item.url` 不是 `/api/assets/…`）根本没有本机路径，
+ * 那种不给拖，也不假装能拖（见下面 `assetIdFromUrl`）。
  */
 
 /** `GET /api/projects` 只用得到这两个字段。 */
@@ -40,6 +47,69 @@ export type ResultsRun = GenerationRun & {
 
 /** 一次最多并发拉几张画布：项目多的时候别把接口打成一排。 */
 const CONCURRENCY = 4;
+
+/**
+ * 一条结果。（单独抽出来是因为**每条要各自判一次「有没有本机文件」**，
+ * 塞在 `.map()` 里就要靠 IIFE，读起来比一个组件糟。）
+ */
+function ResultMedia({
+  item,
+  index,
+  onPrefetch,
+  onDragStart,
+}: {
+  item: RunResultItem;
+  /** 第几次生成 —— 只给图片的 alt 用。 */
+  index: number;
+  onPrefetch: (id: string) => void;
+  onDragStart: (event: React.DragEvent, id: string) => void;
+}) {
+  /*
+   * 只有「本机资产地址」这种形状拖得动 —— 见 `assetIdFromUrl`。
+   * 远程结果（RunningHub 之类）**没有本机文件**，那种不给拖，也不假装能拖：
+   * 让它拖起来、掉到目标软件里却是一串地址，比拖不动更让人困惑。
+   */
+  const assetId = assetIdFromUrl(item.url);
+  const dragProps = assetId
+    ? {
+      draggable: true,
+      onPointerDown: () => onPrefetch(assetId),
+      onDragStart: (event: React.DragEvent) => onDragStart(event, assetId),
+      title: '可以直接拖到别的软件里',
+    }
+    : { draggable: false, title: '这份结果只在云端，本机没有文件 —— 拖不出去，可以先存进资产库。' };
+
+  return (
+    <div
+      className="cv-results-media"
+      data-result-kind={item.kind}
+      data-result-drag={assetId ? 'yes' : 'no'}
+      {...dragProps}
+    >
+      {item.kind === 'image'
+        /*
+         * `draggable={false}` 必须给：`<img>` **默认就是可拖的**，不给的话这次拖拽的
+         * 源头是那张图而不是外面这层 —— 落到目标软件里的是「一张图片」而不是那个文件
+         * （资产卡片上同一个坑，见 `lib/file-drag.ts`）。
+         */
+        ? <img className="cv-video" src={item.url} alt={`第 ${index} 次生成的图片`} draggable={false} />
+        /* 音频那一档：`<video>` 也能放 mp3，但拿一整块 16:9 黑框装一段只有波形的声音
+           很难看，也看不出进度。用原生 `<audio>` —— 一条窄条，带播放与进度。 */
+        /* `.cv-audio` 是那层带底色的壳，里面才是 `<audio>`（见 canvas.css）。 */
+        : item.kind === 'audio'
+          ? <span className="cv-audio"><audio src={item.url} controls preload="metadata" /></span>
+          /* 文本结果（2026-10-04）：它的 url 是资产库里那份 `.txt`。这里不做内嵌预览，
+             给一条能打开/下载的入口就行 —— 内嵌要么自己再抓一遍内容，要么把整段文字塞进列表，
+             而这一栏是「历次生成的索引」，塞长文本会把别次的结果挤没。
+             `<a href>` 同样默认可拖（拖出去的是链接），一并关掉。 */
+          : item.kind === 'text'
+            ? <a className="cv-results-text" href={item.url} target="_blank" rel="noreferrer" draggable={false}>
+              文本结果 · 打开 / 下载 .txt
+            </a>
+            : <video className="cv-video" src={item.url} controls preload="metadata" />}
+    </div>
+  );
+}
 
 export default function CanvasResultsPanel({
   projectId,
@@ -124,6 +194,25 @@ export default function CanvasResultsPanel({
 
   const reload = useCallback(() => setReloadSeq(seq => seq + 1), []);
 
+  /*
+   * 拖不动 / 还没准备好时的一句话（2026-10-09）。
+   *
+   * 这一栏没有资产页那种常驻提示条，所以自己留一行字；**说完 1.8s 自己收掉** ——
+   * 拖拽是「试一下才知道」的动作，回执一直挂着会挡住结果本身。
+   */
+  const [dragMsg, setDragMsg] = useState('');
+  const dragTimer = useRef<number | null>(null);
+  const sayNotice = useCallback((text: string) => {
+    setDragMsg(text);
+    if (dragTimer.current) window.clearTimeout(dragTimer.current);
+    dragTimer.current = window.setTimeout(() => { setDragMsg(''); dragTimer.current = null; }, 1800);
+  }, []);
+  const { prefetch, beginDrag } = useAssetFileDrag(sayNotice);
+  /* 面板一关就卸载，定时器要跟着走，不然会在一个死组件上 setState。 */
+  useEffect(() => () => {
+    if (dragTimer.current) window.clearTimeout(dragTimer.current);
+  }, []);
+
   return (
     <div className="cv-results">
       <div className="cv-results-bar">
@@ -141,6 +230,8 @@ export default function CanvasResultsPanel({
           {loading ? <Loader2 size={13} strokeWidth={2} className="cv-spin" aria-hidden /> : <RefreshCw size={13} strokeWidth={2} aria-hidden />}
         </button>
       </div>
+
+      {dragMsg && <p className="cv-results-empty" data-results-drag-msg>{dragMsg}</p>}
 
       <div className="cv-results-list" data-results-list="">
         <div className="cv-results-section-title">Latent 包 · 当前画布</div>
@@ -176,27 +267,21 @@ export default function CanvasResultsPanel({
               ? <div className="cv-msg error">{run.error || '生成失败'}</div>
               : run.results.length === 0
                 ? <p className="cv-results-empty">这次没有返回可播放的结果。</p>
+                /*
+                 * 这里原来挂着一颗「下载」。**去掉了**：`item.url` 有两种 ——
+                 * 本机的 `/api/assets/<id>/media.mp4`，和 RunningHub 的远程链接。
+                 * HTML 的 `download` 属性只在**同源**时生效，跨域那一类点下去根本不下载
+                 * （要么没反应、要么直接跳去那个地址）—— 一半结果上是坏的，
+                 * 留着比没有更糟。现在换成往别处拖（只有本机那一种拖得动，见 `ResultMedia`）。
+                 */
                 : run.results.map(item => (
-                  /* 这里原来挂着一颗「下载」。**去掉了**：`item.url` 有两种 ——
-                     本机的 `/api/assets/<id>/media.mp4`，和 RunningHub 的远程链接。
-                     HTML 的 `download` 属性只在**同源**时生效，跨域那一类点下去根本不下载
-                     （要么没反应、要么直接跳去那个地址）—— 一半结果上是坏的，
-                     留着比没有更糟。结果文件本来就落在产出目录、资产库里也查得到。 */
-                  <div key={item.url} className="cv-results-media" data-result-kind={item.kind}>
-                    {item.kind === 'image'
-                      ? <img className="cv-video" src={item.url} alt={`第 ${run.index} 次生成的图片`} />
-                      /* 音频那一档：`<video>` 也能放 mp3，但拿一整块 16:9 黑框装一段只有波形的声音
-                         很难看，也看不出进度。用原生 `<audio>` —— 一条窄条，带播放与进度。 */
-                      /* `.cv-audio` 是那层带底色的壳，里面才是 `<audio>`（见 canvas.css）。 */
-                      : item.kind === 'audio'
-                        ? <span className="cv-audio"><audio src={item.url} controls preload="metadata" /></span>
-                        /* 文本结果（2026-10-04）：它的 url 是资产库里那份 `.txt`。这里不做内嵌预览，
-                           给一条能打开/下载的入口就行 —— 内嵌要么自己再抓一遍内容，要么把整段文字塞进列表，
-                           而这一栏是「历次生成的索引」，塞长文本会把别次的结果挤没。 */
-                        : item.kind === 'text'
-                          ? <a className="cv-results-text" href={item.url} target="_blank" rel="noreferrer">文本结果 · 打开 / 下载 .txt</a>
-                          : <video className="cv-video" src={item.url} controls preload="metadata" />}
-                  </div>
+                  <ResultMedia
+                    key={item.url}
+                    item={item}
+                    index={run.index}
+                    onPrefetch={prefetch}
+                    onDragStart={beginDrag}
+                  />
                 ))}
           </div>
         ))}

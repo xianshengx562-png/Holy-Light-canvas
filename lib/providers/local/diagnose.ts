@@ -70,7 +70,22 @@ function authHeaders(credentials: LocalCredentials): Record<string, string> {
   return headers;
 }
 
-export async function readObjectInfo(credentials: LocalCredentials, classType: string): Promise<ObjectInfoResult> {
+export async function readObjectInfo(
+  credentials: LocalCredentials,
+  classType: string,
+  /**
+   * `fullFallback: false` = **只按类型问，不退回整份**。
+   *
+   * 整份 `/object_info` 在一个插件多的整合包上实测 11.6 MB / 8 秒（2026-10-10 量的），
+   * 所以「只是想知道某个字段有哪些选项」的场景绝不能走它 —— 那份结果是给**诊断**用的，
+   * 它一次要问几十个类型，摊下来才划算；问一两项时它是纯浪费。
+   *
+   * ⚠️ 关掉退路后**不缓存 `unavailable`**：这个状态多半是「服务这一刻不正常」
+   * （实测本机 ComfyUI 关掉后，8188 上还挂着个转发进程，回的是 502），
+   * 缓存住会让「用户把 ComfyUI 打开、再刷新页面」这条路再也拿不到选项。
+   */
+  opts?: { fullFallback?: boolean },
+): Promise<ObjectInfoResult> {
   const base = String(credentials?.baseUrl || '').trim().replace(/\/+$/, '');
   if (!base) return { state: 'unavailable' };
   const key = `${base}|${classType}`;
@@ -97,6 +112,8 @@ export async function readObjectInfo(credentials: LocalCredentials, classType: s
         return { state: 'missing' };
       }
     }
+    /* 不要整份、也不要把「问不动」当成「没有这个类型」：如实回一个可重试的 unavailable。 */
+    if (opts?.fullFallback === false) return { state: 'unavailable' };
     const all = await fetch(`${base}${LOCAL_OBJECT_INFO_PATH}`, {
       headers, signal: AbortSignal.timeout(LOCAL_QUERY_TIMEOUT_MS),
     });
@@ -138,12 +155,53 @@ async function serviceAlive(credentials: LocalCredentials): Promise<boolean> {
   }
 }
 
-/** 一个输入的规格写成 `[ ['a.safetensors', 'b.safetensors'], {...} ]` 时，才是「从列表里挑」。 */
-function choiceList(spec: unknown): string[] | null {
+/**
+ * 一个输入的规格**写成「从列表里挑」时**，把那份清单取出来。ComfyUI 有两种写法，两种都得认：
+ *  - 老写法（列表型）：`[ ['euler', 'heun', …], { tooltip: … } ]` —— 采样器、调度器、模型名都是这个；
+ *  - 新写法（COMBO）：`['COMBO', { options: [ '16:9', '9:16', … ], default: 'adaptive' }]`
+ *    —— 第三方节点（`MiniMaxH3IntegrationGH` 的 `aspect` 就是）现在都这么写。
+ *
+ * ⚠️ **只认 COMBO 这一种新写法**：不认识的字符串（`INT` / `STRING` / `BOOLEAN`）一律返回 null，
+ * 那说明这一项本来就不是「挑一个」，是自由输入 —— 把它当列表，会把「值不在清单里」
+ * 报成缺资源（`diagnoseWithObjectInfo` 那条判定的输入）。
+ */
+export function choiceList(spec: unknown): string[] | null {
   if (!Array.isArray(spec)) return null;
   const head = spec[0];
-  if (!Array.isArray(head)) return null;
-  return head.map(item => String(item));
+  if (Array.isArray(head)) return head.map(item => String(item));
+  if (head === 'COMBO') {
+    const options = (spec[1] as { options?: unknown } | undefined)?.options;
+    return Array.isArray(options) ? options.map(item => String(item)) : null;
+  }
+  return null;
+}
+
+/**
+ * 某个节点的某个输入**能填哪些值**（本机 ComfyUI 说的）。
+ *
+ * 配置页拿它把「看上去是个文本框、其实是个枚举」的字段换成下拉 —— 那种字段当前值是个字符串
+ * （`'16:9'`），光看图我们无从知道它是九选一，只能问 `/object_info`。
+ *
+ * 查不到（服务没开 / 机器上没这个节点 / 这一项不是挑选型）一律返回 null ——
+ * **没查到不等于没有选项**，调用方按「保持原来的文本框」处理。
+ */
+export async function fieldChoices(
+  credentials: LocalCredentials,
+  classType: string,
+  fieldName: string,
+): Promise<string[] | null> {
+  /* 只按类型问：这一条并不需要整份节点表（理由见 `readObjectInfo` 的 opts）。 */
+  const result = await readObjectInfo(credentials, classType, { fullFallback: false });
+  if (result.state !== 'found' || !result.info) return null;
+  const spec = result.info?.input as { required?: Record<string, unknown>; optional?: Record<string, unknown> } | undefined;
+  /* required 与 optional 都可能是它的位置：节点作者放哪边没有规矩，两边都得看。 */
+  const inputs = { ...(spec?.required || {}), ...(spec?.optional || {}) };
+  return choiceList(inputs[fieldName]);
+}
+
+/** 本机 ComfyUI 现在是开着的吗。只用来决定「要不要去问它」，不做诊断（见 serviceAlive 的注释）。 */
+export async function localServiceAlive(credentials: LocalCredentials): Promise<boolean> {
+  return serviceAlive(credentials);
 }
 
 function nodeEntries(graph: LocalGraph): { nodeId: string; classType: string; inputs: Record<string, unknown> }[] {

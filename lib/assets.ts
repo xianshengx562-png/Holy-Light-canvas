@@ -84,8 +84,14 @@ export async function listAssets(input: {
   category?: CategoryFilter;
   projectId?: string;
   take?: number;
-}): Promise<{ items: AssetItem[]; total: number; totalSize: number }> {
+  /**
+   * 跳过前几条（分页，2026-10-09）。**一页一页往下翻**就靠它 ——
+   * 以前只支持 `take`，于是这页永远只有最近那 60 条，翻不动也说不出口。
+   */
+  skip?: number;
+}): Promise<{ items: AssetItem[]; total: number; totalSize: number; hasMore: boolean }> {
   const take = Math.min(Math.max(input.take ?? 60, 1), 300);
+  const skip = Math.max(Math.trunc(input.skip ?? 0), 0);
   const category = input.category && input.category !== 'all' ? input.category : '';
   const where: Prisma.AssetWhereInput = {
     userId: input.userId,
@@ -105,6 +111,7 @@ export async function listAssets(input: {
     db.asset.findMany({
       where,
       orderBy: { createdAt: 'desc' },
+      skip,
       take,
       select: {
         id: true, name: true, type: true, category: true, url: true, metadata: true, createdAt: true,
@@ -178,6 +185,12 @@ export async function listAssets(input: {
     items,
     total,
     totalSize: items.reduce((sum, item) => sum + item.size, 0),
+    /*
+     * 拿 **查回来的行数**（不是 `items.length`）比：认不出类型的那几行会被 `items` 丢掉，
+     * 用 `items.length` 会在最后一页上多报一次「还有」—— 于是滚到底永远在加载、
+     * 却永远加载不出东西（分页最难受的那种卡住）。
+     */
+    hasMore: skip + rows.length < total,
   };
 }
 

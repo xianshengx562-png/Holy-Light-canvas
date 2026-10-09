@@ -8,7 +8,7 @@
  * 筛选条件继续走地址栏的 `?type=` / `?project=`，所以「筛选结果」这个链接仍然可以分享。
  */
 import Link from 'next/link';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Images, Trash2, Upload } from 'lucide-react';
 import SideNav from '@/components/start/SideNav';
 /* 常量从 `asset-kinds` 拿：同名的 `lib/assets.ts` 带 node:fs 和数据库，浏览器包里不能出现。 */
@@ -32,6 +32,10 @@ type AssetsPayload = {
   items: AssetItem[];
   total: number;
   totalSize: number;
+  /** 还有没有下一页（2026-10-09 分页）。它是「要不要再拉一页」的唯一依据。 */
+  hasMore: boolean;
+  page: number;
+  pageSize: number;
   projects: AssetProject[];
   storage: StorageOverview;
   /** 用户自己维护的分类表（含每项目前有多少条在用）。见 `/api/assets/categories`。 */
@@ -39,6 +43,15 @@ type AssetsPayload = {
   /** 一共多少个 latent —— 只给「一键删除 Latent」那颗按钮用（0 时按钮不出现）。 */
   latentCount: number;
 };
+
+/**
+ * 第二页往后那份（服务端只回列表本身，见 `/api/assets`）。
+ *
+ * 为什么另开一个类型而不是复用 `AssetsPayload`：那里面的 `projects` / `storage` /
+ * `categories` / `latentCount` 在翻页时**真的没有** —— 复用就等于对接口撒了个
+ * 「后面几页也带」的谎，哪天有人写 `data.projects.map(...)` 就会在翻页那一支上炸。
+ */
+type AssetPagePayload = { items: AssetItem[]; total: number; totalSize: number; hasMore: boolean; page: number };
 
 export default function Assets() {
   const { user } = useSession();
@@ -62,8 +75,116 @@ export default function Assets() {
   const qs = query.toString();
 
   const { data, loading, reload } = useApi<AssetsPayload>(user ? `/api/assets${qs ? `?${qs}` : ''}` : null);
-  const items = data?.items ?? [];
+
+  /* ── 分页：一次 60 条，往下滚再要一页（2026-10-09）────────────────── */
+  /*
+   * 以前这一页**只有**最近 60 条 —— `take` 就是全部，翻不动也说不出「还有多少」。
+   * 现在第一页照旧由 `useApi` 管，第二页往后攒在 `extra` 里。
+   *
+   * 为什么不「把 60 调大、一次给完」：四百来张缩略图一次进 DOM，这一页会明显卡；
+   * 而画廊这种东西本来就该「往下滚继续出」，比让人去找页码顺手。
+   *
+   * 🔴 **任何让第一页重取的动作都要把 `extra` 清掉**（删了一页里的几条、打了分类、
+   *    上传完、改了筛选条件）—— 不清的话旧的第二页会挂在新第一页后面，
+   *    看着像「删掉的那条又回来了」。所以对外一律走 `reloadAll`，不用裸 `reload`。
+   */
+  const [extra, setExtra] = useState<AssetItem[]>([]);
+  const [page, setPage] = useState(1);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [moreError, setMoreError] = useState('');
+  /** 最后一页回回来的 `hasMore`（第一页那份在 `data` 里）；没翻过页时是 `null`。 */
+  const [tailHasMore, setTailHasMore] = useState<boolean | null>(null);
+
+  const items = useMemo(() => [...(data?.items ?? []), ...extra], [data, extra]);
   const total = data?.total ?? 0;
+  /** 还没翻过页时听第一页的；翻过之后以最后一页回回来的为准。 */
+  const hasMore = tailHasMore ?? data?.hasMore ?? false;
+
+  const resetPaging = useCallback(() => {
+    setExtra([]);
+    setPage(1);
+    setTailHasMore(null);
+    setMoreError('');
+  }, []);
+
+  /** 「这份列表要重取了」—— 顺手把攒下的后面几页一起丢掉。 */
+  const reloadAll = useCallback(() => { resetPaging(); reload(); }, [reload, resetPaging]);
+
+  /* 换筛选条件 = 换一份列表：地址栏变了就当重来（挂载时跑一次，无害）。 */
+  useEffect(() => { resetPaging(); }, [qs, resetPaging]);
+
+  const loadMore = useCallback(async () => {
+    if (!user || loading || loadingMore || !hasMore) return;
+    const next = page + 1;
+    setLoadingMore(true);
+    setMoreError('');
+    try {
+      /* 从 `qs` 拷一份再盖章：筛选条件一个字都不能少，否则翻到第二页就换了个筛法。 */
+      const q = new URLSearchParams(qs);
+      q.set('page', String(next));
+      const res = await fetch(`/api/assets?${q.toString()}`, { headers: { accept: 'application/json' } });
+      if (!res.ok) throw new Error(`加载失败（${res.status}）`);
+      const body = (await res.json().catch(() => null)) as AssetPagePayload | null;
+      const fresh = Array.isArray(body?.items) ? body.items : [];
+      setExtra(prev => {
+        /*
+         * 去重：这一页和上一页之间**可能有人删了东西**，`skip` 是按「当前还剩多少」
+         * 算的，于是下一条会往上顶一位、出现两次。宁可少一条也不要同一张图出现两遍 ——
+         * 真漏了那条，下一次翻页或刷新就补上了。
+         */
+        const seen = new Set([...(data?.items ?? []), ...prev].map(item => item.id));
+        return [...prev, ...fresh.filter(item => !seen.has(item.id))];
+      });
+      setPage(next);
+      setTailHasMore(Boolean(body?.hasMore));
+    } catch (e) {
+      setMoreError(e instanceof Error ? e.message : '加载失败。');
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [user, loading, loadingMore, hasMore, page, qs, data]);
+
+  /*
+   * 滚到底自动加载下一页。
+   *
+   * 提前 360px 就动手 —— 等到底了才发请求，中间那一段是空白，
+   * 用户看到的是「卡了一下」；提前一点几乎总是已经加载完了。
+   *
+   * 🔴 **刻意不用 `IntersectionObserver`**（2026-10-09 真机实测：滚到底之后哨兵的
+   *    `getBoundingClientRect()` 明明白白落在视口里，observer 却**一次回调都没给** ——
+   *    在页面里另起一个一模一样的 observer 也是 0 次，不是我们挂错了地方。
+   *    桌面版这套自定义协议 + 关掉 GPU 合成的组合下不能指望它。）
+   *    改成监听**真正滚动的那个容器**的 `scroll` 事件 + 自己量一次 rect：
+   *    不依赖浏览器的渲染节拍，什么时候都准。
+   *
+   * ⚠️ `loadMore` 每渲染都换一个身份（依赖里带着 `data`），它进依赖数组会让监听
+   *    每次渲染都重建。用 ref 转一层：effect 只在「还能不能翻 / 这次翻完没有」
+   *    真的变了时才重建，但回调里拿到的永远是最新的那个。
+   */
+  const loadMoreRef = useRef(loadMore);
+  loadMoreRef.current = loadMore;
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const node = sentinelRef.current;
+    if (!node || !hasMore || loadingMore || loading) return;
+
+    const check = () => {
+      const rect = node.getBoundingClientRect();
+      if (rect.top <= window.innerHeight + 360) void loadMoreRef.current();
+    };
+    /* 谁在滚：从哨兵往上找第一个真的能滚的祖先（桌面版是 `.workspace` 那一层）。 */
+    let scroller: HTMLElement | null = node.parentElement;
+    while (scroller && scroller.scrollHeight <= scroller.clientHeight + 4) scroller = scroller.parentElement;
+    /* 挂载后先量一次：比如第一页还没填满一屏，那就该接着往下要。 */
+    check();
+    const target: EventTarget = scroller ?? window;
+    target.addEventListener('scroll', check, { passive: true });
+    window.addEventListener('resize', check);
+    return () => {
+      target.removeEventListener('scroll', check);
+      window.removeEventListener('resize', check);
+    };
+  }, [hasMore, loadingMore, loading, items.length]);
   const projects = data?.projects ?? [];
   const storage = data?.storage;
   const categories = data?.categories ?? [];
@@ -160,7 +281,7 @@ export default function Assets() {
         if (!task || task.status === 'running' || task.status === 'queued') continue;
         if (task.status === 'success') {
           setUploadMsg(`「${upscaling.name}」超清完成 —— 结果已经存进资产库。`);
-          reload();
+          reloadAll();
         } else {
           setUploadMsg(`超清失败：${String(task.error || '任务失败了')}`);
         }
@@ -169,7 +290,7 @@ export default function Assets() {
       }
     })();
     return () => { alive = false; };
-  }, [upscaling, reload]);
+  }, [upscaling, reloadAll]);
 
   /* ── 一键删除 Latent（2026-10-02）────────────────────────── */
   const [purgeOpen, setPurgeOpen] = useState(false);
@@ -203,7 +324,7 @@ export default function Assets() {
           + (result.deleted ? `其余 ${result.deleted} 个已经删掉了。` : '')
           + ' 确认要连它们一起删掉吗？',
         );
-        if (result.deleted) reload();
+        if (result.deleted) reloadAll();
         return;
       }
 
@@ -215,7 +336,7 @@ export default function Assets() {
         + (result.filesLeft ? `；${result.filesLeft} 个文件没能从磁盘上删掉（会体现在「孤儿文件」那一栏）` : '')
         + '。',
       );
-      reload();
+      reloadAll();
     } catch (e) {
       setPurgeError(e instanceof Error ? e.message : '删除失败，稍后再试。');
     } finally {
@@ -247,7 +368,7 @@ export default function Assets() {
       const res = await fetch('/api/assets/upload', { method: 'POST', body: form });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body?.error || '上传失败。');
-      reload();
+      reloadAll();
       const skipped = Array.isArray(body.skipped) ? body.skipped.length : 0;
       /*
        * 「上传了几个」要说清是图还是视频：混着拖进来时一句「已上传 3 张图片」
@@ -347,7 +468,11 @@ export default function Assets() {
                   event.target.value = '';
                 }} />
               <span className="muted">
-                {loading && !data ? '加载中…' : `${total} 项${items.length < total ? ` · 显示最近 ${items.length} 项` : ''}`}
+                {loading && !data
+                  ? '加载中…'
+                  /* 「已显示 N / 总共 M」：以前那句「显示最近 60 项」是在替一个
+                     翻不动的实现打圆场 —— 现在后面还能继续翻，就得说清看到哪了。 */
+                  : `${total} 项${items.length < total ? ` · 已显示 ${items.length} 项` : ''}`}
               </span>
             </div>
           </div>
@@ -364,7 +489,7 @@ export default function Assets() {
             kinds={ASSET_KINDS}
             categories={categories}
             projects={projects}
-            onCategoriesChanged={reload}
+            onCategoriesChanged={reloadAll}
           />
 
           {user && !loading && items.length === 0 && (
@@ -388,10 +513,30 @@ export default function Assets() {
           <AssetGallery
             items={items}
             categories={categories}
-            onChanged={reload}
+            onChanged={reloadAll}
             onUpscale={startUpscale}
             upscalingId={upscaling?.assetId ?? null}
           />
+
+          {/*
+            翻页那一块。滚到底（提前 360px）会自动加载下一页，这颗按钮是**兜底**：
+            observer 不认的容器（换了布局、被浮层盖住）里它照样能用，
+            而且「还有多少没看到」这句话本身也是给用户看的。
+          */}
+          {hasMore && (
+            <div className="assets-more" ref={sentinelRef}>
+              <button
+                className="button"
+                type="button"
+                data-assets-more
+                disabled={loadingMore}
+                onClick={() => void loadMore()}
+              >
+                {loadingMore ? '加载中…' : `加载更多（还有 ${Math.max(total - items.length, 0)} 项）`}
+              </button>
+            </div>
+          )}
+          {moreError && <p className="muted assets-upload-msg" data-assets-more-error>{moreError}</p>}
 
           {purgeMsg && <p className="muted assets-upload-msg" data-assets-purge-msg>{purgeMsg}</p>}
 

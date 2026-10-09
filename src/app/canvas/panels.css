@@ -4843,6 +4843,57 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
 }
 
 /*
+ * 收藏那颗星（2026-10-09 徐先：「可以每个选项都有收藏功能」）。
+ *
+ * 🔴 颜色走 `--cv-warn`（琥珀）而**不是**主题色 `--cv-accent`：
+ *    「这一行**选上了**」用的是 `.cv-dtp-row.on` 那层主题色高亮，星再上同一个色，
+ *    就分不清「选中」和「收藏」了 —— 这是两件事（星归星、勾归勾）。
+ *    实心 / 空心由组件那边给 `fill`，这里只管颜色。
+ */
+.cv-dtp-row-fav.on { color: var(--cv-warn); }
+
+.cv-dtp-row-fav:hover {
+  color: var(--cv-warn);
+  background: var(--cv-panel-2);
+  border-color: var(--cv-warn-line);
+}
+
+/*
+ * 「只看收藏」—— 摆在搜索框那一条横杠的右端，不另起一行。
+ * 这一块的高度是**按像素数着用**的（tab / 抽签 / 搜索 / 已选 / 列表 / 底栏），
+ * 多一整行就得从列表里再扣掉 30px。
+ */
+.cv-dtp-onlyfav {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(4px * var(--ui));
+  height: 24px;
+  /* 🔴 必须显式给：`globals.css` 给所有 button 留了横向内边距，不写会被撑成不方不正的一块。 */
+  padding: 0 8px;
+  flex: none;
+  white-space: nowrap;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-mute);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cv-dtp-onlyfav:hover {
+  color: var(--cv-text);
+  background: var(--cv-panel-2);
+  border-color: var(--cv-line);
+}
+
+.cv-dtp-onlyfav.on {
+  color: var(--cv-warn);
+  background: var(--cv-panel-2);
+  border-color: var(--cv-warn-line);
+}
+
+/*
  * 「角色输出」那一行（2026-10-08）—— 跟上面那行抽签模式是同一副按钮，
  * 所以挂 `cv-dtp-mode` 复用样式，只多一个题头把两行区分开。
  * 不题头的话两颗按钮长得一模一样，谁也说不清哪行管抽签、哪行管输出。

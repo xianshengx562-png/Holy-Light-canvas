@@ -1,0 +1,792 @@
+[
+  {
+    "id": "exp_0001",
+    "name": "Angry",
+    "name_zh": "生气",
+    "tags": "angry",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0002",
+    "name": "Anger Vein",
+    "name_zh": "怒气青筋（额头井字符号）",
+    "tags": "anger_vein",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0003",
+    "name": "Annoyed",
+    "name_zh": "不耐烦",
+    "tags": "annoyed",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0004",
+    "name": "Clenched Teeth",
+    "name_zh": "咬牙",
+    "tags": "clenched_teeth",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0005",
+    "name": "Scowl",
+    "name_zh": "怒视",
+    "tags": "scowl",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0006",
+    "name": "Blush",
+    "name_zh": "脸红",
+    "tags": "blush",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0007",
+    "name": "Blush Stickers",
+    "name_zh": "脸红贴纸（方块状腮红）",
+    "tags": "blush_stickers",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0008",
+    "name": "Embarrassed",
+    "name_zh": "害羞 / 尴尬",
+    "tags": "embarrassed",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0009",
+    "name": "Full-Face Blush",
+    "name_zh": "满脸通红",
+    "tags": "full-face_blush",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0010",
+    "name": "Nose Blush",
+    "name_zh": "鼻头泛红",
+    "tags": "nose_blush",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0011",
+    "name": "Bored",
+    "name_zh": "无聊",
+    "tags": "bored",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0012",
+    "name": "Closed Eyes",
+    "name_zh": "闭眼",
+    "tags": "closed_eyes",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0013",
+    "name": "Confused",
+    "name_zh": "困惑",
+    "tags": "confused",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0014",
+    "name": "Crazy",
+    "name_zh": "发疯",
+    "tags": "crazy",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0015",
+    "name": "Despair",
+    "name_zh": "绝望",
+    "tags": "despair",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0016",
+    "name": "Determined",
+    "name_zh": "坚定",
+    "tags": "determined",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0017",
+    "name": "Disappointed",
+    "name_zh": "失望",
+    "tags": "disappointed",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0018",
+    "name": "Disdain",
+    "name_zh": "轻蔑",
+    "tags": "disdain",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0019",
+    "name": "Disgust",
+    "name_zh": "厌恶",
+    "tags": "disgust",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0020",
+    "name": "Drunk",
+    "name_zh": "醉",
+    "tags": "drunk",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0021",
+    "name": "Envy",
+    "name_zh": "嫉妒",
+    "tags": "envy",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0022",
+    "name": "Excited",
+    "name_zh": "兴奋",
+    "tags": "excited",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0023",
+    "name": "Exhausted",
+    "name_zh": "疲惫",
+    "tags": "exhausted",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0024",
+    "name": "Expressionless",
+    "name_zh": "面无表情",
+    "tags": "expressionless",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0025",
+    "name": "Facepalm",
+    "name_zh": "扶额",
+    "tags": "facepalm",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0026",
+    "name": "Flustered",
+    "name_zh": "慌乱",
+    "tags": "flustered",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0027",
+    "name": "Frustrated",
+    "name_zh": "沮丧",
+    "tags": "frustrated",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0028",
+    "name": "Furrowed Brow",
+    "name_zh": "皱眉",
+    "tags": "furrowed_brow",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0029",
+    "name": "Grimace",
+    "name_zh": "苦相",
+    "tags": "grimace",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0030",
+    "name": "Guilt",
+    "name_zh": "内疚",
+    "tags": "guilt",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0031",
+    "name": "Happy",
+    "name_zh": "开心",
+    "tags": "happy",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0032",
+    "name": "Kubrick Stare",
+    "name_zh": "库布里克凝视（低头瞪眼）",
+    "tags": "kubrick_stare",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0033",
+    "name": "Lonely",
+    "name_zh": "寂寞",
+    "tags": "lonely",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0034",
+    "name": "Nervous",
+    "name_zh": "紧张",
+    "tags": "nervous",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0035",
+    "name": "Nosebleed",
+    "name_zh": "流鼻血",
+    "tags": "nosebleed",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0036",
+    "name": "One Eye Closed",
+    "name_zh": "单眼闭（眨眼）",
+    "tags": "one_eye_closed",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0037",
+    "name": "Open Mouth",
+    "name_zh": "张嘴",
+    "tags": "open_mouth",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0038",
+    "name": "Parted Lips",
+    "name_zh": "微张双唇",
+    "tags": "parted_lips",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0039",
+    "name": "Pain",
+    "name_zh": "痛苦",
+    "tags": "pain",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0040",
+    "name": "Pout",
+    "name_zh": "噘嘴",
+    "tags": "pout",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0041",
+    "name": "Raised Eyebrow",
+    "name_zh": "挑眉",
+    "tags": "raised_eyebrow",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0042",
+    "name": "Raised Inner Eyebrows",
+    "name_zh": "内侧挑眉（八字眉）",
+    "tags": "raised_inner_eyebrows",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0043",
+    "name": "Rolling Eyes",
+    "name_zh": "翻白眼",
+    "tags": "rolling_eyes",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0044",
+    "name": "Sad",
+    "name_zh": "伤心",
+    "tags": "sad",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0045",
+    "name": "Depressed",
+    "name_zh": "消沉",
+    "tags": "depressed",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0046",
+    "name": "Frown",
+    "name_zh": "皱眉不悦",
+    "tags": "frown",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0047",
+    "name": "Gloom (Expression)",
+    "name_zh": "阴沉",
+    "tags": "gloom_(expression)",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0048",
+    "name": "Tears",
+    "name_zh": "流泪",
+    "tags": "tears",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0049",
+    "name": "Scared",
+    "name_zh": "害怕",
+    "tags": "scared",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0050",
+    "name": "Panicking",
+    "name_zh": "恐慌",
+    "tags": "panicking",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0051",
+    "name": "Worried",
+    "name_zh": "担忧",
+    "tags": "worried",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0052",
+    "name": "Serious",
+    "name_zh": "严肃",
+    "tags": "serious",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0053",
+    "name": "Sigh",
+    "name_zh": "叹气",
+    "tags": "sigh",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0054",
+    "name": "Sleepy",
+    "name_zh": "困倦",
+    "tags": "sleepy",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0055",
+    "name": "Sulking",
+    "name_zh": "生闷气",
+    "tags": "sulking",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0056",
+    "name": "Surprised",
+    "name_zh": "惊讶",
+    "tags": "surprised",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0057",
+    "name": "Thinking",
+    "name_zh": "思考",
+    "tags": "thinking",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0058",
+    "name": "Pensive",
+    "name_zh": "沉思",
+    "tags": "pensive",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0059",
+    "name": "V-Shaped Eyebrows",
+    "name_zh": "V 字眉",
+    "tags": "v-shaped_eyebrows",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0060",
+    "name": "Wince",
+    "name_zh": "畏缩",
+    "tags": "wince",
+    "categories": [
+      "情绪 (Emotions)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0061",
+    "name": "Smile",
+    "name_zh": "微笑（闭嘴）",
+    "tags": "smile",
+    "categories": [
+      "笑 (Smile)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0062",
+    "name": "Grin",
+    "name_zh": "咧嘴笑",
+    "tags": "grin",
+    "categories": [
+      "笑 (Smile)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0063",
+    "name": "Light Smile",
+    "name_zh": "浅笑",
+    "tags": "light_smile",
+    "categories": [
+      "笑 (Smile)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0064",
+    "name": "Crazy Smile",
+    "name_zh": "狂笑",
+    "tags": "crazy_smile",
+    "categories": [
+      "笑 (Smile)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0065",
+    "name": "Evil Smile",
+    "name_zh": "坏笑",
+    "tags": "evil_smile",
+    "categories": [
+      "笑 (Smile)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0066",
+    "name": "Evil Grin",
+    "name_zh": "邪笑（咧嘴）",
+    "tags": "evil_grin",
+    "categories": [
+      "笑 (Smile)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0067",
+    "name": "Sad Smile",
+    "name_zh": "苦笑",
+    "tags": "sad_smile",
+    "categories": [
+      "笑 (Smile)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0068",
+    "name": "Forced Smile",
+    "name_zh": "强颜欢笑",
+    "tags": "forced_smile",
+    "categories": [
+      "笑 (Smile)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0069",
+    "name": "Stifled Laugh",
+    "name_zh": "憋笑",
+    "tags": "stifled_laugh",
+    "categories": [
+      "笑 (Smile)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0070",
+    "name": "Fingersmile",
+    "name_zh": "手指拉嘴角",
+    "tags": "fingersmile",
+    "categories": [
+      "笑 (Smile)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0071",
+    "name": "Smug",
+    "name_zh": "得意",
+    "tags": "smug",
+    "categories": [
+      "得意 (Smug)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0072",
+    "name": "Smirk",
+    "name_zh": "坏笑（单边嘴角上扬）",
+    "tags": "smirk",
+    "categories": [
+      "得意 (Smug)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0073",
+    "name": "Doyagao",
+    "name_zh": "ドヤ顔（自鸣得意脸）",
+    "tags": "doyagao",
+    "categories": [
+      "得意 (Smug)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0074",
+    "name": "Horrified",
+    "name_zh": "惊恐",
+    "tags": "horrified",
+    "categories": [
+      "惊吓 / 恐惧 / 悲伤 (Surprised / Scared / Sad)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0075",
+    "name": "Screaming",
+    "name_zh": "尖叫",
+    "tags": "screaming",
+    "categories": [
+      "惊吓 / 恐惧 / 悲伤 (Surprised / Scared / Sad)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0076",
+    "name": "Sobbing",
+    "name_zh": "啜泣",
+    "tags": "sobbing",
+    "categories": [
+      "惊吓 / 恐惧 / 悲伤 (Surprised / Scared / Sad)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0077",
+    "name": "Traumatized",
+    "name_zh": "受创伤",
+    "tags": "traumatized",
+    "categories": [
+      "惊吓 / 恐惧 / 悲伤 (Surprised / Scared / Sad)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0078",
+    "name": "Turn Pale",
+    "name_zh": "脸色发白",
+    "tags": "turn_pale",
+    "categories": [
+      "惊吓 / 恐惧 / 悲伤 (Surprised / Scared / Sad)"
+    ],
+    "preview": ""
+  },
+  {
+    "id": "exp_0079",
+    "name": "Color Drain",
+    "name_zh": "失色（惊吓时画面褪色）",
+    "tags": "color_drain",
+    "categories": [
+      "惊吓 / 恐惧 / 悲伤 (Surprised / Scared / Sad)"
+    ],
+    "preview": ""
+  }
+]

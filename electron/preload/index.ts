@@ -117,6 +117,18 @@ contextBridge.exposeInMainWorld('api', {
       files: number; skipped: string[];
     }>,
   /**
+   * D站标签的「收藏」（2026-10-09，见 `electron/main/danbooru-favs.ts`）。
+   *
+   * 每一档的每一行都能标星。只存 **id 清单**（桶 → id 数组），不存整条内容 ——
+   * 内置清单随版本增删，存内容会跟列表里实际显示的对不上。
+   */
+  danbooruFavsLoad: () =>
+    ipcRenderer.invoke('danbooru-favs:load') as Promise<{
+      version: number; favs: Record<string, string[]>;
+    }>,
+  danbooruFavsSave: (payload: { favs: Record<string, string[]> }) =>
+    ipcRenderer.invoke('danbooru-favs:save', payload) as Promise<{ ok: boolean; message: string }>,
+  /**
    * 自建的创作预设：档 / 分类 / 条目（2026-10-08，见 `electron/main/preset-mine.ts`）。
    * 存在 `<dataDir>/creative-presets/mine.json`，与「导入的那批」是两份文件 ——
    * 那份的语义是「同名再导 = 覆盖」，这份是「往我自己的分类里加」。

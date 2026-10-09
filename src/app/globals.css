@@ -1657,6 +1657,13 @@ html[data-nav='collapsed'] .side-user-body { display: none; }
   border-radius: var(--r-md, 12px);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
 }
+/* 资产库分页（2026-10-09）：一次 60 条，底下这颗既是「滚到底自动加载」的哨兵容器，
+   也是 observer 没接上时的手动入口。居中、上下留白，别贴着最后一行卡片。 */
+.assets-more {
+  display: flex;
+  justify-content: center;
+  padding: 22px 0 8px;
+}
 
 h1 { margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.02em; }
 

@@ -6,7 +6,9 @@ import {
   Check, Copy, Eye, FileArchive, FileText, FolderOpen, ImageIcon, Music, Pencil, Sparkles, Trash2, Video, X,
 } from 'lucide-react';
 import { apiPatch, apiPost } from '@/lib/client';
-import { revealFilePath, startDragFilePath } from '@/lib/desktop-fs';
+import { revealFilePath } from '@/lib/desktop-fs';
+/* 拖出去那一套在 `lib/file-drag.ts`：**生成结果那一栏也用同一份**（见那里的注释）。 */
+import { localPathOfAsset, useAssetFileDrag } from '@/lib/file-drag';
 import type { AssetCategoryItem } from '@/lib/asset-kinds';
 /* 类型清单只认 `AssetFilters` 那一份（见那边的注释）：抄第二份迟早两边不同步。 */
 import type { Kind } from './AssetFilters';
@@ -120,14 +122,11 @@ export default function AssetGallery({ items, categories, onChanged, onUpscale, 
   /** 灯箱里那张图 —— 复制图片要拿它进 canvas，不再多取一次网络。 */
   const stageImgRef = useRef<HTMLImageElement>(null);
   /**
-   * 「这条资产在本机哪」的缓存（2026-10-09 徐先：「也可以直接将拖入别的软件」）。
-   *
-   * 🔴 拖拽**没有**「先等一下再拖」的余地：`dragstart` 那一刻必须已经把路径交给主进程
-   *    （见 preload 里 `startDrag` 那段，晚一步用户的拖拽会话就结束了）。
-   *    所以路径只能在**按下鼠标**时就开始取 —— 人到真正拖起来中间那几十~几百毫秒，
-   *    足够本地那条接口跑完。
+   * 拖出去那一套（2026-10-09 徐先：「也可以直接将拖入别的软件」）。
+   * 缓存在 `lib/file-drag.ts` 里管着，这里只负责把话说在哪儿 —— 卡片上的提示条。
    */
-  const pathCache = useRef<Record<string, string>>({});
+  const sayNotice = useCallback((text: string) => setNotice({ text }), []);
+  const { prefetch: prefetchPath, beginDrag: startDrag } = useAssetFileDrag(sayNotice);
 
   /** 关灯箱时把删除的中间状态一起清掉，免得下次打开还停在「确认删除」上。 */
   const close = useCallback(() => {
@@ -139,33 +138,17 @@ export default function AssetGallery({ items, categories, onChanged, onUpscale, 
     if (copyTimer.current) { window.clearTimeout(copyTimer.current); copyTimer.current = null; }
   }, []);
 
-  /**
-   * 这条资产在**本机磁盘上的绝对路径**。
-   *
-   * 单开一条接口按需取，不放进列表：列表一次六十行，每行都要摸一次盘才算出这个字段，
-   * 而它只在一颗**按下去才会用到**的按钮里出现（见 `server/api/assets/[id]/path/route.ts`）。
-   */
-  const localPathOf = useCallback(async (id: string): Promise<string> => {
-    const res = await fetch(`/api/assets/${id}/path`);
-    if (res.status === 404) throw new Error('这条资产的文件已经不在磁盘上了。');
-    if (!res.ok) throw new Error(`取文件位置失败（${res.status}）。`);
-    const body = (await res.json()) as { path?: unknown };
-    const file = String(body?.path || '');
-    if (!file) throw new Error('没拿到文件位置。');
-    return file;
-  }, []);
-
   /** 打开文件所在位置：资源管理器里定位到这一份，而不是只打开目录。 */
   const reveal = useCallback(async (item: GalleryItem) => {
     setError('');
     try {
-      const file = await localPathOf(item.id);
+      const file = await localPathOfAsset(item.id);
       const outcome = await revealFilePath(file);
       if (!outcome.ok) throw new Error(outcome.message || '打开文件位置失败。');
     } catch (err) {
       setError(err instanceof Error ? err.message : '打开文件位置失败。');
     }
-  }, [localPathOf]);
+  }, []);
 
   /**
    * 复制。
@@ -215,7 +198,7 @@ export default function AssetGallery({ items, categories, onChanged, onUpscale, 
            写进依赖数组会在渲染时就撞上 TDZ —— 为一个几 KB 的请求赔上一次执行顺序的坑不值。 */
         await navigator.clipboard.writeText(await (await fetch(item.url)).text());
       } else {
-        await navigator.clipboard.writeText(await localPathOf(item.id));
+        await navigator.clipboard.writeText(await localPathOfAsset(item.id));
       }
       setCopied(true);
       if (copyTimer.current) window.clearTimeout(copyTimer.current);
@@ -231,33 +214,6 @@ export default function AssetGallery({ items, categories, onChanged, onUpscale, 
       else setNotice({ text: message });
     }
   }
-
-  /** 提前把路径取回来（鼠标一按下就叫，见 `pathCache` 那段注释）。失败就静默 —— 拖的时候再说。 */
-  const prefetchPath = useCallback((id: string) => {
-    if (pathCache.current[id]) return;
-    void localPathOf(id).then(file => { pathCache.current[id] = file; }).catch(() => {});
-  }, [localPathOf]);
-
-  /**
-   * 开始往外拖。
-   *
-   * 🔴 一定要 `preventDefault()`：不拦的话 Chromium 会自己起一次 HTML5 拖拽，
-   *    落到目标软件里的是一张「图片」或一坨文本，**不是那个文件**；
-   *    而且它跟主进程那次 `startDrag` 会打架，表现就是「拖过去的东西不对/拖不动」。
-   *
-   * 路径还没取回来时也照拦 —— 宁可这次拖不动（并说一句），
-   * 也不要让用户以为自己拖出去了、结果粘进去的是别的什么东西。
-   */
-  const beginDrag = useCallback((event: React.DragEvent, item: GalleryItem) => {
-    event.preventDefault();
-    const file = pathCache.current[item.id];
-    if (!file) {
-      prefetchPath(item.id);
-      setNotice({ text: '正在取这个文件的位置，稍等一下再拖。' });
-      return;
-    }
-    if (!startDragFilePath(file)) setNotice({ text: '这一版没法把文件拖出去（只有桌面版可以）。' });
-  }, [prefetchPath]);
 
   useEffect(() => {
     if (!open) return;
@@ -610,7 +566,7 @@ export default function AssetGallery({ items, categories, onChanged, onUpscale, 
                */
               draggable={!selecting && !editing}
               onPointerDown={() => prefetchPath(item.id)}
-              onDragStart={event => beginDrag(event, item)}
+              onDragStart={event => startDrag(event, item.id)}
             >
               <button
                 className="asset-thumb"
@@ -689,7 +645,7 @@ export default function AssetGallery({ items, categories, onChanged, onUpscale, 
                   alt={open.name}
                   draggable
                   onPointerDown={() => prefetchPath(open.id)}
-                  onDragStart={event => beginDrag(event, open)}
+                  onDragStart={event => startDrag(event, open.id)}
                 />
               )}
               {open.type === 'video' && (
@@ -700,7 +656,7 @@ export default function AssetGallery({ items, categories, onChanged, onUpscale, 
                   playsInline
                   draggable
                   onPointerDown={() => prefetchPath(open.id)}
-                  onDragStart={event => beginDrag(event, open)}
+                  onDragStart={event => startDrag(event, open.id)}
                 />
               )}
               {open.type === 'audio' && (

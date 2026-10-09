@@ -27,6 +27,7 @@ import {
   importTagFiles, readCustomCategories, writeCustomCategories,
   type CustomTagFile,
 } from './danbooru-cats';
+import { readFavorites, writeFavorites, type FavoriteFile } from './danbooru-favs';
 import {
   importMinePresets, readMine, writeMine,
   type MineFile as PresetMineFile,
@@ -385,11 +386,15 @@ void app.whenReady().then(() => {
    *
    * ⚠️ 放在这里而不是 `createWindow()` 里：更新这件事与窗口无关，
    *    窗口关掉再开（或者压根还没开）时它也该有自己的状态。
-   *    状态变化推给**当时存在的所有窗口** —— 于是「启动后自动检查」那一次
-   *    即使发生在页面挂载之前，页面挂载时也能用 `updater-state` 查到（不用靠推送）。
+   *    状态变化推给**当时存在的所有窗口** —— 于是检查那一次即使发生在页面挂载之前，
+   *    页面挂载时也能用 `updater-state` 查到（不用靠推送）。
    *
-   * 启动 8 秒后才问一次：开机那一会儿磁盘和网络都在忙（后端、ComfyUI 检测都在这时跑），
-   * 别让「问一句有没有新版」抢在最前面。而它只是几十字节的 latest.yml，不影响启动速度。
+   * 🔴 **这里只初始化，不检查**（2026-10-09 徐先：「不用自动更新了，等用户点检测更新，
+   *    才会检测版本更新」）。以前下面挂着一句 `setTimeout(() => checkForUpdate(), 8000)`
+   *    —— 每次启动 8 秒后自己去问一次：用户没要求、界面上也没告诉他，
+   *    而这一问要走网络，代理软件没开时还会甩一句「连不上更新源」出来吓人。
+   *    现在**只有用户在「设置 · 版本与更新」里点「检查更新」才会联网**
+   *    （`ipcMain.handle('updater-check')`）。别再把它加回来。
    */
   initUpdater({
     dataDir: paths.dataDir,
@@ -397,8 +402,6 @@ void app.whenReady().then(() => {
       for (const win of BrowserWindow.getAllWindows()) win.webContents.send('updater-state', state);
     },
   });
-  /* 主进程里没有 `window` —— 这里就是 Node 的 `setTimeout`。 */
-  setTimeout(() => { void checkForUpdate(); }, 8000);
 
   const backend = createBackendSupervisor({
     /*
@@ -768,6 +771,20 @@ ipcMain.handle('danbooru-cats:import', (_event, payload: { files?: string[] }) =
       entries: [], files: 0, skipped: [],
     };
   }
+});
+
+/*
+ * D站标签的「收藏」（2026-10-09，见 `danbooru-favs.ts`）。
+ *
+ * 与 `danbooru-cats:*` 同构（`load` 读一次、`save` 整份写回），但**分开两套通道**：
+ * 那份存的是用户自己建的条目（内容归用户），这份只存「内置清单里哪几条被标了星」
+ * （内容归随包的清单）。整份写回同样是因为量级只有几条到几十条。
+ */
+ipcMain.handle('danbooru-favs:load', (): FavoriteFile => readFavorites());
+
+ipcMain.handle('danbooru-favs:save', (_event, payload: FavoriteFile) => {
+  const favs = payload?.favs && typeof payload.favs === 'object' ? payload.favs : {};
+  return writeFavorites({ version: 1, favs });
 });
 
 /*
