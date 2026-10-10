@@ -128,6 +128,17 @@ const schema = z.object({
     /** 只交一份时的老字段（MCP 还在用），服务端当 1 号槽位接住。 */
     videoInput: z.string().max(40000).optional(),
     audioInput: z.string().max(40000).optional(),
+    /*
+     * 画布控件（开关 / 数字滑块 / 自定义参数分类，2026-10-10 徐先）在这一节点上的值。
+     *
+     * 键是绑定名（`toggle_1` / `slider_2` / `custom_1`），值一律是字符串 ——
+     * 与 `toNodeInfoList` 写进 `nodeInfoList.fieldValue` 的那一串同一个形状，
+     * 服务端不做任何类型转换（它的活只是把值搬到配置里绑着的那个字段上）。
+     *
+     * 键长卡在 60：绑定名是内部约定的一小串，超长的一律是脏数据（或旧客户端乱塞的），
+     * 不卡的话一个几十 MB 的键会被原样存进任务表。
+     */
+    controlValues: z.record(z.string().max(60), z.string().max(40000)).optional(),
   }).optional(),
 });
 /** Values of the form `asset:<id>` point at an archived latent; re-upload it so RunningHub gets a fresh file name. */

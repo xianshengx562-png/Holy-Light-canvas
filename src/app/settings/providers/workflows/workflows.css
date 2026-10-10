@@ -77,6 +77,59 @@
 .workflow-id input { width: 260px; }
 .workflow-count { margin-left: auto; font-size: 12px; color: var(--text-mute); }
 
+/* ---------- 画布控件（开关 / 数字滑块 / 自定义参数分类，2026-10-10） ---------- */
+
+/*
+ * 这一块是「造旋钮」的地方，排在字段表**上面**：先造控件、再到下面把它绑给某个字段，
+ * 反过来的话用户得先翻到字段表选一条、发现下拉里没有、再滚上来造 —— 白跑一趟。
+ */
+.workflow-controls {
+  padding-bottom: 18px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+.workflow-controls-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
+.workflow-controls-head h2 { font-size: 15px; font-weight: 600; }
+.workflow-controls-head .workflow-muted { flex: 1; min-width: 240px; font-size: 12px; line-height: 1.7; }
+
+.workflow-control-group { margin-bottom: 14px; }
+.workflow-control-group-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.workflow-control-group-head strong { font-size: 13px; font-weight: 600; }
+.workflow-control-group-head .workflow-muted { flex: 1; min-width: 180px; font-size: 12px; }
+.workflow-control-group-head code { font-family: var(--font-mono); font-size: 11px; color: var(--info); }
+
+.workflow-control-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+.workflow-control-row label { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 12px; color: var(--text-dim); }
+.workflow-control-row label input,
+.workflow-control-row label select { width: 130px; }
+.workflow-control-row label textarea { width: 260px; }
+/* 「显示名称」是唯一会长的一格，多给点地方（他要的就是能改成「1号滑块（强度）」这种）。 */
+.workflow-control-row > label:first-of-type input { width: 200px; }
+/* 勾选项与旁边的字横排：竖排的话「默认」两个字会飘到框上面，看着像标题。 */
+.workflow-control-inline { flex-direction: row !important; align-items: center; gap: 7px !important; }
+.workflow-control-wide { flex: 1; min-width: 240px; }
+.workflow-control-code {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-mute);
+  background: var(--surface-3);
+  padding: 3px 7px;
+  border-radius: var(--r-xs);
+}
+/* 「还没填预设值」那句是这一行自己的警告，不占整行（`workflow-lib-warn` 默认是 block）。 */
+.workflow-control-row .workflow-lib-warn { width: 100%; margin-top: 0; }
+
 .workflow-layout {
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr);

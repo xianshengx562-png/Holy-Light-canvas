@@ -378,6 +378,36 @@
 /* 键盘焦点必须显形 —— 悬停才出现的按钮一旦不能用鼠标触发就成了死角。 */
 .cv-node-upscale:focus-visible { opacity: 1; outline: 2px solid var(--cv-accent-ring); outline-offset: 1px; }
 
+/*
+ * 画布控件胶囊（2026-10-10 徐先）：卡片右上角那颗「滑块图标 + 数量」。
+ *
+ * 🔴 与「超清」那颗**相反**，这颗**常驻可见**：它是这份工作流配好的一部分
+ * （配的时候就打算让人随时调），藏起来等于「我配了但找不着」。
+ * 胶囊上那个数字是这一份工作流接住的控件个数 —— 「点开有三样东西可拧」这件事
+ * 在点之前就得看得见，否则用户不知道这里藏着东西。
+ */
+.cv-node-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  height: 18px;
+  padding: 0 6px;
+  font-family: inherit;
+  font-size: var(--cv-fs-1);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--cv-dim);
+  background: var(--cv-panel-2);
+  border: 1px solid var(--cv-line);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+}
+.cv-node-controls:hover { color: var(--cv-accent-ink); background: var(--cv-accent); border-color: var(--cv-accent); }
+.cv-node-controls:focus-visible { outline: 2px solid var(--cv-accent-ring); outline-offset: 1px; }
+
 /* ---------- 节点类型色（2026-10-07 方向 D，DESIGN.md §3.3） ----------
    「高级灰」= 低饱和带灰，不是鲜艳色。规则来自 Figma：**彩色只出现在内容层** ——
    节点卡属于内容，面板 / 顶栏 / 按钮一律中性灰。

@@ -5,6 +5,7 @@ import type { WorkflowOperation } from '@/lib/workflows/operation';
 import type { DirectorScene } from '@/lib/director';
 import type { RelayLatentItem } from '@/lib/asset-kinds';
 import type { ResultKind } from '@/lib/result-kind';
+import type { CanvasControlSummary } from '@/lib/workflows/configuration';
 
 export type LatentRecord = {
   id: string;
@@ -79,6 +80,17 @@ export type WorkflowOption = {
   provider: 'local' | 'runninghub';
   /** 本地那份图的节点数（列表里显示「几个节点」）；云端那份图不在本机，恒 0。 */
   graphNodes: number;
+  /**
+   * 这份工作流上**真的有字段接着**的那些画布控件（2026-10-10 徐先）。
+   *
+   * 服务端 `WorkflowSummary.canvasControls` 同一份 —— 节点卡片右上角那颗胶囊照它画：
+   * 开关画成开关、数字滑块画成滑杆、自定义参数分类画成下拉。
+   *
+   * 可选是因为**画布上存着的 `workflows` 数组是老版本写进去的**（那时没这个字段）；
+   * 没有就按「这一份没有控件」处理（不画胶囊），不追加请求 —— 为一个空列表发一趟
+   * 请求换来的是几十个节点的瀑布流。
+   */
+  canvasControls?: CanvasControlSummary[];
 };
 
 /**
@@ -619,6 +631,18 @@ export type NodeData = {
   runs?: GenerationRun[];
   /** 上游自定义参数块里会参与本次生成的行数，只用于显示。 */
   paramCount?: number;
+  /**
+   * 画布控件在这一节点上的**当前值**（2026-10-10 徐先）：键是绑定名
+   * （`toggle_1` / `slider_2` / `custom_1`），值是字符串。
+   *
+   * 与 `NodeData.creativePresets` 那一类是同一个道理：值是**这一个节点**的，
+   * 定义（名字 / 量程 / 可选项）是**那一份工作流**的 —— 同一份工作流挂在十个节点上，
+   * 十个节点各调各的，互不影响。
+   *
+   * 没填的键按配置里的默认值走（合并规则只有 `nodeControlValues()` 一处），
+   * 所以老节点（一个键都没有）打开就是配置的默认值，不会变成「什么都没传」。
+   */
+  controlValues?: Record<string, string>;
   /** Directly connected upstream nodes, shown inside a parameter node. */
   inputs?: InputSlot[];
   /** Label of the upstream workflow node that supplies the workflow id, when one is connected. */
@@ -726,6 +750,17 @@ export type NodeData = {
    * 各档各改各的，不像 `onLatentPicks` 那样整体替换 —— 挑风格不该把已选的滤镜冲掉。
    */
   onCreativePresets?: (kind: import('./creativePresets').CreativePresetKind, list: import('./creativePresets').CreativePreset[]) => void;
+  /**
+   * 改**一个**画布控件的值（2026-10-10 徐先）：`binding` 是 `toggle_1` 这种名字。
+   *
+   * 一次改一个（不是整体替换），但传进来的是**整张表**：调用方拿的是 `controlValues`
+   * 的副本、改完一个键再整体交回来 —— 与 `onLatentPicks` 那种「传数组」的形状一致，
+   * 免得这一层再去判「这是加了一个键还是要清掉一个键」。
+   *
+   * 没给这条回调（更老的画布 / 别的渲染路径）时浮层里的旋钮改不动 ——
+   * 那种情况下卡片干脆不画胶囊，由调用方决定。
+   */
+  onControlValues?: (values: Record<string, string>) => void;
   onPreview?: (url: string) => void;
   /** 关掉预览灯箱。Esc 要能用 —— 关不掉的全屏浮层等于把画布锁住。 */
   onPreviewClose?: () => void;

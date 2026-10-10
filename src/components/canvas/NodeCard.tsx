@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Handle, NodeResizeControl, Position, useNodeId, useStore } from '@xyflow/react';
-import { Move3d, Play, RefreshCw, Sparkles, Tags, TriangleAlert } from 'lucide-react';
+import { Move3d, Play, RefreshCw, SlidersHorizontal, Sparkles, Tags, TriangleAlert } from 'lucide-react';
 import type { NodeData, ParamRow } from './types';
 import { nodeTintVars } from '@/lib/appearance';
 /* 创作预设（2026-10-06）：卡片上那几颗「已选」角标。 */
@@ -19,7 +19,9 @@ import { readLastUpscaleWorkflow } from '@/lib/upscaleMemory';
 import type { NodeKind } from './nodeMeta';
 import { NodeGlyph } from './nodeIcons';
 import NodeParamBar from './NodeParamBar';
+import NodeControlsPopover from './NodeControlsPopover';
 import { useParamPanelOpen } from './paramPanelMode';
+import { nodeControlValues } from '@/lib/workflows/configuration';
 import StarFlow from '@/components/ui/StarFlow';
 
 /**
@@ -98,6 +100,16 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
   const creativeTags = picksOf(creativePicksFrom(data))
     .map(item => `${CREATIVE_KIND_LABEL[item.kind]} · ${item.name}`);
   const chosenWorkflow = (data.workflows || []).find(item => item.workflowId === String(data.workflowId || ''));
+  /**
+   * 画布控件（2026-10-10 徐先）：这份工作流上**真的有字段接着**的那些。
+   *
+   * 服务端只把绑上的那些放进 `WorkflowSummary.canvasControls`，所以这里不用再判一遍 ——
+   * 造过但没绑的控件拿不到，拧了也不会有地方去（一个拧了不生效的旋钮是骗人的）。
+   * 一份都没接上就是空数组 → 胶囊不画。
+   */
+  const canvasControls = chosenWorkflow?.canvasControls ?? [];
+  /** 这一节点上的值 = 配置里的默认值 + 改过的那些（合并规矩只有 `nodeControlValues` 一处）。 */
+  const controlValues = nodeControlValues(canvasControls, data.controlValues);
   /** Generated video urls must not be rendered as an image. */
   const resultValue = String(data.resultUrl || '');
   const resultIsVideo = !!resultValue && isVideoUrl(resultValue);
@@ -193,6 +205,14 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
     data.onPreview?.(url);
   };
   const [armed, setArmed] = useState(false);
+  /**
+   * 画布控件浮层开在哪（2026-10-10 徐先）。`null` = 关着。
+   *
+   * 存的是**按钮那一刻的位置**而不是「开着 / 关着」：浮层是 portal 到画布舞台上的，
+   * 它得知道往哪儿摆；而画布会缩放 / 平移，位置只在**点开那一刻**有意义 ——
+   * 所以平移画布时它会跟着关掉（浮层的 scroll / resize 监听里那条），不会留在错位的地方。
+   */
+  const [controlAt, setControlAt] = useState<{ x: number; y: number } | null>(null);
   /** 取消选中就把第一下的记账清掉，下次选中重新从第一下开始。 */
   useEffect(() => { if (!selected) setArmed(false); }, [selected]);
   /** 文本框真的可以写：选中 **且** 这个选中不是拖动换来的。 */
@@ -659,6 +679,36 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
         )}
         {running && <span className="cv-node-pulse" title="生成中" />}
         {/*
+          画布控件胶囊（2026-10-10 徐先）：这份工作流上接了几个旋钮就画几个 ——
+          点开是开关 / 数字滑块 / 自定义参数分类三类混在一起的浮层。
+
+          **常驻**，不像「超清」那样悬停才显形：它是这一份工作流的**组成部分**
+          （配好的时候就打算让人随时调），藏起来等于「我配了但找不着」。
+          一颗**总胶囊**而不是每类一颗：三类常常只有一类在用，摆三颗空胶囊
+          反而让人以为那里有三个功能。
+
+          ⚠️ 一颗控件都没有的工作流**不画**（`canvasControls` 为空）——
+          画一个点了什么都没有的胶囊是骗人。
+        */}
+        {canvasControls.length > 0 && !!data.onControlValues && (
+          <button
+            type="button"
+            className="cv-node-controls nodrag"
+            title={`调整这份工作流上的 ${canvasControls.length} 个画布控件`}
+            aria-label="画布控件"
+            data-node-controls=""
+            onClick={event => {
+              event.stopPropagation();
+              /* 浮层是 portal 出去的，位置只在**点开这一刻**准 —— 之后画布缩放 / 平移它会自己关掉。 */
+              const rect = event.currentTarget.getBoundingClientRect();
+              setControlAt({ x: rect.left, y: rect.bottom + 6 });
+            }}
+          >
+            <SlidersHorizontal size={13} strokeWidth={2} aria-hidden />
+            <span>{canvasControls.length}</span>
+          </button>
+        )}
+        {/*
           「超清」按钮：把这份结果再加工一道。
           **平时不显形**（悬停或选中才出来）——生成节点上已经挤了标题、状态、参数条，
           再摆一个常驻按钮，用户扫一眼根本分不清哪个是干什么的。
@@ -861,6 +911,24 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
         && <NodeParamBar data={data} followedSide={followedSide} followedFrom={followedFrom} />}
 
       {mediaFace && outputHandle}
+
+      {/*
+        画布控件浮层（2026-10-10 徐先）。**portal 出去的**（挂在画布舞台上），
+        所以放在这里只是「由这颗胶囊拥有」，它画在哪与卡片的 overflow / transform 无关。
+
+        `data.onControlValues` 由画布给下来 —— 卡片自己碰不到 `nodes`，
+        改节点数据这件事只能画布做（`onLatentPicks` / `onCreativePresets` 都是这个规矩）。
+      */}
+      {controlAt && canvasControls.length > 0 && (
+        <NodeControlsPopover
+          at={controlAt}
+          title={displayLabelOf(data) || meta.label}
+          controls={canvasControls}
+          values={controlValues}
+          onChange={(binding, value) => data.onControlValues?.({ ...data.controlValues, [binding]: value })}
+          onClose={() => setControlAt(null)}
+        />
+      )}
     </div>
   );
 }

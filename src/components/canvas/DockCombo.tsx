@@ -15,7 +15,15 @@
  *    包含块若在**滚动盒之外**，就不受那个滚动盒裁剪 —— 所以这里以 `.cv-dock`
  *    （`position: absolute`、且 `overflow: visible`）为包含块，坐标用两次
  *    `getBoundingClientRect()` 相减算出来（相减能免疫祖先的 transform）。
- *    面板一滚坐标就失效，所以**滚动即关**（下面那个 `scroll` 监听）。
+ *    面板一滚坐标就失效，所以**滚动即关**（下面那个 `scroll` 监听）——
+ *    但**列表自己里面滚不算**，那不是在移动锚点，是在翻长列表（见第 1c 条）。
+ *
+ * 1c. **🔴 列表内部滚动绝不能关掉列表**（2026-10-10 徐先：「用鼠标滚轮向下拉的时候
+ *    直接关闭了」）。高度封顶之后列表里面本来就是要滚的；而那个 `scroll` 监听是
+ *    **捕获**的，列表滚一下也会打过去 —— 一律 `close()` 的代价是长列表根本翻不动，
+ *    往下拨一格整个收起来。判据是**这一下发生在哪**：target 在列表里就放行。
+ *    另外 CSS 给列表加了 `overscroll-behavior: contain`：少了它，滚到底之后滚动链会
+ *    穿到底栏（`.cv-dock-scroll`），那一下仍然会关掉列表 —— 表现和上面一模一样。
  *
  * 1b. **🔴 列表必须能翻到上方**：底栏是挂在节点下方的，节点一靠下它就贴着窗口下沿
  *    （探针量到过 `dockBottom=930` 而窗口只有 902 —— 它本来就会伸出去一截），
@@ -42,8 +50,14 @@ import { ChevronDown } from 'lucide-react';
 export type DockComboItem = { value: string; label: string };
 export type DockComboGroup = { key: string; label: string; items: DockComboItem[] };
 
-/** 列表高度上下限（`max-height` 的取值，与 `canvas.css` 里那条是同一个数）。 */
-const LIST_MAX_H = 260;
+/**
+ * 列表高度上下限（`max-height` 的取值，与 `canvas/panels.css` 里那条是同一个数）。
+ *
+ * 上限 2026-10-10 从 260 收到 200：他工作流上百条，260 高摊开就是十来行，
+ * 加上它就是浮在底栏上的，**上下两边的参数都被它盖住**（他的原话）。矮一点、
+ * 里面能滚，比「一次看全但挡住半边底栏」好用。改这里记得同改 CSS。
+ */
+const LIST_MAX_H = 200;
 /** 上下都装不下时也不能压到比这更矮 —— 再矮就只剩一行半，翻找失去意义。 */
 const LIST_MIN_H = 120;
 /** 列表与窗口上下沿之间留的余量。 */
@@ -154,14 +168,21 @@ export default function DockCombo({
     const onDown = (event: MouseEvent) => {
       if (!wrapRef.current?.contains(event.target as Node)) close();
     };
+    /* 见文件头第 1c 条：在列表自己里面滚是「翻列表」，不是「锚点动了」。 */
+    const onScroll = (event: Event) => {
+      const list = listRef.current;
+      const target = event.target;
+      if (list && target instanceof Node && list.contains(target)) return;
+      close();
+    };
     document.addEventListener('mousedown', onDown);
     window.addEventListener('resize', close);
-    /* capture：任何祖先滚动都算（面板滚、画布滚）。 */
-    document.addEventListener('scroll', close, true);
+    /* capture：任何祖先滚动都算（面板滚、画布滚）—— 列表自己那一下由 onScroll 放行。 */
+    document.addEventListener('scroll', onScroll, true);
     return () => {
       document.removeEventListener('mousedown', onDown);
       window.removeEventListener('resize', close);
-      document.removeEventListener('scroll', close, true);
+      document.removeEventListener('scroll', onScroll, true);
     };
   }, [open]);
 

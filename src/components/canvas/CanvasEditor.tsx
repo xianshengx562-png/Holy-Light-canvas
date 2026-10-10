@@ -109,7 +109,7 @@ import { customCategoriesNow, loadCustomCategories } from '@/lib/danbooruCats';
  * 参考图 / 视频 / 音频的槽位上限**与配置页能绑的绑定数同源**：
  * 两边不一致会出现「配置页绑得到第 12 张、提交时却只认前 9 张」这种谁也不报错的错。
  */
-import { MAX_AUDIO_INPUTS, MAX_PINNED_UPLOADS, MAX_REFERENCE_IMAGES, MAX_VIDEO_INPUTS } from '@/lib/workflows/configuration';
+import { MAX_AUDIO_INPUTS, MAX_PINNED_UPLOADS, MAX_REFERENCE_IMAGES, MAX_VIDEO_INPUTS, nodeControlValues } from '@/lib/workflows/configuration';
 /*
  * 同步出图（自定义接口）那套参数**直接从 lib 引**，不走 nodeMeta 的转出 —— 与上面 `validateImageParams`
  * 同一个路子：这个文件只用它们做「提交前的自查」，不需要 nodeMeta 里那套 UI 展示用的东西。
@@ -2759,6 +2759,17 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
             ...imageValues,
             ...videoValues,
             ...imageSizeValues,
+            /*
+             * 画布控件（2026-10-10 徐先）：**只带这一份工作流真的接住的那几个**
+             * （`chosenWorkflow.canvasControls`，服务端已经滤过「没绑的」）。
+             *
+             * 值 = 配置的默认值 + 这一节点上改过的（`nodeControlValues`）——
+             * 不去翻 `node.data.controlValues` 直接交：那样没拧过的旋钮会一个都不传，
+             * 工作流拿到自己的默认值，而用户以为「胶囊里显示的那个值就是发出去的那个」。
+             */
+            ...(chosenWorkflow?.canvasControls?.length
+              ? { controlValues: nodeControlValues(chosenWorkflow.canvasControls, node.data.controlValues) }
+              : {}),
           },
         }),
       }));
@@ -4599,6 +4610,13 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
             patch(node.id, { creativePresets: next });
           }
           : undefined,
+        /*
+         * 画布控件（2026-10-10 徐先）：拧动那颗胶囊里的旋钮，值写回**这一个节点**。
+         *
+         * 给不给这条回调就是「卡片上画不画那颗胶囊」的开关 —— 没地方存值的时候
+         * 画一个改不动的旋钮是骗人，所以整颗胶囊跟着这条回调一起出现。
+         */
+        onControlValues: (values: Record<string, string>) => patch(node.id, { controlValues: values }),
         onMeasure: (size: string) => { if (node.data.imageSize !== size) patch(node.id, { imageSize: size }); },
         onPreview: setPreview,
         onPreviewClose: () => setPreview(null),

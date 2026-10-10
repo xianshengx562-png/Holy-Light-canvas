@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { adaptedAspectRatio } from './aspectAdapter';
+
 /**
  * 序列型绑定的槽位上限。
  *
@@ -17,6 +19,17 @@ export const MAX_AUDIO_INPUTS = 10;
  * 会被反复写进同一个节点，而那种重复是静默的）。
  */
 export const MAX_PINNED_UPLOADS = 10;
+
+/**
+ * 画布**控件**（开关 / 数字滑块 / 自定义参数分类）的槽位上限（2026-10-10 徐先）。
+ *
+ * 各给 10 个：它们是「为某一个字段临时造的旋钮」，一份工作流上真会用到的不会比这更多，
+ * 再多就是配错了（改的其实是同一个值）。与上面那几个不是同一类东西 ——
+ * 参考图 / 视频那几档的上限受**画布上接了几份**限制，这些受**配置页造了几个**限制。
+ */
+export const MAX_TOGGLES = 10;
+export const MAX_SLIDERS = 10;
+export const MAX_CUSTOM_CONTROLS = 10;
 
 /**
  * 「手加 / 认不出来」的字段类名（常量放在文件头：下面的 schema 在模块加载时就要用它）。
@@ -40,6 +53,20 @@ export type ReferenceImageBinding = `reference_image_${RefSlot}`;
 export type VideoInputBinding = 'video_input' | `video_input_${Exclude<MediaSlot, 1>}`;
 export type AudioInputBinding = 'audio_input' | `audio_input_${Exclude<MediaSlot, 1>}`;
 
+/**
+ * 三类**画布控件**的绑定名（2026-10-10 徐先）：`toggle_1` / `slider_2` / `custom_1` …
+ *
+ * 与上面那些「画布本来就有的东西」（提示词、参考图、视频输入）不同，这些是
+ * **用户为了某个字段现造的旋钮** —— 所以编号从 1 起一路带编号，没有历史包袱。
+ */
+export type ToggleBinding = `toggle_${MediaSlot}`;
+export type SliderBinding = `slider_${MediaSlot}`;
+export type CustomControlBinding = `custom_${MediaSlot}`;
+
+/** 控件三类的名字。界面分组、默认命名、摘要全都按它枚举一遍。 */
+export type ControlKind = 'toggle' | 'slider' | 'custom';
+export const CONTROL_KINDS: ControlKind[] = ['toggle', 'slider', 'custom'];
+
 export type CanvasBinding =
   | 'manual' | 'prompt' | 'duration' | 'aspect_ratio' | 'megapixels' | 'reference_count'
   | ReferenceImageBinding
@@ -47,7 +74,8 @@ export type CanvasBinding =
   | 'negative_prompt' | 'steps' | 'cfg' | 'seed' | 'batch_size' | 'sampler'
   | 'width' | 'height'
   | 'upscale_input'
-  | VideoInputBinding | AudioInputBinding;
+  | VideoInputBinding | AudioInputBinding
+  | ToggleBinding | SliderBinding | CustomControlBinding;
 
 const PLAIN_BINDINGS = ['manual', 'prompt', 'duration', 'aspect_ratio', 'megapixels', 'reference_count',
   'latent_1', 'latent_2', 'continuation',
@@ -58,7 +86,13 @@ const REFERENCE_IMAGE_BINDINGS = Array.from({ length: MAX_REFERENCE_IMAGES }, (_
 const VIDEO_INPUT_BINDINGS = ['video_input', ...Array.from({ length: MAX_VIDEO_INPUTS - 1 }, (_, i) => `video_input_${i + 2}`)] as VideoInputBinding[];
 const AUDIO_INPUT_BINDINGS = ['audio_input', ...Array.from({ length: MAX_AUDIO_INPUTS - 1 }, (_, i) => `audio_input_${i + 2}`)] as AudioInputBinding[];
 
-export const ALL_CANVAS_BINDINGS: CanvasBinding[] = [...PLAIN_BINDINGS, ...REFERENCE_IMAGE_BINDINGS, ...VIDEO_INPUT_BINDINGS, ...AUDIO_INPUT_BINDINGS];
+const TOGGLE_BINDINGS = Array.from({ length: MAX_TOGGLES }, (_, i) => `toggle_${i + 1}`) as ToggleBinding[];
+const SLIDER_BINDINGS = Array.from({ length: MAX_SLIDERS }, (_, i) => `slider_${i + 1}`) as SliderBinding[];
+const CUSTOM_CONTROL_BINDINGS = Array.from({ length: MAX_CUSTOM_CONTROLS }, (_, i) => `custom_${i + 1}`) as CustomControlBinding[];
+
+export const ALL_CANVAS_BINDINGS: CanvasBinding[] = [...PLAIN_BINDINGS, ...REFERENCE_IMAGE_BINDINGS,
+  ...VIDEO_INPUT_BINDINGS, ...AUDIO_INPUT_BINDINGS,
+  ...TOGGLE_BINDINGS, ...SLIDER_BINDINGS, ...CUSTOM_CONTROL_BINDINGS];
 
 export const canvasBindingSchema = z.enum(ALL_CANVAS_BINDINGS);
 
@@ -135,6 +169,11 @@ export const canvasBindingLabels: Record<CanvasBinding, string> = {
   ...seriesLabels(REFERENCE_IMAGE_BINDINGS, '参考图'),
   ...seriesLabels(VIDEO_INPUT_BINDINGS, '视频输入'),
   ...seriesLabels(AUDIO_INPUT_BINDINGS, '音频输入'),
+  /* 控件那三类是**没改名时**的兜底（「画布 · 开关 1」）；改过名就以配置里那个为准，
+     判断走 `controlLabelOf()`，别直接读这张表 —— 读表会把用户改的名字丢掉。 */
+  ...seriesLabels(TOGGLE_BINDINGS, '开关'),
+  ...seriesLabels(SLIDER_BINDINGS, '数字滑块'),
+  ...seriesLabels(CUSTOM_CONTROL_BINDINGS, '自定义参数'),
 } as Record<CanvasBinding, string>;
 
 /**
@@ -248,15 +287,20 @@ export function bindingsForContext(
  * 用户得翻完一屏才知道自己要的是哪一个 —— 而「还能再加一张」这件事反而看不出来。
  * 反过来，**少了这一条就等于把能力藏起来**：原来那一版只有 9 个写死的参考图位，
  * 想要第 10 张的人根本没处选。
+ *
+ * 控件那三类（`toggle_N` / `slider_N` / `custom_N`）**不按「用到第几个」长**，
+ * 而是按配置里**造了几个**给（`controls`）—— 它们必须先有定义（名字 / 量程 / 可选项）
+ * 才谈得上绑定，凭空多给一个「滑块 3」只能绑到一个没有量程的东西上。
  */
 export function bindingsForFields(
   fields: { binding?: string }[],
   kind: 'image' | 'video' | 'audio',
   operation: 'generate' | 'upscale',
+  controls?: CanvasControls | null,
 ): CanvasBinding[] {
   const base = bindingsForContext(kind, operation);
-  if (operation === 'upscale') return base;
-  const out = [...base];
+  const out = [...base, ...controlBindingsOf(controls)];
+  if (operation === 'upscale') return out;
   for (const series of SERIES) {
     if (!series.contexts.includes(kind)) continue;
     const used = fields.reduce((max, field) => {
@@ -374,8 +418,214 @@ export const fieldSchema = z.object({
   /** 节点上「折进高级」勾了没有。勾了就不出现在「常用字段」筛选里。 */
   canvasAdvanced: z.boolean().optional(),
 });
+/*
+ * 画布控件（2026-10-10 徐先）：配置页里**自己造**的一类输入，绑到某个字段上之后
+ * 出现在节点卡片右上角的胶囊里 —— 开关 / 数字滑块 / 自定义参数分类（下拉）三类。
+ *
+ * 与「参考图 / 视频输入」那些槽位的差别：那些是画布**本来就有**的东西（上传或连线得来），
+ * 这些是**为了某个字段现造**的旋钮，所以量程、可选项、显示名都要能改，而且能造好多个
+ * （开关 1 之后还能有开关 2，滑块 1 之后还能有滑块 2）。
+ *
+ * 🔴 **定义与当前值分成两处存**，别合并：
+ *   · 定义（下面这几个 schema）—— 名字 / 量程 / 可选项 / 默认值，跟着**工作流配置**走；
+ *   · 当前值 —— 跟着**画布节点**走（`NodeData.controlValues`，键就是 `toggle_1` 这种绑定名）。
+ * 同一份工作流可以挂在好几个节点上，各节点的取值必须互不干涉；把值塞进配置的话，
+ * 「改一个节点」会连带改掉所有用这份工作流的节点，而界面上一个字都不会说。
+ *
+ * 槽位号 = 数组下标 + 1。加一个控件就是往数组里 push 一条，删一个就是 splice 掉 ——
+ * ⚠️ 删中间的会让后面所有编号前移，而节点上存的值按**编号**取，于是「滑块 2」的值
+ * 会突然变成原来「滑块 3」的。所以配置页删控件时只给删**最后一个**（见那里的注释）。
+ */
+export const toggleControlSchema = z.object({
+  /** 胶囊里显示的名字。空 / 没填时回落 `defaultControlLabel()`（「开关 1」）。 */
+  label: z.string().trim().max(60).default(''),
+  /** 默认状态。节点上没改过时就是它。 */
+  on: z.boolean().default(false),
+});
+export const sliderControlSchema = z.object({
+  label: z.string().trim().max(60).default(''),
+  /** 最小 / 最大：他要的默认 -1 ~ 1，两头都能改。 */
+  min: z.number().min(-1e6).max(1e6).default(-1),
+  max: z.number().min(-1e6).max(1e6).default(1),
+  /** 小数点后几位（0 = 只给整数档）。 */
+  precision: z.number().int().min(0).max(6).default(2),
+  /**
+   * 默认值（节点上没改过时）。
+   *
+   * ⚠️ **超量程不报错** —— 先设成 0.8、再把上限改成 0.5 是很常见的顺序，
+   * 那种情况下拒绝保存等于让人猜；由 `canvasControlSummaries()` 夹回量程内。
+   */
+  value: z.number().min(-1e6).max(1e6).default(0),
+});
+export const customControlSchema = z.object({
+  label: z.string().trim().max(60).default(''),
+  /*
+   * 预设值：界面上就是下拉的那几项。空数组 = 下拉没东西可选（配置页会提示先加一项）。
+   *
+   * ⚠️ **不在这里滤掉空串**：配置页那个「一行一个」的文本框是**边打字边提交**的，
+   * 敲下回车那一刻最后一行是空的 —— 那一刻若被滤掉，join 回来就没有那个换行，
+   * 光标被顶回去，第二行根本打不出来（2026-10-10 写这行时想到的）。
+   * 空串由读的那一侧滤（`canvasControlSummaries`），存下来脏一点没关系。
+   */
+  options: z.array(z.string().trim().max(200)).max(60).default([]),
+  /** 默认选中的那一项。**不在 options 里时按「没选」处理**（提交时跳过，不会发出去）。 */
+  value: z.string().trim().max(200).default(''),
+});
+
+/** 空配置的常量形式 —— `.default()` 用它，避免每次 parse 都现造一个对象。 */
+export const EMPTY_CANVAS_CONTROLS = { toggles: [], sliders: [], customs: [] } satisfies {
+  toggles: z.infer<typeof toggleControlSchema>[];
+  sliders: z.infer<typeof sliderControlSchema>[];
+  customs: z.infer<typeof customControlSchema>[];
+};
+
+export const canvasControlsSchema = z.object({
+  toggles: z.array(toggleControlSchema).max(MAX_TOGGLES).default([]),
+  sliders: z.array(sliderControlSchema).max(MAX_SLIDERS).default([]),
+  customs: z.array(customControlSchema).max(MAX_CUSTOM_CONTROLS).default([]),
+}).default(EMPTY_CANVAS_CONTROLS);
+
+export type ToggleControl = z.infer<typeof toggleControlSchema>;
+export type SliderControl = z.infer<typeof sliderControlSchema>;
+export type CustomControl = z.infer<typeof customControlSchema>;
+export type CanvasControls = z.infer<typeof canvasControlsSchema>;
+
+/**
+ * 给画布 / 服务端看的**一份扁平摘要**（`WorkflowSummary.canvasControls`）。
+ *
+ * 为什么不带整份 `CanvasControls`：画布那一侧（节点卡片上的胶囊）只需要「画什么、
+ * 量程多少、默认是什么」，而整份定义里那些 `on` / `value` 的原始类型在服务端的
+ * 列表接口里是负担 —— 摘要里一律是字符串，和提交时写进 `nodeInfoList` 的那一串
+ * 是同一个形状，少一处「两边格式不一样」的坑。
+ */
+export type CanvasControlSummary = {
+  /** `toggle_1` / `slider_2` / `custom_1` —— 同时是 `controlValues` 里的键。 */
+  binding: string;
+  kind: ControlKind;
+  /** 胶囊里的显示名（已回落，不会是空串）。 */
+  label: string;
+  /** 仅 slider。 */
+  min?: number;
+  max?: number;
+  precision?: number;
+  /** 仅 custom：下拉的那几项。 */
+  options?: string[];
+  /** 默认值（字符串）：toggle 是 `'true'` / `'false'`，slider 是按小数位格式化好的串。 */
+  value: string;
+};
+
+/** 认出一个绑定属于哪一类控件、第几号；不是控件就返回 null。 */
+export function controlSlot(binding: string | undefined | null): { kind: ControlKind; slot: number } | null {
+  const hit = /^(toggle|slider|custom)_(\d+)$/.exec(String(binding ?? '').trim());
+  if (!hit) return null;
+  const kind = hit[1] as ControlKind;
+  const slot = Number(hit[2]);
+  const max = kind === 'toggle' ? MAX_TOGGLES : kind === 'slider' ? MAX_SLIDERS : MAX_CUSTOM_CONTROLS;
+  return Number.isInteger(slot) && slot >= 1 && slot <= max ? { kind, slot } : null;
+}
+
+export function controlBinding(kind: ControlKind, slot: number): CanvasBinding {
+  return `${kind}_${Math.max(1, Math.round(slot))}` as CanvasBinding;
+}
+
+/** 没改名时的兜底名字（「滑块 1」）—— 与老绑定那张表分开，控件这三类名字是给用户改的。 */
+export function defaultControlLabel(kind: ControlKind, slot: number): string {
+  return kind === 'toggle' ? `开关 ${slot}` : kind === 'slider' ? `滑块 ${slot}` : `自定义 ${slot}`;
+}
+
+/** 按小数位格式化：0 位就出整数串，免得滑块停在 `0.30` 这种看着像没对齐的数。 */
+export function formatControlNumber(value: number, precision: number): string {
+  if (!Number.isFinite(value)) return '0';
+  return value.toFixed(Math.max(0, Math.min(6, Math.round(precision))));
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+/**
+ * 这份配置里**定义过**的控件（按类型分组、按编号升序）。
+ *
+ * 只列定义过的：造都没造的槽位不该出现在绑定下拉里 —— 选了它等于绑到一个
+ * 没有名字、没有量程、也没有默认值的东西上，提交时那个值要么为空被跳过、
+ * 要么就是一句 `Value not in list`。
+ */
+export function controlBindingsOf(controls?: CanvasControls | null): CanvasBinding[] {
+  if (!controls) return [];
+  const out: CanvasBinding[] = [];
+  for (const kind of CONTROL_KINDS) {
+    const list = kind === 'toggle' ? controls.toggles : kind === 'slider' ? controls.sliders : controls.customs;
+    list.forEach((_item, index) => out.push(controlBinding(kind, index + 1)));
+  }
+  return out;
+}
+
+/** 把定义摊平成摘要（画布胶囊就照这个画）。 */
+export function canvasControlSummaries(controls?: CanvasControls | null): CanvasControlSummary[] {
+  if (!controls) return [];
+  const out: CanvasControlSummary[] = [];
+  controls.toggles.forEach((item, index) => {
+    const slot = index + 1;
+    out.push({
+      binding: controlBinding('toggle', slot), kind: 'toggle',
+      label: item.label || defaultControlLabel('toggle', slot),
+      value: item.on ? 'true' : 'false',
+    });
+  });
+  controls.sliders.forEach((item, index) => {
+    const slot = index + 1;
+    /* 上下限写反了（手改配置 / 老数据）时在这里夹回来，别让滑块画出来是反的。 */
+    const min = Math.min(item.min, item.max);
+    const max = Math.max(item.min, item.max);
+    out.push({
+      binding: controlBinding('slider', slot), kind: 'slider',
+      label: item.label || defaultControlLabel('slider', slot),
+      min, max, precision: item.precision,
+      value: formatControlNumber(clampNumber(item.value, min, max), item.precision),
+    });
+  });
+  controls.customs.forEach((item, index) => {
+    const slot = index + 1;
+    out.push({
+      binding: controlBinding('custom', slot), kind: 'custom',
+      label: item.label || defaultControlLabel('custom', slot),
+      /* 空串是「边打字边提交」留下的中间状态（见 schema 那条注释），在这儿滤掉。 */
+      options: item.options.filter(Boolean),
+      /* 默认值不在可选项里 = 没选（空串 → 提交时跳过，不会发出一个列表里没有的值）。 */
+      value: item.options.includes(item.value) ? item.value : '',
+    });
+  });
+  return out;
+}
+
+/**
+ * 这份配置里**真有字段接着**的那几个控件。
+ *
+ * 没被任何已启用字段绑住的控件**不进画布**：它拧了也没有地方去 ——
+ * 一个看着能调、调完什么都不发生的旋钮，正是这套 UI 一直在防的那种静默失败。
+ */
+export function boundCanvasControls(config: unknown): CanvasControlSummary[] {
+  const parsed = configurationSchema.safeParse(config);
+  if (!parsed.success) return [];
+  const bound = new Set<string>();
+  for (const field of parsed.data.fields) {
+    if (field.enabled && field.binding && field.binding !== 'manual') bound.add(field.binding);
+  }
+  return canvasControlSummaries(parsed.data.controls).filter(item => bound.has(item.binding));
+}
+
+/** 绑定下拉里这一项该显示什么：控件用配置里改过的名字，其余查那张静态表。 */
+export function controlLabelOf(controls: CanvasControls | null | undefined, binding: string): string | undefined {
+  const hit = controlSlot(binding);
+  if (!hit || !controls) return undefined;
+  const list = hit.kind === 'toggle' ? controls.toggles : hit.kind === 'slider' ? controls.sliders : controls.customs;
+  const label = list[hit.slot - 1]?.label?.trim();
+  return label || undefined;
+}
+
 export const configurationSchema = z.object({
   fields: z.array(fieldSchema).max(400),
+  controls: canvasControlsSchema,
 }).superRefine(({ fields }, ctx) => {
   const targets = new Set<string>();
   const keys = new Set<string>();
@@ -518,7 +768,36 @@ export type CanvasBindingValues = {
    */
   videoInput?: string;
   audioInput?: string;
+  /**
+   * 画布控件（`toggle_1` / `slider_2` / `custom_1` …）在这一节点上的**当前值**（2026-10-10）。
+   *
+   * 键就是绑定名，值一律是字符串（toggle 是 `'true'` / `'false'`，slider 是按小数位
+   * 格式化好的串，custom 是可选项里挑中的那一项）—— 与写进 `nodeInfoList` 的那一串
+   * 是同一个形状，中间不再做类型转换，少一处「两边格式不一样」的坑。
+   *
+   * 没填的键由调用方按配置里的默认值补齐（见 `nodeControlValues`），
+   * **别在 `bindingValue` 里兜底**：那一层拿不到配置，兜了也只能兜成一个猜的数。
+   */
+  controlValues?: Record<string, string>;
 };
+
+/**
+ * 这一节点上**每个控件**的值 = 配置里的默认值 + 节点上改过的那些（后者覆盖前者）。
+ *
+ * 只收**配置里定义过、且有字段接着**的控件：多给一个键没有害处（提交时没人接就跳过），
+ * 但少给一个就是「这一档没传上去、工作流用自己的默认值」—— 那种失败没有任何报错。
+ */
+export function nodeControlValues(
+  controls: CanvasControlSummary[],
+  stored: Record<string, string> | undefined,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const item of controls) {
+    const picked = stored?.[item.binding];
+    out[item.binding] = picked !== undefined && picked !== '' ? picked : item.value;
+  }
+  return out;
+}
 
 export function applyDefaultBindings(config: unknown) {
   if (!config || typeof config !== 'object' || !Array.isArray((config as { fields?: unknown }).fields)) return config;
@@ -529,11 +808,24 @@ export function applyDefaultBindings(config: unknown) {
   }) };
 }
 
-function bindingValue(binding: CanvasBinding, values: CanvasBindingValues) {
+/*
+ * 整条字段进来（不只是 binding）：`aspect_ratio` 那一支要看**宿主节点是谁** ——
+ * 画布那份比例带括号备注，而 MiniMax H3 那条线只认短串，得当场折一次。
+ * 详见 `lib/workflows/aspectAdapter.ts`。
+ */
+function bindingValue(field: WorkflowField, values: CanvasBindingValues) {
+  const binding = field.binding;
   if (binding === 'prompt') return values.prompt;
   if (binding === 'duration') return values.duration;
-  if (binding === 'aspect_ratio') return values.aspectRatio;
+  if (binding === 'aspect_ratio') return adaptedAspectRatio(field.classType, values.aspectRatio);
   if (binding === 'megapixels') return values.megapixels;
+  /*
+   * 画布控件（开关 / 滑块 / 自定义参数分类）：键就是绑定名。
+   * 值**原样发** —— 配置页里那份 `controls` 是界面用的（名字 / 量程 / 可选项），
+   * `toNodeInfoList` 不看它，跟 `options` 那一条是同一个规矩：
+   * 绑定值绕过所有校验直接出，所以「值对不对」只能由配这份工作流的人负责。
+   */
+  if (controlSlot(binding)) return values.controlValues?.[binding];
   /*
    * 参考图数量是个**派生值**：它不是用户填的数，而是画布这次实际接进来几张参考图。
    * 所以绑定了它就不用再填 —— 上传 / 连线变化会自己跟着变（0 张就写 0）。
@@ -576,7 +868,7 @@ function audioInputsOf(values: CanvasBindingValues) {
 export function toNodeInfoList(config: Configuration, values: CanvasBindingValues = {}) {
   return configurationSchema.parse(config).fields.flatMap(field => {
     if (!field.enabled) return [];
-    const value = field.binding === 'manual' ? field.value : bindingValue(field.binding, values);
+    const value = field.binding === 'manual' ? field.value : bindingValue(field, values);
     if (value === undefined || value === '') return [];
     return [{ nodeId: field.nodeId, fieldName: field.fieldName, fieldValue: value }];
   });

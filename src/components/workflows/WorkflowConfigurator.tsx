@@ -3,7 +3,13 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { AudioLines, Braces, Check, FileBox, Film, ImageIcon, List, Plus, Save, Search, Trash2, Type, Upload, X } from 'lucide-react';
-import { CUSTOM_CLASS_TYPE, fieldKey, normalizeFieldLabel, bindingsForFields, isUpscaleInputBinding, mediaLoaderVerdict, nextSeriesBinding, canvasBindingLabels, configurationSchema, toNodeInfoList, MAX_REFERENCE_IMAGES, type CanvasBinding, type WorkflowField } from '@/lib/workflows/configuration';
+import {
+  CUSTOM_CLASS_TYPE, fieldKey, normalizeFieldLabel, bindingsForFields, isUpscaleInputBinding, mediaLoaderVerdict,
+  nextSeriesBinding, canvasBindingLabels, configurationSchema, toNodeInfoList, defaultControlLabel,
+  controlBinding, controlLabelOf, EMPTY_CANVAS_CONTROLS,
+  MAX_CUSTOM_CONTROLS, MAX_REFERENCE_IMAGES, MAX_SLIDERS, MAX_TOGGLES,
+  type CanvasBinding, type CanvasControls, type CustomControl, type SliderControl, type ToggleControl, type WorkflowField,
+} from '@/lib/workflows/configuration';
 import { normalizeWorkflowName, readWorkflowName, WORKFLOW_NAME_MAX, workflowDisplayName } from '@/lib/workflows/label';
 import {
   categoriesFor,
@@ -22,6 +28,8 @@ import { DEFAULT_GENERATOR_KIND, GENERATOR_KIND_OPTIONS, generatorKindLabel, rea
 import { registerUnsaved } from '@/lib/unsaved';
 
 const kindLabels = { text: '提示词 / 文本', number: '数字', boolean: '开关', image: '图像', video: '视频', audio: '音频', latent: 'H3 latent' };
+/** 「自定义参数分类」一行能填几个预设值 —— 与 `customControlSchema.options` 的上限同一处口径。 */
+const MAX_CUSTOM_OPTIONS = 60;
 const kinds = Object.keys(kindLabels) as WorkflowField['kind'][];
 const iconFor = (kind: WorkflowField['kind']) => kind === 'image' ? <ImageIcon size={17} /> : kind === 'video' ? <Film size={17} /> : kind === 'audio' ? <AudioLines size={17} /> : kind === 'latent' ? <FileBox size={17} /> : <Type size={17} />;
 
@@ -68,6 +76,13 @@ export default function WorkflowConfigurator({ initialWorkflowId, initialKind = 
   const [operation, setOperation] = useState<WorkflowOperation>(initialOperation);
   const [nameInput, setNameInput] = useState('');
   const [fields, setFields] = useState<WorkflowField[]>([]);
+  /*
+   * 画布控件（开关 / 数字滑块 / 自定义参数分类）的**定义**（2026-10-10 徐先）。
+   *
+   * 与 `fields` 分开存：字段是「工作流里有哪些参数位」，控件是「为其中某个位造的旋钮」。
+   * 两者在提交时才合到一起（`toNodeInfoList` 按 binding 取值）。
+   */
+  const [controls, setControls] = useState<CanvasControls>(EMPTY_CANVAS_CONTROLS);
   const [version, setVersion] = useState(-1);
   const [selectedKey, setSelectedKey] = useState('');
   const [query, setQuery] = useState('');
@@ -92,7 +107,7 @@ export default function WorkflowConfigurator({ initialWorkflowId, initialKind = 
        */
       const body = await readResponse(await fetch(`/api/workflows/${id}/config?kind=${kindHint}`));
       const config = configurationSchema.parse(body.config);
-      setFields(config.fields); setVersion(body.version); setWorkflowId(id); setIdInput(id);
+      setFields(config.fields); setControls(config.controls); setVersion(body.version); setWorkflowId(id); setIdInput(id);
       const loadedKind = readGeneratorKind(body.kind);
       setKind(loadedKind);
       /* 分类同样以服务端返回的为准，并且**按用途兜底** —— 服务端已经兜过一次，这里是双保险。 */
@@ -123,7 +138,8 @@ export default function WorkflowConfigurator({ initialWorkflowId, initialKind = 
 
   const selected = fields.find(f => f.key === selectedKey);
   const visible = fields.filter(f => (filter === 'all' || (filter === 'recommended' ? f.recommended : filter === 'enabled' ? f.enabled : f.kind === filter)) && `${f.nodeId} ${f.fieldName} ${f.label} ${f.classType}`.toLowerCase().includes(query.toLowerCase()));
-  const parsed = configurationSchema.safeParse({ fields });
+  /* 控件和字段一起解析：少一个的话保存出去的配置会把它整块丢掉（schema 补默认值）。 */
+  const parsed = configurationSchema.safeParse({ fields, controls });
   const enabledCount = fields.filter(f => f.enabled).length;
   /** 名字的即时校验：与服务端**同一套规则**（`lib/workflows/label.ts`），不另写一份长度判断。 */
   const checkedName = normalizeWorkflowName(nameInput);
@@ -188,6 +204,20 @@ export default function WorkflowConfigurator({ initialWorkflowId, initialKind = 
       return { ...next, key: nextKey };
     }));
     setDirty(true); setNotice('');
+  }
+  /** 改控件那一块（三类共用）：动过就算脏，和改字段一个待遇。 */
+  function patchControls(change: Partial<CanvasControls>) {
+    setControls(current => ({ ...current, ...change }));
+    setDirty(true); setNotice('');
+  }
+  function patchToggle(index: number, change: Partial<ToggleControl>) {
+    patchControls({ toggles: controls.toggles.map((item, i) => (i === index ? { ...item, ...change } : item)) });
+  }
+  function patchSlider(index: number, change: Partial<SliderControl>) {
+    patchControls({ sliders: controls.sliders.map((item, i) => (i === index ? { ...item, ...change } : item)) });
+  }
+  function patchCustom(index: number, change: Partial<CustomControl>) {
+    patchControls({ customs: controls.customs.map((item, i) => (i === index ? { ...item, ...change } : item)) });
   }
   async function save() {
     if (!parsed.success) { setError(parsed.error.issues[0].message); return; }
@@ -315,6 +345,106 @@ export default function WorkflowConfigurator({ initialWorkflowId, initialKind = 
       */
       <p role="alert" className="workflow-lib-warn" data-wf-prompt-unwired="none">这份配置里没有能接提示词的文本字段 —— 生成照跑不误（不会报错），提示词以它自带的为准，画布上写的那句不会送进去。要改就改它自己的参数。</p>
     ))}
+    {/*
+      画布控件（2026-10-10 徐先）：在这里**造旋钮**，再回到下面选一个字段、把
+      「画布参数绑定」选成它 —— 之后它出现在节点卡片右上角的胶囊里。
+
+      三类各一组、组内可以造多个（开关 1 之后还能有开关 2）：绑的字段不同、各调各的。
+      ⚠️ **只给删最后一个**：槽位号是数组下标 + 1，删中间一个会让后面所有编号前移，
+      而节点上存的值按**编号**取 —— 「滑块 2」会突然变成原来「滑块 3」的值，
+      界面上一个字都不会说。删最后一个不会有这种错位。
+    */}
+    <section className="workflow-controls" aria-label="画布控件">
+      <div className="workflow-controls-head">
+        <h2>画布控件</h2>
+        <span className="workflow-muted">造一个旋钮、再到下面选中某个字段把「画布参数绑定」选成它 —— 之后它出现在节点卡片右上角的胶囊里。值存在<b>节点</b>上，同一份工作流挂在几个节点上就各有各的值。</span>
+      </div>
+
+      <div className="workflow-control-group">
+        <div className="workflow-control-group-head">
+          <strong>开关</strong>
+          <span className="workflow-muted">节点上就是一个开 / 关，提交 <code>true</code> / <code>false</code>。</span>
+          <button type="button" className="secondary" disabled={!loaded || !!busy || controls.toggles.length >= MAX_TOGGLES} onClick={() => patchControls({ toggles: [...controls.toggles, { label: '', on: false }] })}><Plus size={14} />添加开关</button>
+        </div>
+        {controls.toggles.length === 0
+          ? <p className="workflow-empty">还没有开关。</p>
+          : controls.toggles.map((item, index) => (
+            <div className="workflow-control-row" key={`toggle-${index}`}>
+              <code className="workflow-control-code">{controlBinding('toggle', index + 1)}</code>
+              <label>显示名称<input value={item.label} maxLength={60} placeholder={defaultControlLabel('toggle', index + 1)} onChange={event => patchToggle(index, { label: event.target.value })} /></label>
+              <label className="workflow-control-inline">默认<input type="checkbox" checked={item.on} onChange={event => patchToggle(index, { on: event.target.checked })} /></label>
+              {index === controls.toggles.length - 1 && <button type="button" className="secondary workflow-icon" title="删除最后一个开关" aria-label="删除最后一个开关" disabled={!!busy} onClick={() => patchControls({ toggles: controls.toggles.slice(0, -1) })}><Trash2 size={14} /></button>}
+            </div>
+          ))}
+      </div>
+
+      <div className="workflow-control-group">
+        <div className="workflow-control-group-head">
+          <strong>数字滑块</strong>
+          <span className="workflow-muted">默认 -1 ~ 1，两头和小数位数都能改。</span>
+          <button type="button" className="secondary" disabled={!loaded || !!busy || controls.sliders.length >= MAX_SLIDERS} onClick={() => patchControls({ sliders: [...controls.sliders, { label: '', min: -1, max: 1, precision: 2, value: 0 }] })}><Plus size={14} />添加滑块</button>
+        </div>
+        {controls.sliders.length === 0
+          ? <p className="workflow-empty">还没有数字滑块。</p>
+          : controls.sliders.map((item, index) => (
+            <div className="workflow-control-row" key={`slider-${index}`}>
+              <code className="workflow-control-code">{controlBinding('slider', index + 1)}</code>
+              <label>显示名称<input value={item.label} maxLength={60} placeholder={defaultControlLabel('slider', index + 1)} onChange={event => patchSlider(index, { label: event.target.value })} /></label>
+              <label>最小<input type="number" step="any" value={item.min} onChange={event => patchSlider(index, { min: Number(event.target.value || 0) })} /></label>
+              <label>最大<input type="number" step="any" value={item.max} onChange={event => patchSlider(index, { max: Number(event.target.value || 0) })} /></label>
+              <label>小数位<input type="number" min={0} max={6} step={1} value={item.precision} onChange={event => patchSlider(index, { precision: Math.max(0, Math.min(6, Math.round(Number(event.target.value || 0)))) })} /></label>
+              <label>默认<input type="number" step="any" value={item.value} onChange={event => patchSlider(index, { value: Number(event.target.value || 0) })} /></label>
+              {index === controls.sliders.length - 1 && <button type="button" className="secondary workflow-icon" title="删除最后一个滑块" aria-label="删除最后一个滑块" disabled={!!busy} onClick={() => patchControls({ sliders: controls.sliders.slice(0, -1) })}><Trash2 size={14} /></button>}
+            </div>
+          ))}
+      </div>
+
+      <div className="workflow-control-group">
+        <div className="workflow-control-group-head">
+          <strong>自定义参数分类</strong>
+          <span className="workflow-muted">自己填几个预设值，节点上就是下拉（一行一个）。</span>
+          <button type="button" className="secondary" disabled={!loaded || !!busy || controls.customs.length >= MAX_CUSTOM_CONTROLS} onClick={() => patchControls({ customs: [...controls.customs, { label: '', options: [], value: '' }] })}><Plus size={14} />添加分类</button>
+        </div>
+        {controls.customs.length === 0
+          ? <p className="workflow-empty">还没有自定义参数分类。</p>
+          : controls.customs.map((item, index) => {
+            /*
+             * 空串是「边打字边提交」留下的中间态（刚敲下回车那一行还是空的），
+             * 存下来没关系（读的一侧会滤），但**显示**的时候要滤掉，
+             * 否则下拉里会多一个空选项。
+             */
+            const options = item.options.filter(Boolean);
+            return (
+              <div className="workflow-control-row" key={`custom-${index}`}>
+                <code className="workflow-control-code">{controlBinding('custom', index + 1)}</code>
+                <label>显示名称<input value={item.label} maxLength={60} placeholder={defaultControlLabel('custom', index + 1)} onChange={event => patchCustom(index, { label: event.target.value })} /></label>
+                <label className="workflow-control-wide">预设值（一行一个）<textarea rows={3} value={item.options.join('\n')} onChange={event => {
+                  const lines = event.target.value.split('\n').map(line => line.trim()).slice(0, MAX_CUSTOM_OPTIONS);
+                  const clean = lines.filter(Boolean);
+                  /*
+                   * 填了预设值就把「默认」落到**第一项**（用户没另选过时）。
+                   *
+                   * 为什么不留「不选」：留着的话这一档**一个值都不提交** ——
+                   * 工作流走自己的默认值，任务照样成功，而用户在节点上明明看见一个下拉
+                   * （还显示着第一项），会以为传的就是它。属于「看着对、其实没生效」。
+                   * 想让它不传，下拉里那项「（不选）」还在。
+                   */
+                  const value = clean.includes(item.value) ? item.value : (clean[0] ?? '');
+                  patchCustom(index, { options: lines, value });
+                }} /></label>
+                <label>默认
+                  <select value={options.includes(item.value) ? item.value : ''} onChange={event => patchCustom(index, { value: event.target.value })}>
+                    <option value="">（不选）</option>
+                    {options.map(option => <option key={option} value={option}>{option}</option>)}
+                  </select>
+                </label>
+                {options.length === 0 && <span className="workflow-lib-warn" data-control-empty="">还没填预设值 —— 节点上的下拉会是空的。</span>}
+                {index === controls.customs.length - 1 && <button type="button" className="secondary workflow-icon" title="删除最后一个分类" aria-label="删除最后一个分类" disabled={!!busy} onClick={() => patchControls({ customs: controls.customs.slice(0, -1) })}><Trash2 size={14} /></button>}
+              </div>
+            );
+          })}
+      </div>
+    </section>
     {error && <div role="alert" className="workflow-error">{error}</div>}
     {notice && <div role="status" className="workflow-success"><Check size={16} />{notice}</div>}
     <div className="workflow-layout">
@@ -329,14 +459,16 @@ export default function WorkflowConfigurator({ initialWorkflowId, initialKind = 
            * 序列型绑定（参考图 / 视频 / 音频）**按需长出来**：这一份配置用到第 N 个，
            * 下拉里才出现第 N+1 个 —— 一上来铺 20 个「参考图 N」只会让人翻不到底。
            */
-          const contextBindings = bindingsForFields(fields, kind, operation);
+          /* 带上 `controls`：造过的控件才进下拉（没造过的绑上去等于绑到一个没有量程的东西）。 */
+          const contextBindings = bindingsForFields(fields, kind, operation, controls);
           const options = Array.from(new Set<CanvasBinding>(['manual', ...contextBindings, selected.binding]));
           const next = nextSeriesBinding(fields, selected.binding);
           return (
             <>
               <label className="workflow-binding-select">画布参数绑定
                 <select data-workflow-binding value={selected.binding} onChange={e => patch(selected.key, { binding: e.target.value as CanvasBinding, enabled: true })}>
-                  {options.map(value => <option key={value} value={value}>{canvasBindingLabels[value]}</option>)}
+                  {/* 控件用**改过的名字**（没改名就回落那张静态表）—— 直接读表会把用户起的名字丢掉。 */}
+                  {options.map(value => <option key={value} value={value}>{controlLabelOf(controls, value) ?? canvasBindingLabels[value]}</option>)}
                 </select>
               </label>
               {next && <span className="workflow-binding-hint">还能再加一份 —— 把另一个字段绑到「{canvasBindingLabels[next]}」。</span>}

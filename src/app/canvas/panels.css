@@ -1908,6 +1908,10 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   ⚠️ 别给 `.cv-combo` 或它的祖先加 `position: relative` —— 那会把它重新收进滚动盒里，
   长列表只能看见上面一截。
   ⚠️ 这里的 `left/top/width` 只是首帧兜底，运行时被行内 style 覆盖。
+  🔴 `max-height` 与 `DockCombo.tsx` 里的 `LIST_MAX_H` **必须是同一个数**（那边也只按这个数
+  算「下方装不装得下」）；2026-10-10 从 260 收到 200，理由是它盖住了底栏上下两边的参数。
+  🔴 `overscroll-behavior: contain` 不能省：滚到底之后滚动链会穿到底栏那个滚动盒，
+  那一下会触发 `DockCombo` 的「滚动即关」，表现出来就是「滚着滚着列表自己没了」。
 */
 .cv-combo-list {
   position: absolute;
@@ -1915,8 +1919,10 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   top: 100%;
   z-index: 60;
   width: 240px;
-  max-height: 260px;
+  max-height: 200px;
   overflow-y: auto;
+  /* 滚到底不再把滚动链交给底栏 —— 否则会误触发「滚动即关」（见上）。 */
+  overscroll-behavior: contain;
   padding: 6px;
   background: var(--cv-elev);
   border: 1px solid var(--cv-line-strong);
@@ -5097,4 +5103,104 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   white-space: nowrap;
   text-overflow: ellipsis;
   text-align: right;
+}
+
+/* ---------- 画布控件浮层（2026-10-10 徐先） ----------
+   节点卡片右上角那颗胶囊点开的东西：开关 / 数字滑块 / 自定义参数分类三类混在一起。
+   ⚠️ 它是 `createPortal` 到 `.cv-stage` 上的（理由见 `NodeControlsPopover.tsx` 头部）。
+   遮罩 `fixed + inset:0` 铺满视口，面板再 `absolute` 贴着遮罩摆 ——
+   所以 `left / top` 用的是**视口坐标**（按钮的 `getBoundingClientRect()`），
+   别按「卡片里的子元素」去写偏移。 */
+
+/* 透明遮罩：点浮层外面（画布上任何地方）就关掉，但**不糊灰** ——
+   调这几个旋钮的时候常常要看着节点上的状态，糊一层灰反而挡事。 */
+.cv-ctl-mask { position: fixed; inset: 0; z-index: 60; }
+
+.cv-ctl-panel {
+  position: absolute;
+  z-index: 61;
+  width: 268px;
+  max-height: 60vh;
+  /* 控件一多就自己滚 —— 但**滚动链不许穿出去**（不然滚到底会把浮层一起关掉，
+     与 `DockCombo` 2026-10-10 那个 bug 同一个根因）。 */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 10px 12px 4px;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-text);
+  background: var(--cv-elev);
+  border: 1px solid var(--cv-line-strong);
+  border-radius: var(--cv-radius-lg);
+  box-shadow: var(--cv-shadow-2);
+}
+
+.cv-ctl-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.cv-ctl-title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--cv-fs-2);
+  font-weight: 600;
+  color: var(--cv-text);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.cv-ctl-close {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  color: var(--cv-mute);
+  background: transparent;
+  border: 0;
+  border-radius: var(--cv-radius-sm);
+  cursor: pointer;
+}
+.cv-ctl-close:hover { color: var(--cv-text); background: var(--cv-panel-2); }
+
+.cv-ctl-body { display: grid; gap: 10px; }
+.cv-ctl-row { display: flex; align-items: center; gap: 10px; }
+.cv-ctl-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-dim);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* 滑块那一行：名字单独占一行，滑杆 + 读数在下面 —— 挤在一行的话滑杆只剩几十像素，
+   拖一下跳一大截，压根调不准。 */
+.cv-ctl-slider { display: grid; grid-template-columns: 1fr auto; gap: 6px 8px; }
+.cv-ctl-slider .cv-ctl-name { grid-column: 1 / -1; }
+.cv-ctl-slider input[type='range'] { grid-column: 1; width: 100%; accent-color: var(--cv-accent); }
+/* 读数用等宽数字：拖的时候位数不跳，看着才像在调一个数。 */
+.cv-ctl-read {
+  grid-column: 2;
+  min-width: 46px;
+  font-size: var(--cv-fs-1);
+  font-variant-numeric: tabular-nums;
+  color: var(--cv-mute);
+  text-align: right;
+}
+
+.cv-ctl-row input[type='checkbox'] { width: 16px; height: 16px; flex: none; accent-color: var(--cv-accent); }
+.cv-ctl-row select {
+  flex: none;
+  max-width: 130px;
+  padding: 4px 6px;
+  font-family: inherit;
+  font-size: var(--cv-fs-2);
+  color: var(--cv-text);
+  background: var(--cv-field);
+  border: 1px solid var(--cv-line);
+  border-radius: var(--cv-radius-sm);
+}
+
+.cv-ctl-foot {
+  margin: 10px 0 8px;
+  font-size: var(--cv-fs-1);
+  line-height: 1.6;
+  color: var(--cv-mute);
 }

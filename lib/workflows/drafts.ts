@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { isBuiltinWorkflowId } from '@/lib/workflows/builtin';
-import { applyDefaultBindings, configurationSchema } from '@/lib/workflows/configuration';
+import { applyDefaultBindings, boundCanvasControls, configurationSchema, type CanvasControlSummary } from '@/lib/workflows/configuration';
 import { defaultWorkflowId } from '@/lib/workflows/defaults';
 import { readWorkflowName } from '@/lib/workflows/label';
 import { graphNodeCount, readWorkflowProvider, type WorkflowProvider } from '@/lib/workflows/local';
@@ -81,6 +81,17 @@ export type WorkflowSummary = {
    * 云端工作流恒为 0 —— 它的图不在本地，界面上不该显示这个数。
    */
   graphNodes: number;
+  /**
+   * 画布控件（开关 / 数字滑块 / 自定义参数分类，2026-10-10 徐先）——
+   * **只带「真的有字段接着」的那些**，节点卡片右上角的胶囊照它画。
+   *
+   * 为什么在这里摊平、不让画布自己去读整份配置：画布列出的是**几十份**工作流的
+   * 摘要（不是某一份的完整配置），而胶囊只需要「画什么、量程多少、默认是什么」；
+   * 顺带 `value` 一律是字符串，和提交时写进 `nodeInfoList` 的那一串同一个形状。
+   *
+   * 没绑到任何已启用字段的控件**不在这里** —— 它拧了也没有地方去。
+   */
+  canvasControls: CanvasControlSummary[];
 };
 
 /** 汇总里只用得到这三个键（启没启用 / 绑到哪个槽位 / 是不是文本字段），所以不引完整字段类型。 */
@@ -167,6 +178,8 @@ export async function listWorkflowDrafts(userId: string, filter: WorkflowFilter 
       builtin: isBuiltinWorkflowId(draft.workflowId),
       /* 图在本地才数得出来；云端那份 `graph` 是 NULL，`graphNodeCount` 会返回 0。 */
       graphNodes: readWorkflowProvider(draft.provider) === 'local' ? graphNodeCount(draft.graph) : 0,
+      /* 只带绑上的那些：没绑的控件在画布上画出来就是个拧了不生效的旋钮。 */
+      canvasControls: boundCanvasControls(applyDefaultBindings(draft.config)),
     };
   });
 }
