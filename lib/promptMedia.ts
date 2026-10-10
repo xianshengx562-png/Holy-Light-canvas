@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { ApiError } from '@/lib/api';
+import { openCanvasMedia, parseCanvasMediaUrl } from '@/lib/canvas-media';
 import { openMediaAsset } from '@/lib/media';
 import { PROMPT_VIDEO_FRAMES, sampleFramesPng } from '@/lib/video-ffmpeg';
 
@@ -14,10 +15,18 @@ import { PROMPT_VIDEO_FRAMES, sampleFramesPng } from '@/lib/video-ffmpeg';
  * - 这边要的是**字节本身** —— 文本模型那头访问不到我们本机的文件，
  *   所以只能内联成 `data:` 一起发过去。
  *
- * 只认两种来源（与 `mediaChain.isResolvableUrl` 同一套判据）：
+ * 只认三种来源（与 `mediaChain.isResolvableUrl` 同一套判据）：
  *   1. `/api/assets/<id>/media.<ext>` —— 已落盘的资产，读盘即得；
- *   2. `http(s)://...` —— 上游留在结果里的远端地址，下载下来。
+ *   2. `/api/canvas-media/<projectId>/<uuid>.<ext>` —— **拖 / 粘进画布的那份**
+ *      （2026-10-10 补）。它刻意没有 Asset 记录（见 `lib/canvas-media.ts`），
+ *      走 `openMediaAsset` 会报「媒体不存在」—— 那等于「拖进来的图反推不了」；
+ *   3. `http(s)://...` —— 上游留在结果里的远端地址，下载下来。
  * `blob:` 那种本地预览**不算**：它只活在渲染进程内存里，服务端取不到字节。
+ *
+ * 🔴 **改这里记得问一句「另外几份跟上了吗」**：`referenceImages.ts`（工作流参考图 /
+ * 视频 / 音频）、`upscale.ts`（超清输入）、`referenceBytes.ts`（自定义接口出图）、
+ * `videoapi/reference.ts`（图生视频首帧）—— 五处是同一件事，只改一处就会
+ * 「同一个界面、这一条路能用、那一条路报认不出」。
  *
  * 视频那条路多一步：**抽帧**。文本模型看不了视频文件，能看的是若干张图，
  * 所以这里用内置 FFmpeg 均匀抽 `PROMPT_VIDEO_FRAMES` 张再一起发过去。
@@ -87,8 +96,23 @@ async function fetchBytes(value: unknown, userId: string, limit: number, label: 
   let name = '';
   let declared: string | null = null;
   try {
-    const assetId = source.match(ASSET_PATH)?.[1];
-    if (assetId) {
+    const canvas = parseCanvasMediaUrl(source);
+    const assetId = canvas ? '' : (source.match(ASSET_PATH)?.[1] || '');
+    if (canvas) {
+      /*
+       * 画布素材（2026-10-10）：拖 / 粘进画布的那份就这一种地址、且没有 Asset 记录。
+       * 少了这一支的症状是「在画布上贴了张图、点看图反推却说认不出这个地址」——
+       * 而那份字节就躺在盘上（`openCanvasMedia` 认归属、读盘即得）。
+       */
+      const media = await openCanvasMedia({ userId, projectId: canvas.projectId, file: canvas.file });
+      if (!media) throw new Error('这份素材已经不在盘上了 —— 重新拖一次。');
+      tooBig(media.size, limit, label);
+      name = media.name || `media.${media.ext || 'png'}`;
+      declared = media.mime;
+      /* Buffer 是共享内存上的视图，交出去之前先拷成独立的一段。 */
+      const buffer = await readFile(/*turbopackIgnore: true*/ media.path);
+      bytes = new Uint8Array(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength));
+    } else if (assetId) {
       const asset = await openMediaAsset(assetId, userId);
       tooBig(asset.size, limit, label);
       name = asset.name || `media.${asset.path.split('.').pop() || 'png'}`;
