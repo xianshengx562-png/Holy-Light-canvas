@@ -1,6 +1,7 @@
 import 'server-only';
 import { readFile } from 'node:fs/promises';
 import { imageExtOfBuffer, imageMimeOfExt, mediaExtOf, openMediaAsset } from '@/lib/media';
+import { openCanvasMedia, parseCanvasMediaUrl } from '@/lib/canvas-media';
 import {
   IMAGE2_MAX_REFERENCES,
   IMAGE2_MAX_REFERENCE_BYTES,
@@ -18,9 +19,12 @@ import {
  *  只剩「自定义接口出图」还在用它，所以搬到一个不带引擎名字的地方，名字也改成
  *  `fetchReferenceBytes` —— 它回答的是「把这张参考图取成字节」，跟哪家引擎无关。）
  *
- * 能取到字节的只有两种地址：
+ * 能取到字节的只有三种地址：
  *   1. `/api/assets/<id>/media.<ext>` —— 已经落盘的结果图，直接读磁盘（快、不过期）；
- *   2. `http(s)://...` —— 上传到 RunningHub 后拿到的预览地址（**24 小时过期**，过期只能重传）。
+ *   2. `/api/canvas-media/<projectId>/<uuid>.<ext>` —— **拖 / 粘进画布的那张**（2026-10-10 补）。
+ *      它刻意没有 Asset 记录（不进资产库），走 `openMediaAsset` 会报「媒体不存在」，
+ *      于是「不进资产库」顺带把「自定义接口用不了它」也带上了 —— 那不是他要的；
+ *   3. `http(s)://...` —— 上传到 RunningHub 后拿到的预览地址（**24 小时过期**，过期只能重传）。
  *
  * `blob:` / `data:` 一律明确拒绝：那只是浏览器会话里的本地预览，服务端根本没有字节可取。
  * 不说清楚的话症状是「图出来了，但和我的参考图毫无关系」——正是这套 UI 一直在防的静默失败。
@@ -66,7 +70,25 @@ export async function fetchReferenceBytes(input: { userId: string; urls: string[
       throw new Error(`${label}只有浏览器本地的预览地址，服务端取不到它的字节 —— 请重新上传这张图。`);
     }
     const assetId = localAssetId(url);
-    if (assetId) {
+    const canvas = assetId ? null : parseCanvasMediaUrl(url);
+    if (canvas) {
+      /*
+       * 画布素材（2026-10-10）：拖 / 粘进画布的图就这一种地址。
+       * 少了这一支的症状是「自定义接口出图时参考图上传不了」——
+       * 图上明明在、线也连好了，服务端却说「第 1 张参考图的地址取不到字节」，
+       * 而它其实就躺在盘上（`openCanvasMedia` 认归属、读盘即得）。
+       */
+      try {
+        const media = await openCanvasMedia({ userId: input.userId, projectId: canvas.projectId, file: canvas.file });
+        if (!media) throw new Error('这份素材已经不在盘上了 —— 重新拖一次。');
+        if (media.size > IMAGE2_MAX_REFERENCE_BYTES) {
+          throw new Error(`${label}有 ${megabytes(media.size)}，超过单张 ${megabytes(IMAGE2_MAX_REFERENCE_BYTES)} 的上限。`);
+        }
+        bytes = await readFile(/*turbopackIgnore: true*/ media.path);
+      } catch (error) {
+        throw new Error(`${label}读不出来：${error instanceof Error ? error.message : String(error)}`);
+      }
+    } else if (assetId) {
       try {
         const file = await openMediaAsset(assetId, input.userId);
         if (file.size > IMAGE2_MAX_REFERENCE_BYTES) {

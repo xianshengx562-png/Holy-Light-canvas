@@ -53,7 +53,7 @@ import { isRunningHubAppWorkflowId } from '@/lib/workflows/runninghubApp';
 import { optimizeInputOf as optimizeInputIn, promptTextOf as promptTextIn, resolveTextChain } from './textChain';
 import type { TextChainEdge, TextChainNode } from './textChain';
 import {
-  isImageSourceKind, isLocalMediaUrl, isPinnedUploadKind, pickMediaInput as pickMediaInputIn,
+  isImageSourceKind, isPinnedUploadKind, pickMediaInput as pickMediaInputIn,
   isVideoSourceKind, videoUrlsOf,
 } from './mediaChain';
 import type { MediaChain, MediaChainEdge, MediaChainNode } from './mediaChain';
@@ -2402,18 +2402,31 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
      * 那会变成「图出来了，但和我的参考图毫无关系」）。
      */
       const collectReferenceImages = (): string[] | string => {
-        const wiredImages = upstream.filter(item => ['image', 'video-input', 'frame-extract'].includes(String(item.data.kind))).slice(0, IMAGE2_MAX_REFERENCES);
+        /*
+         * 🔴 挑哪些上游用**和工作流那条路完全同一把尺子**（`directUpstream` + `isReferenceSource`），
+         *    不在这边另写一份名单：
+         *    - 以前只认 `image / video-input / frame-extract` 三种 → 「生成节点出的图 →
+         *      自定义接口」这种连法**一张都收不到**，界面上却什么都不说；
+         *    - 以前用的是递归那份 `upstream` → 链上隔一层的节点也算进来，交出去的图
+         *      比用户连上去的多；而下面那句「取不到字节」是**硬拦**，于是远处一个
+         *      只有 blob 的节点能把整次提交打掉，用户连该改哪个节点都看不出来。
+         */
+        const wiredImages = directUpstream.filter(item => isReferenceSource(item.data.kind)).slice(0, IMAGE2_MAX_REFERENCES);
         const out: string[] = [];
         for (const item of wiredImages) {
-          const preview = String(item.data.previewUrl || '').trim();
-          const local = String(item.data.imageUrl || '').trim();
-          /**
-           * 首尾帧节点没有 previewUrl：它那两张图的地址在自己的字段里，取字节要的是那个。
-           * 🔴 `local` 那一支要认**两种落盘地址**（资产库的 + 拖 / 粘进画布的画布素材，见
-           * `isLocalMediaUrl`）—— 只认前者的话，粘进画布的图会走到上面那句「请等上传完成」，
-           * 而它早就落盘了，等到天亮也不会变。
+          /*
+           * 候选里挑第一个**服务端真能取到字节**的。
+           *
+           * 🔴 不能拿到 `previewUrl` 就直接用：它可能是 `blob:`（刚贴进来、还没落盘）。
+           *    那种地址交出去只会换来服务端一句「取不到字节」—— 与其让它跑到服务端报错，
+           *    不如在这里往下挑一个真能用的（首尾帧节点那两张图的地址在自己的字段里，
+           *    `referenceUrlsOf('bytes')` 那一条就是为它准备的）。
            */
-          const source = preview || (isLocalMediaUrl(local) ? local : '') || referenceUrlsOf(item.data, 'bytes')[0] || '';
+          const source = [
+            String(item.data.previewUrl || '').trim(),
+            String(item.data.imageUrl || '').trim(),
+            ...referenceUrlsOf(item.data, 'bytes'),
+          ].find(value => isResolvableUrl(value)) || '';
           if (!source) {
             return `第 ${out.length + 1} 张参考图只有本地预览，服务端取不到它的字节 —— 请等上传完成，或重新上传这张图`;
           }
