@@ -12,12 +12,15 @@ import {
   Layers,
   Move3d,
   Music,
+  Scissors,
   Tags,
   Type,
   Video,
   Wand2,
   Waypoints,
   Workflow,
+  /* 便签：一张带折角的纸 —— 别用 MessageSquare（那看着像「对话 / 评论」）。 */
+  StickyNote,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { NodeKind } from './nodeMeta';
@@ -57,6 +60,10 @@ export const NODE_ICON: Record<NodeKind, LucideIcon> = {
   'prompt-optimize': Wand2,
   /* D站标签 = 一串标签：Tag 那颗最贴切（这是唯一一个「输出就是一堆词」的节点）。 */
   'danbooru-tags': Tags,
+  /* 便签（画布注释）。 */
+  note: StickyNote,
+  /* 分段 = 一把剪刀把一条长条剪成几截：Scissors 最直白（别用 Columns，那看着像分栏）。 */
+  'media-split': Scissors,
 };
 
 export function NodeGlyph({ kind, size = 13 }: { kind: NodeKind; size?: number }) {

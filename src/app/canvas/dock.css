@@ -370,3 +370,24 @@
 }
 .cv-swatch.pick::-webkit-color-swatch-wrapper { padding: 0; }
 .cv-swatch.pick::-webkit-color-swatch { border: 0; border-radius: var(--cv-radius-sm); }
+
+/* ------------------------------------------------------------------ *
+ * 分段节点的参数条：**竖着排**（2026-10-11 徐先）
+ *
+ * `.cv-param-top` 是 `flex-wrap` 的横排，而分段这一档有三件东西（模式 / 每段几秒 /
+ * 说明句）＋一颗按钮。横着排的结果是说明句被右边的兄弟挤成一列窄条
+ * （「总长 0:10.1 → 会切成 3 段，最后一段不够就短一点」折成五行），
+ * 而那颗数字框只剩不到 60px —— 这一档的每一格都是要读、要填的，横排摆不下。
+ *
+ * ⚠️ 只对 `media-split` 生效（属性选择器）：别的档（首尾帧那种「缩略图 + 一颗按钮」）
+ * 就是横排好看，全局改成竖排会把它们一起弄坏。
+ * ------------------------------------------------------------------ */
+.cv-param-bar[data-kind='media-split'] .cv-param-top {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 9px;
+}
+/* 竖排之后不需要靠 `flex:1` 抢宽度了（横排才有「谁吃掉剩余宽度」这回事）。 */
+.cv-param-bar[data-kind='media-split'] .cv-param-desc { flex: none; }
+/* 数字框给足宽度：默认那个 `cv-input.sm` 在竖排里会被拉满，反而更好。 */
+.cv-param-bar[data-kind='media-split'] .cv-field > .cv-input.sm { width: 92px; flex: none; }

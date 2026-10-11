@@ -66,6 +66,16 @@ export type MediaChainNode = {
     relayValue?: string;
     /** 透传下来的那份是图还是视频（同上，不写库）。决定它进参考图还是进视频输入那一支。 */
     mediaKind?: 'image' | 'video';
+    /**
+     * 分段节点切出来的那几段（2026-10-11）。
+     *
+     * 结构**刻意不 import `nodeMeta` 的 `SplitSegment`**：这个文件的规矩是
+     * 「纯函数层不许依赖 UI 层」（见上面 `PINNED_UPLOAD_KIND` 那段），
+     * 而这里只需要「下标 / 起止 / 地址」三个字段。真要加字段时两边一起改。
+     */
+    splitSegments?: { index: number; start: number; end: number; url: string }[];
+    /** 源是视频还是音频：决定那几段进「视频输入」还是「音频输入」那一支。 */
+    splitMedia?: 'video' | 'audio';
   };
 };
 
@@ -82,8 +92,23 @@ export function isPinnedUploadKind(kind: unknown) {
   return kind === PINNED_UPLOAD_KIND;
 }
 
-/** 连线：`source` 在上游、`target` 在下游。 */
-export type MediaChainEdge = { source: string; target: string };
+/**
+ * 连线：`source` 在上游、`target` 在下游。
+ *
+ * 🔴 `sourceHandle` 是 2026-10-11 加的 —— **分段节点是第一个真正有多个输出口的节点**，
+ * 「下游连的是第几段」只能靠它记住。
+ *
+ * 数据层一直都收这两个字段（`server/api/projects/[id]/canvas/route.ts` 的入库 schema
+ * 里本来就有 `sourceHandle` / `targetHandle`），只是前端从没往里写过 ——
+ * 以前「一个节点出多份」一律靠节点上的开关（`frame-extract` 的 `framePick`），
+ * 因为 `nodeMeta` 里那条注释说「连线只有 source/target」。那条注释已过期，见 `nodeMeta`。
+ */
+export type MediaChainEdge = {
+  source: string;
+  target: string;
+  sourceHandle?: string | null;
+  targetHandle?: string | null;
+};
 
 /** 解析出来的那一份媒体。 */
 export type MediaChain = {
@@ -124,7 +149,41 @@ export function isImageSourceKind(kind: unknown) {
 export function isVideoSourceKind(kind: unknown) {
   return kind === 'video-input' || kind === 'video-generate' || kind === 'app-generate'
     /* 「指定节点上传」透传的是一段视频时走这一支（见 `isImageSourceKind` 那条注释）。 */
-    || isPinnedUploadKind(kind);
+    || isPinnedUploadKind(kind)
+    /*
+     * 分段节点：它交出去的是**好几段**，每段一个输出口。
+     * 是视频段还是音频段由 `data.splitMedia` 定 —— 这里先一律认，
+     * 具体给哪一支由 `videoUrlsOf` / 提交处按 `splitMedia` 分。
+     */
+    || kind === 'media-split';
+}
+
+/** 分段节点（2026-10-11）。 */
+export function isSplitKind(kind: unknown) {
+  return kind === 'media-split';
+}
+
+/**
+ * 分段节点某**一个输出口**交出去的那段地址。
+ *
+ * `handle` 是 react-flow 手柄的 id，形如 `seg-0` / `seg-1`…
+ * ⚠️ 没有 handle（老连线、或者被调用方没传）时退回**第 1 段** ——
+ * 那不是"随便挑一段"，而是「连的是这个节点」这件事在当时只可能指第一段
+ * （分段节点是新的，不存在没记 handle 的老连线）。
+ */
+export function splitSegmentUrlOf(data: MediaChainNode['data'], handle?: string | null): string {
+  const list = Array.isArray(data.splitSegments) ? data.splitSegments : [];
+  if (!list.length) return '';
+  const match = /^seg-(\d+)$/.exec(String(handle ?? '').trim());
+  const index = match ? Number(match[1]) : 0;
+  const hit = list.find(item => item.index === index) || list[0];
+  return String(hit?.url || '').trim();
+}
+
+/** 分段节点**所有**段的地址（按顺序）—— 「整段都要」的场景用（比如反推、卡片预览）。 */
+export function splitSegmentUrlsOf(data: MediaChainNode['data']): string[] {
+  const list = Array.isArray(data.splitSegments) ? data.splitSegments : [];
+  return list.map(item => String(item.url || '').trim()).filter(Boolean);
 }
 
 /**
@@ -215,6 +274,15 @@ export function imageUrlsOf(data: MediaChainNode['data'], mode: 'submit' | 'byte
  *      服务端取不到字节，反推这条路不能认它）。
  */
 export function videoUrlsOf(data: MediaChainNode['data'], mode: 'submit' | 'bytes' = 'submit'): string[] {
+  /*
+   * 分段节点：它身上没有 `resultUrl` / `videoUrl` 那套字段，交出去的是**切好的 N 段**。
+   * 音频段（`splitMedia === 'audio'`）不在这儿给 —— 那是音频那一支的事。
+   */
+  if (isSplitKind(data.kind)) {
+    if (data.splitMedia === 'audio') return [];
+    const urls = splitSegmentUrlsOf(data);
+    return mode === 'bytes' ? urls.filter(isResolvableUrl) : urls;
+  }
   /* 同上：「指定节点上传」只在它透传的那份**是视频**时才给，其余一律不给。 */
   if (isPinnedUploadKind(data.kind)) {
     const relayed = String(data.relayValue || '').trim();
@@ -261,6 +329,18 @@ export function pickMediaInput(
     if (edge.target !== id) continue;
     const from = nodes.find(item => item.id === edge.source);
     if (!from) continue;
+    /*
+     * 分段节点：连的是**某一个输出口** → 只取那一段（`edge.sourceHandle`）。
+     * 音频段（`.mp3` 之类）反推不了，跳过按后面的规则继续找 —— 别把一段声音当图发出去。
+     */
+    if (isSplitKind(from.data.kind)) {
+      const url = splitSegmentUrlOf(from.data, edge.sourceHandle);
+      if (url && isResolvableUrl(url)) {
+        if (isVideoUrl(url)) return { id: from.id, url, from: nameOf(from), kind: 'video' };
+        if (isImageUrl(url)) return { id: from.id, url, from: nameOf(from), kind: 'image' };
+      }
+      continue;
+    }
     if (isVideoSourceKind(from.data.kind)) {
       const url = videoUrlsOf(from.data, 'bytes').find(isResolvableUrl);
       if (url) return { id: from.id, url: String(url).trim(), from: nameOf(from), kind: 'video' };

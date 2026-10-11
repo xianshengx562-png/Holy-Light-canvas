@@ -22,8 +22,15 @@
  *    直接关闭了」）。高度封顶之后列表里面本来就是要滚的；而那个 `scroll` 监听是
  *    **捕获**的，列表滚一下也会打过去 —— 一律 `close()` 的代价是长列表根本翻不动，
  *    往下拨一格整个收起来。判据是**这一下发生在哪**：target 在列表里就放行。
- *    另外 CSS 给列表加了 `overscroll-behavior: contain`：少了它，滚到底之后滚动链会
+ *    另外 CSS 给滚动体加了 `overscroll-behavior: contain`：少了它，滚到底之后滚动链会
  *    穿到底栏（`.cv-dock-scroll`），那一下仍然会关掉列表 —— 表现和上面一模一样。
+ *
+ * 1d. **🔴 面板是「固定头 + 滚动体」两层，不是一层滚动**（2026-10-10 徐先：
+ *    「从工作流库中选择还是有问题，会被遮住一点」）。动作行「＋ 从工作流库中选择…」
+ *    原先和候选项同在滚动层里：列表一滚，它被顶到面板边框外只剩半截 ——
+ *    翻长列表时那个入口就等于没了。现在 `.cv-combo-list` 只做外壳（`overflow: hidden`
+ *    + `max-height`），滚动交给 `.cv-combo-body`，头部 `.cv-combo-fixed` 钉在顶上。
+ *    ⚠️ `max-height` 必须留在外壳上：翻上翻下那个判据量的是外壳的 `offsetHeight`。
  *
  * 1b. **🔴 列表必须能翻到上方**：底栏是挂在节点下方的，节点一靠下它就贴着窗口下沿
  *    （探针量到过 `dockBottom=930` 而窗口只有 902 —— 它本来就会伸出去一截），
@@ -283,37 +290,55 @@ export default function DockCombo({
             ? { left: pos.left, top: pos.top, width: pos.width, maxHeight: pos.maxHeight }
             : { left: 0, top: 0, width: 240 }}
         >
-          {action ? (
-            <button type="button" className="cv-combo-row action" onClick={() => { setOpen(false); action.onPick(); }}>
-              {action.label}
-            </button>
-          ) : null}
-          {showMissing ? (
-            <button type="button" className="cv-combo-row current" onClick={() => pick(value)}>
-              {missingLabel}
-            </button>
-          ) : null}
-          {shownGroups.map(group => (
-            <div className="cv-combo-group" key={group.key}>
-              {group.label ? <span className="cv-combo-head">{group.label}</span> : null}
-              {group.items.map(item => {
-                rowIndex += 1;
-                const mine = rowIndex;
-                return (
-                  <button
-                    type="button"
-                    key={item.value}
-                    className={`cv-combo-row${mine === active ? ' active' : ''}${item.value === value ? ' on' : ''}`}
-                    onMouseEnter={() => setActive(mine)}
-                    onClick={() => pick(item.value)}
-                  >
-                    {item.label}
-                  </button>
-                );
-              })}
+          {/*
+            🔴 动作行 / 「当前值不在候选里」这两行**不参与滚动**（2026-10-10 徐先：
+            「这里的用鼠标滚轮下拉是没问题了，但，从工作流库中选择还是有问题，会被遮住一点」）。
+            它们原先跟候选项同在一个滚动层里 —— 一滚就被顶到面板边框外只剩半截，
+            「＋ 从工作流库中选择…」这个入口等于翻长列表时消失（他圈的就是那半截）。
+            所以拆成「固定头 + 滚动体」两层：头永远钉在面板顶上，只有下面的候选滚动。
+            ⚠️ 别把这两行再挪回体里 —— 那不是排版问题，是「入口会不会被滚走」的问题。
+          */}
+          {action || showMissing ? (
+            <div className="cv-combo-fixed">
+              {action ? (
+                <button type="button" className="cv-combo-row action" onClick={() => { setOpen(false); action.onPick(); }}>
+                  {action.label}
+                </button>
+              ) : null}
+              {showMissing ? (
+                <button type="button" className="cv-combo-row current" onClick={() => pick(value)}>
+                  {missingLabel}
+                </button>
+              ) : null}
             </div>
-          ))}
-          {!flat.length ? <span className="cv-combo-empty">{emptyHint}</span> : null}
+          ) : null}
+          {/*
+            滚动体：`max-height` 全落在外面那层（`.cv-combo-list`）上，这里只负责滚。
+            `divided` 只在**确实有候选**时加那条分隔线 —— 空列表时头顶悬一条线很怪。
+          */}
+          <div className={`cv-combo-body${flat.length ? ' divided' : ''}`}>
+            {shownGroups.map(group => (
+              <div className="cv-combo-group" key={group.key}>
+                {group.label ? <span className="cv-combo-head">{group.label}</span> : null}
+                {group.items.map(item => {
+                  rowIndex += 1;
+                  const mine = rowIndex;
+                  return (
+                    <button
+                      type="button"
+                      key={item.value}
+                      className={`cv-combo-row${mine === active ? ' active' : ''}${item.value === value ? ' on' : ''}`}
+                      onMouseEnter={() => setActive(mine)}
+                      onClick={() => pick(item.value)}
+                    >
+                      {item.label}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+            {!flat.length ? <span className="cv-combo-empty">{emptyHint}</span> : null}
+          </div>
         </div>
       ) : null}
     </div>

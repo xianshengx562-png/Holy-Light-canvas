@@ -11,6 +11,10 @@ import {
   generatorKindLabel, nodeEngineProvider, readUpscaleSource, UPSCALE_SOURCES, UPSCALE_SOURCE_LABELS,
   upscaleFollowsConnection, upscalePurposeOfNode, upscaleSideLabel, upscaleSourceLabel,
   upscaleSourceOfNode, upscaleTargetOfNode, type UpscaleSource,
+  referenceUrlsOf,
+  /* 分段（2026-10-11）。 */
+  DEFAULT_SPLIT_SEC, MAX_SPLIT_SEGMENTS, MAX_SPLIT_SEC, MIN_SPLIT_SEC, SPLIT_MODE_LABELS, SPLIT_MODES,
+  isSplitMode, parseSplitSecs, splitClock, splitPlan, type SplitMode,
 } from './nodeMeta';
 import type { GeneratorKind } from '@/lib/workflows/purpose';
 import { readLastUpscaleWorkflow } from '@/lib/upscaleMemory';
@@ -331,10 +335,16 @@ export default function NodeParamBar({ data, followedSide = '', followedFrom = '
           />
         </label>
         <div className="cv-param-desc">
+          {/*
+            🔴 这里原来只认 `remoteFile`（2026-10-10 徐先：「上传是上传了，但图片生成节点里没显示」）。
+            拖进 / 粘进画布的图身上只有画布素材那种本机地址，从没走过对端平台上传 ——
+            按 `remoteFile` 量就永远是「待重新上传」，而它什么都不缺（服务端提交时读盘重传）。
+            尺子换成和运行同一把：`referenceUrlsOf()`。
+          */}
           <span className="cv-param-hint">{data.status === 'uploading'
             ? '正在上传…'
             : imageSource
-              ? (data.remoteFile ? '已就绪' : '待重新上传')
+              ? (referenceUrlsOf(data).length > 0 ? '已就绪' : '待重新上传')
               : '点击左侧方框上传，或选中本节点后 Ctrl+V 粘贴'}</span>
           {/* 装在说明列里：它是 grid，字段与说明各占一行，不用为它新加一条 CSS。 */}
           {upscaleField}
@@ -474,6 +484,138 @@ export default function NodeParamBar({ data, followedSide = '', followedFrom = '
             <button className="cv-btn sm ghost" type="button" onClick={() => data.onPreview?.(item.url)}>看{item.tag}</button>
           </span>
         ))}
+      </>,
+    );
+  }
+
+  /*
+   * 分段（2026-10-11 徐先）。
+   *
+   * 落点在这里的理由跟「首尾帧的取用」一样：这是**唯一**影响它交出什么的地方，
+   * 塞到别处（或者只在卡片上给个输入框）的话，两处都能改就得分个主次 ——
+   * 「同一份 UI 只许一个落点」。
+   */
+  if (kind === 'media-split') {
+    const mode: SplitMode = isSplitMode(data.splitMode) ? data.splitMode : 'uniform';
+    const uniform = Number(data.splitUniform) || DEFAULT_SPLIT_SEC;
+    /*
+     * 🔴 框里显示**原文**，不显示「翻过默认值之后的数」（2026-10-11）。
+     *
+     * 之前写的是 `value={String(uniform)}`（`Number(...) || 5`），于是：
+     *   · 退格删掉那个 5 → 存进去 `''` → 翻成 5 → 立刻又变回 "5"，**删不掉**；
+     *   · 删完接着敲 3 → 得到 **"53"**（53 秒一段，短素材直接切成一段 = 「好像没用」）。
+     * 受控输入要能被清空，就得让「空」这个状态真的存在于数据里 —— 兜底留给读的那一侧
+     * （上面的 `uniform`），不回写。
+     */
+    const rawUniform = data.splitUniform === undefined || data.splitUniform === null
+      ? ''
+      : String(data.splitUniform);
+    const custom = String(data.splitCustom || '');
+    const customSecs = parseSplitSecs(custom);
+    const duration = Number(data.splitDuration) || 0;
+    const status = String(data.splitStatus || '');
+    const rows = data.splitSegments?.length
+      ? data.splitSegments
+      /* 同上：总长未知时交给 `splitPlan`，别塞 1e9 那种假总长（会补出一行几万秒的尾巴）。 */
+      : splitPlan(duration, mode, uniform, custom)
+        .map((item, index) => ({ index, start: item.start, end: item.end, url: '' }));
+    /*
+     * 🔴 提示句里的「会切成几段」要按**当前这组参数**算，不能按 `rows.length`。
+     *
+     * `rows` 在切过一次之后就是**上一次的切结果**（`splitSegments`）—— 把「每段 5 秒」
+     * 改成 3 秒的那一刻，列表里躺的还是旧的 3 段，提示句也就跟着说「会切成 3 段」，
+     * 一直说到 ffmpeg 跑完才改口。用户看到的正是「我改了数，界面告诉我没变」。
+     */
+    const planCount = splitPlan(duration, mode, uniform, custom).length;
+    return shell(
+      <>
+        <div className="cv-field">
+          <span>模式</span>
+          <select className="cv-select" value={mode} onChange={event => data.onField?.('splitMode', event.target.value)}>
+            {SPLIT_MODES.map(item => <option key={item} value={item}>{SPLIT_MODE_LABELS[item]}</option>)}
+          </select>
+        </div>
+        {mode === 'uniform' ? (
+          <div className="cv-field">
+            <span>每段</span>
+            <input
+              className="cv-input sm"
+              type="number"
+              min={MIN_SPLIT_SEC}
+              max={MAX_SPLIT_SEC}
+              step={0.5}
+              value={rawUniform}
+              placeholder={String(DEFAULT_SPLIT_SEC)}
+              onChange={event => data.onField?.('splitUniform', event.target.value)}
+            />
+            <span className="cv-field-unit">秒</span>
+          </div>
+        ) : (
+          <div className="cv-field">
+            <span>每段时长</span>
+            <input
+              className="cv-input"
+              value={custom}
+              placeholder="例：10, 5, 20"
+              onChange={event => data.onField?.('splitCustom', event.target.value)}
+            />
+          </div>
+        )}
+        <div className="cv-param-desc">
+          <span className="cv-param-hint">{mode === 'uniform'
+            ? (duration
+              ? `总长 ${splitClock(duration)} → 会切成 ${planCount} 段，最后一段不够就短一点`
+                /* 框空着时 `uniform` 已经是默认值了，不说这句就是界面在替他做了个没说出口的决定。 */
+                + (rawUniform.trim() ? '' : `（每段没填，按 ${DEFAULT_SPLIT_SEC} 秒算）`)
+              : '填好每段几秒，接上视频 / 音频之后会自动切')
+            : (customSecs.length
+              /*
+               * 段数用 `rows.length` 而不是 `customSecs.length`：填的那串没盖满整条素材时，
+               * 余下那截**单独成一段**（`splitPlan`，不丢素材）。写「依次切 3 段」
+               * 而列表里躺着 4 行，是他一眼就能发现的界面在撒谎。
+               */
+              ? `按 ${customSecs.map(item => `${item}s`).join(' → ')} 依次切 ${planCount} 段`
+                + (duration && planCount > customSecs.length ? '（余下的算最后一段）' : '')
+              : '用逗号分隔，例如「10, 5, 20」—— 三段分别是 10 秒、5 秒、20 秒')}</span>
+        </div>
+        {!!data.splitError && <div className="cv-param-error">{String(data.splitError)}</div>}
+        {/*
+          手动再切一次。自动那一路已经会在「源 / 模式 / 段长」变化时自己跑，
+          所以要这颗按钮只剩两种场合：① 上次失败了（key 没变，自动不会再试）；
+          ② 想在不改任何参数的前提下重来一遍。
+        */}
+        <button
+          className="cv-btn sm"
+          type="button"
+          disabled={status === 'running' || !duration}
+          onClick={data.onSplitRun}
+        >
+          {status === 'running' ? '切片中…' : data.splitSegments?.length ? '重新切' : '切片'}
+        </button>
+        {/*
+          段列表：每一行右边的序号对应卡片**右侧第几个输出口**（从上往下数），
+          所以这里必须按段序排 —— 排序或过滤都会让「第 3 个口」对不上号。
+        */}
+        {!!rows.length && (
+          <div className="cv-split-list">
+            {rows.map(item => (
+              <div className="cv-split-row" key={item.index}>
+                <span className="cv-split-i">{item.index + 1}</span>
+                <span className="cv-split-at">{splitClock(item.start)} – {splitClock(item.end)}</span>
+                <span className="cv-split-dur">{(Math.round((item.end - item.start) * 10) / 10).toFixed(1)}s</span>
+                {item.url
+                  ? <button className="cv-btn sm ghost" type="button" onClick={() => data.onPreview?.(item.url)}>看</button>
+                  : <span className="cv-split-dot">{status === 'running' ? '切片中…' : '待切'}</span>}
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="cv-param-desc">
+          <span className="cv-param-hint">
+            每一段是卡片右侧的一个输出口，从上往下数：第 1 个口是第 1 段、第 2 个口是第 2 段。
+            各连各的下游，各走各的处理。段数上限 {MAX_SPLIT_SEGMENTS} 段。
+          </span>
+        </div>
       </>,
     );
   }

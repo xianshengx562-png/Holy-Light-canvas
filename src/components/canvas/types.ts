@@ -6,6 +6,7 @@ import type { DirectorScene } from '@/lib/director';
 import type { RelayLatentItem } from '@/lib/asset-kinds';
 import type { ResultKind } from '@/lib/result-kind';
 import type { CanvasControlSummary } from '@/lib/workflows/configuration';
+import type { NoteColor, NodeKind, NoteScale, SplitMode, SplitSegment } from './nodeMeta';
 
 export type LatentRecord = {
   id: string;
@@ -186,9 +187,13 @@ export type FramePick = 'first' | 'last' | 'both';
 
 export type NodeData = {
   label?: string;
-  kind?: 'text' | 'image' | 'latent' | 'latent-relay' | 'pinned-upload' | 'workflow' | 'params'
-    | 'video-generate' | 'image-generate' | 'video' | 'video-input' | 'audio-input' | 'image-out' | 'frame-extract'
-    | 'director' | 'app-generate' | 'prompt-optimize' | 'danbooru-tags';
+  /*
+   * 🔴 直接用 `NodeKind`，**别在这儿再抄一份字面量**（2026-10-10）：
+   * 原来这里手抄了一份同样的联合类型，加 `note` 之后两边就分叉了
+   * （`newNodeData('note')` 回的对象赋不进来，报的错还看不出是这份抄漏了）。
+   * 节点类型只许有一个落点 —— 就是 `nodeMeta.ts` 里那一个。
+   */
+  kind?: NodeKind;
   text?: string;
   /**
    * 优化提示词节点跑完之后产出的那段文本（2026-09-29）。
@@ -247,6 +252,23 @@ export type NodeData = {
    * 卡片正面也不能拿一个视频地址去喂 `<img>`（2026-10-03 就出过这种坏图）。
    */
   mediaKind?: 'image' | 'video';
+  /**
+   * 便签（`kind: 'note'`）的正文。
+   *
+   * 🔴 **刻意不复用 `text`**：`text` 是文本链那一路的源（会被收进提示词），
+   * 便签是给人看的注释 —— 复用它的后果是「这块注释哪天被谁连了一根线就进了提示词」，
+   * 而他明确要的就是「不参与生成」。
+   */
+  noteText?: string;
+  /** 便签的纸色（见 `nodeMeta.NOTE_COLORS`）。 */
+  noteColor?: NoteColor;
+  /**
+   * 便签的字号档位（见 `nodeMeta.NOTE_SCALES`）。
+   *
+   * 存**档位名**，不存像素 —— 像素由 `nodes.css` 的 `--note-fs` 翻译，且是**倍率**，
+   * 这样全站「界面大小」滑杆一动，便签跟着整档一起缩放。
+   */
+  noteScale?: NoteScale;
   imageUrl?: string;
   previewUrl?: string;
   imageSize?: string;
@@ -292,6 +314,47 @@ export type NodeData = {
   frameSource?: string;
   /** 下游生成取用哪几张（首帧 / 尾帧 / 两张）。没这个字段（老节点）按 'both' 处理。 */
   framePick?: FramePick;
+
+  /* ---------- 分段节点（`kind: 'media-split'`，2026-10-11 徐先） ---------- */
+  /** 两种模式：`uniform` = 每段一样长，`custom` = 每段时长逐个填。 */
+  splitMode?: SplitMode;
+  /**
+   * 统一模式：每段几秒，**存输入框里的原文**。
+   *
+   * 🔴 存原文（而不是 `number`）是因为那个框要能被清空：受控输入一旦把「空」翻成
+   * 默认值再回写，退格键就永远删不掉那个 5 —— 删一下立刻弹回 "5"，接着敲 3 得到 "53"。
+   * （2026-10-11 徐先：「每段统一好像没用」，就是这个。）空串 / 非数字一律在**读**的
+   * 那一刻翻成 `DEFAULT_SPLIT_SEC`（`Number(x) || DEFAULT_SPLIT_SEC`），不回写。
+   */
+  splitUniform?: number | string;
+  /** 自定义模式：用户填的那串（`"10, 5, 20"`）—— **存原文**，解析是 `parseSplitSecs` 的事。 */
+  splitCustom?: string;
+  /** 切完的每一段（起止 + 落盘地址）。没切过就是空数组。 */
+  splitSegments?: SplitSegment[];
+  /**
+   * 🔴 「要不要重切」的**唯一**判据，把源与三档参数一起记下来
+   * （`源地址|模式|统一秒数|自定义串`）。
+   *
+   * 只记源地址是不够的：上游没换、只把「每段 5 秒」改成「每段 8 秒」时，
+   * 源地址一模一样，判不出来就得等用户手动点一次。
+   * 反过来只记参数也不行：上游重新生成之后地址变了，段还是旧视频的 ——
+   * 那种情况症状是「分出来了、但内容是上一段的」。
+   */
+  splitKey?: string;
+  /** 源的总时长（秒）—— 段列表里要显示「总共多长、切成几段」。 */
+  splitDuration?: number;
+  /** 源是视频还是音频：决定输出扩展名与 ffmpeg 参数。 */
+  splitMedia?: 'video' | 'audio';
+  /**
+   * 切好之后**自动建在画布上**的那几张段卡片（按顺序，第 i 张 = 第 i 段）。
+   *
+   * 记下 id 是为了**重切时复用**：改「每段几秒」会反复切，每次都新建一批的话
+   * 右边很快就堆一地卡片（2026-10-11 他选「就地更新，不新增」）。
+   * 段数变少就删掉多出来的，变多就补新的。
+   */
+  splitNodes?: string[];
+  splitStatus?: 'running' | 'done' | 'error';
+  splitError?: string;
   /**
    * 当前**能拿去提取**的那段视频地址，以及它是从哪来的（「本节点自带的视频」或上游节点名）。
    *
@@ -732,6 +795,20 @@ export type NodeData = {
   onAppRows?: (rows: ParamRow[]) => void;
   /** 改 latent 的参数位编号（1 / 2，可多选：一条 latent 同时写进多个槽）。 */
   onLatentIndexes?: (indexes: number[]) => void;
+  /** 便签：改正文（失焦 / 点空白处收尾时写一次，不是边打边写 —— 见 `NoteNode`）。 */
+  onNoteText?: (value: string) => void;
+  /** 便签：换纸色。 */
+  onNoteColor?: (color: NoteColor) => void;
+  /** 便签：改字号档位。 */
+  onNoteScale?: (scale: NoteScale) => void;
+  /**
+   * 分段：**手动**再切一次（自动那一路见 `CanvasEditor` 里 `splitKey` 那个 effect）。
+   *
+   * 需要它是因为自动那一路「同一个 key 只跑一次」—— 失败之后 key 没变，不会重试；
+   * 而 ffmpeg 报错（素材坏了、盘满了）里有相当一部分是**重试就能过**的，
+   * 只靠自动那条路，用户看到的是一个再也不会变红的报错。
+   */
+  onSplitRun?: () => void;
   /**
    * 中转节点逐槽选的来源（2026-10-03，N-114）：下标 0 → latent_1、1 → latent_2。
    * 空串 = 这一槽自动（跟随上游那一组归档的粗 / 精配对），`LATENT_PICK_OFF` = 明确不要。

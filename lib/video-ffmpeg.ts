@@ -8,6 +8,8 @@ import { db } from '@/lib/db';
 import { storageRoot } from '@/lib/storage-root';
 import { mediaRoot, outputRoot, resolveStoredPath } from '@/lib/output-dir';
 import { runtimePaths } from '@/lib/runtime-paths';
+import { openCanvasMedia, parseCanvasMediaUrl } from '@/lib/canvas-media';
+import { mediaKindOfExt } from '@/lib/media';
 
 /**
  * 视频拼接工具的后半段 —— FFmpeg 那一层。
@@ -397,8 +399,19 @@ export type MaterialInfo = {
  * ⚠️ 这是**唯一**把素材变成路径的地方：渲染进程从头到尾只交 assetId，
  * 库里 `metadata.path` 是我们自己落盘时写的，不是用户能填的东西。
  */
-export async function resolveMaterial(assetId: string, userId: string): Promise<MaterialInfo> {
-  const asset = await db.asset.findFirst({ where: { id: assetId, userId, type: { in: ['video', 'image'] } } });
+export async function resolveMaterial(
+  assetId: string,
+  userId: string,
+  /**
+   * 认哪些资产类型。**默认 `video` / `image`**（取帧 / 探测这些老调用方只吃画面）。
+   *
+   * 🔴 分段节点那一支**必须显式带上 `audio`**：音频资产在库里就是 `type: 'audio'`，
+   * 按默认口径查会 `findFirst` 落空 → 报「这个素材不在资产库里」，
+   * 而它明明就在资产库里躺着、只是种类不对。那种报错用户看了一辈子也改不对。
+   */
+  types: string[] = ['video', 'image'],
+): Promise<MaterialInfo> {
+  const asset = await db.asset.findFirst({ where: { id: assetId, userId, type: { in: types } } });
   if (!asset) throw new Error('这个素材不在资产库里，或者不属于当前账号。');
   const meta = (asset.metadata || {}) as { path?: string };
   if (!meta.path) throw new Error('这个素材没落盘 —— 重新上传一次再试。');
@@ -407,11 +420,168 @@ export async function resolveMaterial(assetId: string, userId: string): Promise<
   return { assetId: asset.id, name: asset.name, type: asset.type, path: file, url: asset.url, width: 0, height: 0 };
 }
 
+/**
+ * 分段那一支专用的「把源解析成盘上一个文件」（2026-10-11 补的）。
+ *
+ * 🔴 **画布素材也要能切**（他问「为什么必须存进资产库」—— 那不是产品规矩，
+ * 是这里原来只实现了「资产 id」一支的副产品）。拖进 / 粘进画布的视频与音频落在
+ * `<根>/canvas-media/`，**刻意不建 Asset 记录**，所以 `resolveMaterial()` 查不到它。
+ *
+ * 跟 1.0.124 那五处「把画布上的地址取成字节」是同一类漏 —— 那边的规矩是
+ * 「`assetId` 那支之前先加 `parseCanvasMediaUrl` 一支」，这里照抄同一条。
+ * 凡是新加「从画布上取素材」的地方，都要问一句「画布素材那一支接上了吗」。
+ */
+export async function resolveSplitMaterial(
+  source: string,
+  userId: string,
+  projectId: string,
+): Promise<MaterialInfo> {
+  const canvas = parseCanvasMediaUrl(source);
+  if (canvas) {
+    const opened = await openCanvasMedia({ userId, projectId: canvas.projectId, file: canvas.file });
+    if (!opened) throw new Error('这份画布素材已经不在盘上了 —— 重新拖一次再试。');
+    const type = mediaKindOfExt(opened.ext);
+    if (!type) throw new Error('认不出这份素材是什么类型。');
+    return { assetId: source, name: opened.name, type, path: opened.path, url: source, width: 0, height: 0 };
+  }
+  return resolveMaterial(source, userId, ['video', 'audio']);
+}
+
 /* ------------------------------------------------------------------ *
  * 取一帧当预览
  * ------------------------------------------------------------------ */
 
 const PREVIEW_DIR = path.join(os.tmpdir(), 'frame-video-preview');
+
+/* ------------------------------------------------------------------ *
+ * 分段（2026-10-11 徐先：视频 / 音频按用户给的时长切成 N 段）
+ * ------------------------------------------------------------------ */
+
+/** 切出来的段先落这里，入库（`archiveLocalFile` 会拷进资产目录）之后就删掉。 */
+const SPLIT_TMP = path.join(os.tmpdir(), 'hl-media-split');
+
+const AUDIO_MIME: Record<string, string> = {
+  mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', wav: 'audio/wav',
+  flac: 'audio/flac', ogg: 'audio/ogg', opus: 'audio/opus',
+};
+
+export type SegmentProbe = {
+  /** `video` = 有画面，`audio` = 只有声音，`image` = 一张图（不能分段）。 */
+  kind: 'video' | 'audio' | 'image';
+  duration: number;
+  width: number;
+  height: number;
+  fps: number;
+  hasAudio: boolean;
+};
+
+/**
+ * 探一个素材能不能分段、总长多少。
+ *
+ * 🔴 **不能直接用 `probeFile`**：它 `if (!video) throw`（「这个文件里没有画面」）——
+ * 而分段**要吃纯音频**（mp3 / wav 那种一个视频轨都没有的文件）。
+ * 所以这里是另一份：先看有没有画面，没有再看有没有声音，两个都没有才是真的不行。
+ */
+export async function probeSegmentable(file: string): Promise<SegmentProbe> {
+  const { ffprobe } = await requireBinaries();
+  const result = await runCapture(
+    [ffprobe, '-v', 'error', '-print_format', 'json', '-show_streams', '-show_format', file],
+    30_000,
+  );
+  if (result.code) throw new Error(result.stderr.trim() || '读不出这个文件的信息。');
+  let parsed: { streams?: Record<string, unknown>[]; format?: Record<string, unknown> } = {};
+  try {
+    parsed = JSON.parse(result.stdout) as typeof parsed;
+  } catch {
+    throw new Error('FFprobe 返回的内容读不懂 —— 这个文件可能已经损坏。');
+  }
+  const streams = Array.isArray(parsed.streams) ? parsed.streams : [];
+  const video = streams.find((item) => item?.codec_type === 'video') as Record<string, unknown> | undefined;
+  const audio = streams.find((item) => item?.codec_type === 'audio') as Record<string, unknown> | undefined;
+  if (!video && !audio) throw new Error('这个文件里既没有画面也没有声音 —— 换一个文件试试。');
+
+  const isImage = !!video && IMAGE_CODECS.has(String(video.codec_name || '').toLowerCase());
+  /*
+   * 时长优先取 `format.duration`：纯音频没有视频轨，`video.duration` 拿不到；
+   * 而 `format.duration` 是容器给的，两种都有。取不到再退回各轨自己报的。
+   */
+  const duration = Number(parsed.format?.duration ?? video?.duration ?? audio?.duration ?? 0) || 0;
+  const fps = video ? parseRate(String(video.avg_frame_rate || video.r_frame_rate || '0')) : 0;
+  return {
+    kind: isImage ? 'image' : video ? 'video' : 'audio',
+    duration: isImage ? 0 : duration,
+    width: Number(video?.width || 0),
+    height: Number(video?.height || 0),
+    fps: isImage ? 0 : fps,
+    hasAudio: !!audio,
+  };
+}
+
+export type CutSegment = { index: number; start: number; end: number; url: string; name: string };
+
+/**
+ * 把一段素材按 `segments` 里给的起止切成 N 段，逐段入库。
+ *
+ * 两条 ffmpeg 参数不一样，别合并：
+ *
+ *  - **视频要重编码**（`libx264` + `aac`）。`-c copy` 只能在**关键帧**处下刀，
+ *    切出来的每一段会长短不一（差一两秒很常见）—— 而他要的正是「每段 10 秒」，
+ *    差了就是在骗人。`-preset veryfast` 是速度与体积的折中，10 秒片段一两秒就好。
+ *    🔴 `-ss` 放在 `-i` **前面**（输入 seek）：放后面是「先解码再丢帧」，慢十倍。
+ *  - **音频可以 `-c copy`**：音频帧密（每帧几毫秒），关键帧不对齐这个问题不存在，
+ *    copy 出来的时长是准的，而且零质量损失。
+ */
+export async function cutSegments(input: {
+  userId: string;
+  projectId: string;
+  assetId: string;
+  segments: { index: number; start: number; end: number }[];
+}): Promise<CutSegment[]> {
+  const { ffmpeg } = await requireBinaries();
+  /* 视频与音频都收 —— 少了 `audio` 这一项，接音频节点时会在第一步就报「不在资产库里」。 */
+  /* 🔴 走 `resolveSplitMaterial`（不是 `resolveMaterial`）：画布素材那一支也要切得动。 */
+  const material = await resolveSplitMaterial(input.assetId, input.userId, input.projectId);
+  const probe = await probeSegmentable(material.path);
+  if (probe.kind === 'image') throw new Error('这是一张图片 —— 只能给视频或音频分段。');
+
+  const ext = probe.kind === 'audio'
+    ? (path.extname(material.path).replace(/^\./, '').toLowerCase() || 'mp3')
+    : 'mp4';
+  await mkdir(/*turbopackIgnore: true*/ SPLIT_TMP, { recursive: true });
+
+  const out: CutSegment[] = [];
+  for (const seg of input.segments) {
+    const start = Math.max(0, Number(seg.start) || 0);
+    const length = Math.max(0.01, (Number(seg.end) || 0) - start);
+    const tmp = path.join(SPLIT_TMP, `${randomUUID()}-${seg.index}.${ext}`);
+    const args = [ffmpeg, '-y', '-ss', start.toFixed(3), '-t', length.toFixed(3), '-i', material.path];
+    if (probe.kind === 'audio') {
+      args.push('-vn', '-c:a', 'copy');
+    } else {
+      args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', '-movflags', '+faststart');
+      /* 没有音轨就别加 `-c:a`：ffmpeg 不报错但会多出一轨静音，体积白白变大。 */
+      if (probe.hasAudio) args.push('-c:a', 'aac', '-b:a', '160k');
+      else args.push('-an');
+    }
+    args.push('-avoid_negative_ts', 'make_zero', tmp);
+    const result = await runCapture(args, 180_000);
+    if (result.code) {
+      await rm(/*turbopackIgnore: true*/ tmp, { force: true }).catch(() => undefined);
+      throw new Error(result.stderr.trim() || `第 ${seg.index + 1} 段没切出来。`);
+    }
+    const saved = await archiveLocalFile({
+      userId: input.userId,
+      projectId: input.projectId,
+      filePath: tmp,
+      name: `segment-${seg.index + 1}.${ext}`,
+      ext,
+      type: probe.kind === 'audio' ? 'audio' : 'video',
+    });
+    await rm(/*turbopackIgnore: true*/ tmp, { force: true }).catch(() => undefined);
+    out.push({ index: seg.index, start: seg.start, end: seg.end, url: saved.url, name: saved.name });
+  }
+  return out;
+}
 
 /**
  * 抽第 `frame` 帧存成 PNG。
@@ -873,24 +1043,37 @@ export async function archiveLocalFile(input: {
   projectId: string;
   filePath: string;
   name: string;
+  /**
+   * 扩展名与资产类型 —— **默认 `mp4` / `video`**（老调用方全是视频拼接成品）。
+   *
+   * 分段节点切出来的可能是**音频**（`.mp3` / `.wav` / `.m4a`），那时候必须传：
+   * 库里 `type` 决定资产库把它归到哪一格，`ext` 决定 `/api/assets/<id>/media.<ext>`
+   * 这个地址的后缀 —— 而后缀正是下游判断「这是视频还是音频」的依据
+   * （`mediaChain.ts` 的 `isVideoUrl` / `isAudioUrl` 看的就是它）。
+   */
+  ext?: string;
+  type?: 'video' | 'audio';
 }): Promise<{ id: string; url: string; name: string }> {
   if (!(await isFile(input.filePath))) throw new Error('成品文件已经不在了 —— 重新导出一次。');
+  const ext = String(input.ext || 'mp4').replace(/^\.+/, '').toLowerCase() || 'mp4';
+  const type = input.type === 'audio' ? 'audio' : 'video';
+  const mime = type === 'audio' ? AUDIO_MIME[ext] || 'audio/mpeg' : 'video/mp4';
   const dir = path.join(await mediaRoot(), input.projectId);
   await mkdir(/*turbopackIgnore: true*/ dir, { recursive: true });
   const id = randomUUID();
-  const target = path.join(dir, `${id}.mp4`);
+  const target = path.join(dir, `${id}.${ext}`);
   await copyFile(/*turbopackIgnore: true*/ input.filePath, /*turbopackIgnore: true*/ target);
-  const url = `/api/assets/${id}/media.mp4`;
+  const url = `/api/assets/${id}/media.${ext}`;
   const info = await stat(/*turbopackIgnore: true*/ target);
   await db.asset.create({
     data: {
       id,
       userId: input.userId,
       projectId: input.projectId,
-      name: input.name || `joined-${Date.now()}.mp4`,
-      type: 'video',
+      name: input.name || `joined-${Date.now()}.${ext}`,
+      type,
       url,
-      metadata: { size: info.size, originalUrl: null, mime: 'video/mp4', path: target, ext: 'mp4', source: 'video-tool-output' },
+      metadata: { size: info.size, originalUrl: null, mime, path: target, ext, source: 'video-tool-output' },
     },
   });
   return { id, url, name: input.name };

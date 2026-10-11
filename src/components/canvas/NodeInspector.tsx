@@ -4,7 +4,10 @@ import { SlidersHorizontal, X } from 'lucide-react';
 import GenerateDock from './GenerateDock';
 import NodeParamBar from './NodeParamBar';
 import { NodeGlyph } from './nodeIcons';
-import { NODE_META, displayLabelOf, usesGenerateDock, upscaleFollowsConnection, upscaleFollowedLabel, upscaleFollowedSide } from './nodeMeta';
+import {
+  DEFAULT_NOTE_SCALE, NOTE_COLOR_LABELS, NOTE_COLORS, NOTE_SCALE_LABELS, NOTE_SCALES, NODE_META,
+  displayLabelOf, isNoteScale, usesGenerateDock, upscaleFollowsConnection, upscaleFollowedLabel, upscaleFollowedSide,
+} from './nodeMeta';
 import type { NodeKind } from './nodeMeta';
 import type { NodeData } from './types';
 
@@ -115,7 +118,55 @@ export default function NodeInspector({ node, onClose, tagger }: {
         `cv-inspector-content-fill`：正文这一层不滚，滚动交给面板里的列表
         （标签库 4000 条，交给正文滚会长成一条几万像素的长页）。
       */}
-      {kind === 'danbooru-tags'
+      {/*
+        便签（2026-10-10）：它没有参数可配，但**不能掉进 `NodeParamBar` 那一栏** ——
+        那一栏画的是「上传 / 工作流 / 参数行」那一套，便签身上一样都没有，
+        进去就是一块空面板（看着像坏了）。这里说清它是什么、顺手给出纸色。
+      */}
+      {kind === 'note'
+        ? <div className="cv-inspector-content">
+          <dl className="cv-inspector-facts">
+            <dt>用途</dt><dd>画布注释（只给人看）</dd>
+            <dt>字数</dt><dd>{String(node.data.noteText || '').length}</dd>
+          </dl>
+          <p className="cv-inspector-note">
+            双击便签就能写字。它不参与生成 —— 拉不出线，也不会被收进提示词。
+          </p>
+          <div className="cv-inspector-swatches">
+            <span className="cv-inspector-swlabel">纸色</span>
+            {NOTE_COLORS.map(item => (
+              <button
+                key={item}
+                type="button"
+                data-note-dot={item}
+                className={`cv-sticky-dot${item === (node.data.noteColor || 'amber') ? ' on' : ''}`}
+                title={`纸色：${NOTE_COLOR_LABELS[item]}`}
+                aria-label={`纸色 ${NOTE_COLOR_LABELS[item]}`}
+                onClick={() => node.data.onNoteColor?.(item)}
+              />
+            ))}
+          </div>
+          {/*
+            字号（2026-10-11）：跟纸色并排第二组。这里给控件是为了**和便签上那排对称**
+            —— 参数栏本来就是「选中之后集中改」的地方，纸色已经在这儿了，
+            只放纸色不放字号会看着像漏了一半。
+          */}
+          <div className="cv-inspector-swatches">
+            <span className="cv-inspector-swlabel">字号</span>
+            {NOTE_SCALES.map(item => (
+              <button
+                key={item}
+                type="button"
+                data-note-scale={item}
+                className={`cv-sticky-A${item === (isNoteScale(node.data.noteScale) ? node.data.noteScale : DEFAULT_NOTE_SCALE) ? ' on' : ''}`}
+                title={`字号：${NOTE_SCALE_LABELS[item]}`}
+                aria-label={`字号 ${NOTE_SCALE_LABELS[item]}`}
+                onClick={() => node.data.onNoteScale?.(item)}
+              >A</button>
+            ))}
+          </div>
+        </div>
+        : kind === 'danbooru-tags'
         ? <div className="cv-inspector-content cv-inspector-content-fill">{tagger}</div>
         : usesGenerateDock(kind)
           ? <GenerateDock key={node.id} data={node.data} nodeId={node.id} inspector />

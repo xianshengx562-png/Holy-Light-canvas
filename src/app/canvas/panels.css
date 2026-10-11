@@ -1910,8 +1910,12 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   ⚠️ 这里的 `left/top/width` 只是首帧兜底，运行时被行内 style 覆盖。
   🔴 `max-height` 与 `DockCombo.tsx` 里的 `LIST_MAX_H` **必须是同一个数**（那边也只按这个数
   算「下方装不装得下」）；2026-10-10 从 260 收到 200，理由是它盖住了底栏上下两边的参数。
-  🔴 `overscroll-behavior: contain` 不能省：滚到底之后滚动链会穿到底栏那个滚动盒，
-  那一下会触发 `DockCombo` 的「滚动即关」，表现出来就是「滚着滚着列表自己没了」。
+  🔴 `max-height` 必须留在这层（不能挪给 `.cv-combo-body`）：`DockCombo.tsx` 里
+  「往上升还是往下开」那个判据量的就是这里的 `offsetHeight`。
+  🔴 这层**不滚**（`overflow: hidden`）—— 滚动给 `.cv-combo-body`。原因是动作行
+  「＋ 从工作流库中选择…」原先跟候选项同在一个滚动层里，一滚就被顶到边框外只剩半截
+  （2026-10-10 徐先：「从工作流库中选择还是有问题，会被遮住一点」）。见 `DockCombo.tsx`
+  文件头第 1d 条。
 */
 .cv-combo-list {
   position: absolute;
@@ -1920,9 +1924,8 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   z-index: 60;
   width: 240px;
   max-height: 200px;
-  overflow-y: auto;
-  /* 滚到底不再把滚动链交给底栏 —— 否则会误触发「滚动即关」（见上）。 */
-  overscroll-behavior: contain;
+  /* 外壳只负责裁剪与封顶，滚动交给里面的 `.cv-combo-body`。 */
+  overflow: hidden;
   padding: 6px;
   background: var(--cv-elev);
   border: 1px solid var(--cv-line-strong);
@@ -1931,6 +1934,30 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+/* 钉在面板顶上的那几行（动作行 / 「当前值不在候选里」）—— 不参与滚动。 */
+.cv-combo-fixed { display: flex; flex-direction: column; gap: 2px; flex: 0 0 auto; }
+/*
+  滚动体。`min-height: 0` 不能省：flex 子项默认 `min-height: auto`，
+  内容再长也压不下去，结果就是这一层被撑高、外层 `overflow: hidden` 直接切掉底部的行
+  （表现是「列表下半截看不见、也滚不到」）。
+  🔴 `overscroll-behavior: contain` 不能省：滚到底之后滚动链会穿到底栏那个滚动盒，
+  那一下会触发 `DockCombo` 的「滚动即关」，表现出来就是「滚着滚着列表自己没了」。
+*/
+.cv-combo-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+/* 固定头与候选之间那条分隔线 —— 只在真有候选时出现。 */
+.cv-combo-body.divided {
+  margin-top: 2px;
+  padding-top: 4px;
+  border-top: 1px solid var(--cv-line);
 }
 .cv-combo-group { display: flex; flex-direction: column; gap: 2px; }
 .cv-combo-head { padding: 4px 8px; font-size: var(--cv-fs-1); color: var(--cv-mute); }
@@ -4109,6 +4136,40 @@ html[data-theme='light'] .cv-ov { background: rgba(24, 26, 32, 0.34); }
   color: var(--cv-text);
   font-variant-numeric: tabular-nums;
 }
+/* 便签在参数栏里那一段（2026-10-10）：一句说明 + 一排纸色。
+   `.cv-sticky-dot` 本身在 `nodes.css` 里（便签上那排是同一颗，别画第二份）。 */
+.flow-shell .cv-inspector-note {
+  margin: calc(10px * var(--ui)) 0 0;
+  font-size: var(--cv-fs-2);
+  line-height: 1.6;
+  color: var(--cv-mute);
+}
+.flow-shell .cv-inspector-swatches {
+  display: flex;
+  gap: calc(8px * var(--ui));
+  margin-top: calc(10px * var(--ui));
+}
+.flow-shell .cv-inspector-swatches .cv-sticky-dot { opacity: 1; }
+/*
+ * 字号那四个「A」在便签上用的是**纸上的墨色**（`--note-ink`，深灰）——
+ * 参数栏是深色面板，搬进来不改颜色就是四个看不见的按钮。
+ */
+.flow-shell .cv-inspector-swatches .cv-sticky-A {
+  color: var(--cv-text);
+  border-color: var(--cv-line);
+}
+.flow-shell .cv-inspector-swatches .cv-sticky-A.on {
+  border-color: var(--cv-accent);
+  background: var(--cv-accent-ring);
+}
+/* 两组的名字（「纸色」/「字号」）：不加的话光看两排气泡分不清谁是谁。 */
+.flow-shell .cv-inspector-swlabel {
+  align-self: center;
+  margin-right: calc(2px * var(--ui));
+  font-size: var(--cv-fs-1);
+  color: var(--cv-mute);
+}
+
 /* GenerateDock 在「参数面板」模式下的分节（选中生成类节点时才会出现）。 */
 .flow-shell .cv-inspector-section {
   display: grid;

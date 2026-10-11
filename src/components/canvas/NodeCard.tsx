@@ -1,20 +1,24 @@
 'use client';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { Handle, NodeResizeControl, Position, useNodeId, useStore } from '@xyflow/react';
+import { Handle, NodeResizeControl, Position, useNodeId, useStore, useUpdateNodeInternals } from '@xyflow/react';
 import { Move3d, Play, RefreshCw, SlidersHorizontal, Sparkles, Tags, TriangleAlert } from 'lucide-react';
 import type { NodeData, ParamRow } from './types';
 import { nodeTintVars } from '@/lib/appearance';
 /* 创作预设（2026-10-06）：卡片上那几颗「已选」角标。 */
 import { CREATIVE_KIND_LABEL, creativePicksFrom, picksOf } from './creativePresets';
 import {
-  LATENT_SLOTS, NODE_META, NODE_SIZE,
+  ACCEPTS, LATENT_SLOTS, NODE_META, NODE_SIZE,
   isAudioUrl, isGeneratorKind, isLatentKind, isPinnedUploadKind, isVideoUrl, latentAssetPrefix, latentBrokenHint, latentLabel,
   paramRowLabel, uploadFieldOf, uploadNodeIdOf,
   usesGenerateDock, workflowDisplayName, workflowIdNote, displayLabelOf,
   readUpscaleMode, readUpscaleSource,
   upscalePurposeOfNode, upscaleSourceOfNode,
   upscaleFollowsConnection, upscaleFollowedLabel, upscaleFollowedSide, upscaleTargetOfNode,
+  /* 分段（2026-10-11）。 */
+  DEFAULT_SPLIT_SEC, isSplitMode, splitClock, splitPlan,
 } from './nodeMeta';
+/* `isSplitKind` 在纯函数层（`mediaChain`），不在 `nodeMeta` —— 那边不许 import UI 层。 */
+import { isSplitKind } from './mediaChain';
 import { readLastUpscaleWorkflow } from '@/lib/upscaleMemory';
 import type { NodeKind } from './nodeMeta';
 import { NodeGlyph } from './nodeIcons';
@@ -57,6 +61,8 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
   const paramPanelOpen = useParamPanelOpen();
   /** 自己的 id —— 「跟随连出去的那个节点」要从这里出发顺着线找（`useNodeId` 是 React Flow 给的）。 */
   const nodeId = useNodeId() || '';
+  /** 手柄是**动态**加进来的（分段节点每切一次口子数就变一次），加完要让 React Flow 重新量一遍。 */
+  const updateNodeInternals = useUpdateNodeInternals();
   const meta = NODE_META[kind];
   const running = data.status === 'running';
   const imageSource = data.imageUrl || data.previewUrl;
@@ -344,6 +350,32 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
     );
   };
 
+  /*
+   * 分段节点的段列表（2026-10-11）。
+   *
+   * 🔴 **还没切完就要能看见会切成几段** —— 用户填「每段 8 秒」的那一刻就该看到
+   * 「6 段：0-8 / 8-16 / …」，而不是等 ffmpeg 跑完才知道。
+   * 所以这里先用 `splitPlan()` 按**已知的总时长**算一遍预测；切好之后换成真实结果
+   * （`splitSegments`，带地址）。
+   *
+   * 自定义模式即使还不知道总时长也能算：它的段就是「填的那几个时长从 0 依次排开」，
+   * 所以塞一个很大的 total 进去，让 `splitPlan` 把每段都排出来即可。
+   */
+  const splitMode = isSplitMode(data.splitMode) ? data.splitMode : 'uniform';
+  /* 总长还不知道时 `splitPlan` 自己会按「只排填的那几段」处理 —— 别在这儿塞假总长。 */
+  const splitRows = !isSplitKind(kind) ? [] : (data.splitSegments?.length ? data.splitSegments : null)
+    || splitPlan(
+      Number(data.splitDuration) || 0,
+      splitMode,
+      Number(data.splitUniform) || DEFAULT_SPLIT_SEC,
+      String(data.splitCustom || ''),
+    ).map((item, index) => ({ index, start: item.start, end: item.end, url: '' }));
+  const splitFace = splitRows.map(item => ({
+    index: item.index,
+    at: `${splitClock(item.start)} – ${splitClock(item.end)}`,
+    dur: `${(Math.round((item.end - item.start) * 10) / 10).toFixed(1)}s`,
+  }));
+
   const preview = kind === 'text'
     ? null
     : kind === 'image'
@@ -572,8 +604,69 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
    * 媒体画框有 overflow:hidden，塞进去外环会被裁掉 —— 而媒体画框上下对称内收、
    * 节点中心本来就是画框中心，保持挂在卡片根上即可。
    */
-  const inputHandle = meta.input ? <Handle type="target" position={Position.Left} /> : null;
-  const outputHandle = meta.output ? <Handle type="source" position={Position.Right} /> : null;
+  /*
+   * 🔴🔴 **有没有左边的输入口，决定「能不能有一根线连进来」**（不只是画不画那个圆点）。
+   *
+   * 2026-10-11 分段那次抓到的：`getEdgePosition` 在目标节点身上找不到 target handle
+   * 时会直接 `return null`，那根线**根本不渲染**（库里存着、界面上一根都没有，
+   * @xyflow/system 只往控制台丢一句 `Couldn't create edge for target handle id`）。
+   * 所以「自动把切好的段连到一张新卡片上」这件事，光建边不够 ——
+   * 那张卡片（视频输入 / 音频输入）本来**没有输入口**（`NODE_META` 里没写 `input`），
+   * 线画不出来，而控制台那句话没人会去看。
+   *
+   * 判据用「`NODE_META.input` 有写」**或**「`ACCEPTS` 里能接东西」：
+   * 视频输入 / 音频输入是后者 —— 它们只吃分段节点那一段（`ACCEPTS` 里就那一项），
+   * 别的节点想连进来照样被 `canConnect` 拦，口子只是「分段那段能落进来」的入口。
+   */
+  const inputHandle = (meta.input || (ACCEPTS[kind] || []).length > 0)
+    ? <Handle type="target" position={Position.Left} />
+    : null;
+  /*
+   * 🔴 **分段节点是第一个有多个输出口的节点**（2026-10-11）。
+   *
+   * 每一段一个手柄，`id = 'seg-<段序号>'` —— 下游连的是哪一段，全靠这个 id
+   * 记在 `edge.sourceHandle` 里（`mediaChain.splitSegmentUrlOf` 按它取段）。
+   *
+   * ⚠️ 手柄数量跟着**预测出来的段数**走（`splitRows`，切完之后就是真结果）：
+   * 用 `splitSegments` 的话，自定义模式下用户刚填完「10, 5, 20」、ffmpeg 还没跑，
+   * 卡片右侧只有一个口 —— 他想连第 3 段却找不到口子，而界面上明明写着「3 段」。
+   * 一个都没排出来的时候仍要画**一个**（第 1 段）—— 不然连线时没地方可拉。
+   * 位置按段数在 12%~88% 之间均分：都堆在 50% 的话六个圆点会叠成一坨，谁也点不中。
+   */
+  const outputHandles = !meta.output ? null : isSplitKind(data.kind)
+    ? (splitRows.length ? splitRows : [{ index: 0, start: 0, end: 0, url: '' }])
+      .map((seg, i, all) => (
+        <Handle
+          key={`seg-${seg.index}`}
+          type="source"
+          position={Position.Right}
+          id={`seg-${seg.index}`}
+          className="cv-split-handle"
+          title={`第 ${seg.index + 1} 段`}
+          style={{ top: all.length > 1 ? `${12 + (i / (all.length - 1)) * 76}%` : '50%' }}
+        />
+      ))
+    : [<Handle key="out" type="source" position={Position.Right} />];
+
+  /*
+   * 🔴🔴 **手柄数量一变，必须叫 React Flow 重新量一遍**（2026-10-11 分段那次抓到的）。
+   *
+   * React Flow 把每个口子的坐标量进 `internals.handleBounds`，连线靠它算端点。
+   * 那份坐标**不会**因为 `<Handle>` 多渲染了几个就自己更新 —— 结果是：
+   * 分段节点切完从 1 个口变 3 个口，DOM 里三个圆点都在，可 `handleBounds` 里还只有
+   * 切之前那一个（`seg-0`）。于是 `getEdgePosition` 找不到 `seg-1` / `seg-2`，
+   * 那两根线**根本不渲染**（只在控制台丢一句 `Couldn't create edge for source handle id`）。
+   * 症状是「卡片上写着 3 段、也看得见 3 个口子，但从第 2、3 个口子出去的线画不出来」——
+   * 连自动建的那两根没有，手工拖的也没有。
+   *
+   * 官方给这个场景的 API 就是 `useUpdateNodeInternals()`：它下一帧重新量，
+   * 并触发一次 store 更新让所有线重算。别自己 `setTimeout` 猜时间。
+   */
+  const handleCount = isSplitKind(kind) ? Math.max(1, splitRows.length) : 0;
+  useEffect(() => {
+    if (!handleCount || !nodeId) return;
+    updateNodeInternals(nodeId);
+  }, [handleCount, nodeId, kind, updateNodeInternals]);
 
   /**
    * 这一个节点自己挑的卡片色（2026-10-01）。
@@ -857,8 +950,35 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
           <div className="cv-node-tagface nodrag">
             <p className="cv-node-tagstr" title={tagText || undefined}>{tagText || '还没挑 —— 点上面「标签」挑一批'}</p>
           </div>
+        ) : kind === 'media-split' ? (
+          /*
+           * 分段：正面就摆**段列表** —— 这个节点存在的意义就是那几段，
+           * 写「已分 6 段」这种摘要等于把最关键的东西藏起来了。
+           *
+           * 每行右边那个小号序号对应卡片**右侧第 N 个输出口**（从上往下数），
+           * 所以这里必须按段序从上到下排，别排序、别过滤。
+           */
+          <div className="cv-split-face nodrag">
+            {splitFace.length
+              ? splitFace.map(item => (
+                <div className="cv-split-row" key={item.index}>
+                  <span className="cv-split-i">{item.index + 1}</span>
+                  <span className="cv-split-at">{item.at}</span>
+                  <span className="cv-split-dur">{item.dur}</span>
+                </div>
+              ))
+              : <p className="cv-split-empty">还没切 —— 先在右边填每段多长</p>}
+            {/*
+              切片中 / 切失败：**要写在卡片上**，不能只写在右边参数条里 ——
+              参数条只有选中节点时才出现，而切一次要好几秒，他很可能早就把焦点挪走了。
+              那时候「段列表一直不动、也不说为什么」是最难猜的一种状态。
+            */}
+            {data.splitStatus === 'running' && <p className="cv-split-note">切片中…</p>}
+            {data.splitStatus === 'error' && !!data.splitError
+              && <p className="cv-split-note bad" title={String(data.splitError)}>{String(data.splitError)}</p>}
+          </div>
         ) : preview}
-        {!mediaFace && outputHandle}
+        {!mediaFace && outputHandles}
       </div>
 
       {statusText && <div className={`cv-node-status ${statusKind}`}>{statusText}</div>}
@@ -910,7 +1030,7 @@ export default function NodeCard({ data, selected }: { data: NodeData; selected?
       {selected && kind !== 'text' && !usesGenerateDock(kind) && !paramPanelOpen
         && <NodeParamBar data={data} followedSide={followedSide} followedFrom={followedFrom} />}
 
-      {mediaFace && outputHandle}
+      {mediaFace && outputHandles}
 
       {/*
         画布控件浮层（2026-10-10 徐先）。**portal 出去的**（挂在画布舞台上），

@@ -97,6 +97,7 @@ import * as m80 from '@/server/api/prompt/describe/route';
 import * as m81 from '@/server/api/canvas-media/route';
 import * as m82 from '@/server/api/canvas-media/[projectId]/[file]/route';
 import * as m83 from '@/server/api/assets/[id]/path/route';
+import * as m84 from '@/server/api/tools/media-split/route';
 
 export type RouteEntry = {
   /** `/api/projects/[id]/canvas` 这样的原始模式，报错信息里要用 */
@@ -626,5 +627,11 @@ export const ROUTES: RouteEntry[] = [
     regex: /^\/api\/canvas\-media\/([^\/]+)\/([^\/]+)$/,
     keys: ['projectId', 'file'],
     mod: m82 as unknown as ApiModule,
+  },
+  {
+    pattern: '/api/tools/media-split',
+    regex: /^\/api\/tools\/media\-split$/,
+    keys: [],
+    mod: m84 as unknown as ApiModule,
   },
 ];

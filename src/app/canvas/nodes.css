@@ -424,6 +424,9 @@
 .cv-node[data-kind='video-generate'] { --cv-node-kind: #86b79c; }
 .cv-node[data-kind='video'] { --cv-node-kind: #9fbdb0; }
 .cv-node[data-kind='frame-extract'] { --cv-node-kind: #7fa2ad; }
+/* 分段（2026-10-11）：跟首尾帧同族但**不是同一个值** —— 两个节点都走「视频进、媒体出」，
+   同色会让它们在画布上分不清（`NODE_META` 那边也有一份，改要两边一起改）。 */
+.cv-node[data-kind='media-split'] { --cv-node-kind: #7d9f96; }
 .cv-node[data-kind='audio-input'] { --cv-node-kind: #cbb083; }
 .cv-node[data-kind='latent'] { --cv-node-kind: #a893c6; }
 .cv-node[data-kind='latent-relay'] { --cv-node-kind: #b0a2c4; }
@@ -1577,3 +1580,238 @@
   box-shadow: 0 0 0 3px var(--cv-accent-ring);
 }
 .cv-codex-input::placeholder { color: var(--cv-placeholder); }
+
+/* ---------- 画布便签（2026-10-10 徐先：「画布上可添加注释，右键添加」） ----------
+   ⚠️ 纸片是**刻意的例外**：整站是深色的，便签却是一张浅色纸 ——
+   因为「便签」这件事本身靠纸传达（深色的那块看着像另一个节点，不像注释）。
+   所以这里**不读** `--cv-*` 那一套主题令牌，颜色自己写死；换主题时它不变。
+   另外它没有 input / output 手柄（`nodeMeta` 里 `note` 的 `ACCEPTS` 是空的），
+   别照 `.cv-node` 那套给它补连接点。
+
+   🔴🔴 **为什么叫 `.cv-sticky` 而不叫 `.cv-note`**（2026-10-11 撞名踩出来的）：
+   `controls.css` 里**早就有一个 `.cv-note`** —— 是配置页那句说明小字
+   （`font-size: var(--cv-fs-2); color: var(--cv-mute)`）。两份同名规则里
+   `controls.css` 那份排得更靠后，于是便签的 `font-size` 和 `color` **全被它吃掉**：
+   表现是我给便签字号加了四档、量出来四档全是 12px（看着像"倍率没生效"）。
+   **往 `src/app/canvas/*.css` 里加新类名之前，先全仓 grep 一遍这个名字** ——
+   这类冲突不报错，只是样式悄悄被别人覆盖。
+*/
+.cv-sticky {
+  --note-bg: #e5d6a4;
+  --note-ink: #33312b;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 220px;
+  min-height: 92px;
+  padding: 9px 11px 22px;
+  color: var(--note-ink);
+  background: var(--note-bg);
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: 4px;
+  /* 折角：右下那一小块三角，让它一眼是「一张纸」而不是一个面板。 */
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.28);
+  /*
+   * 🔴 字号是**倍率**不是绝对值（2026-10-11 徐先要「便签上字的大小能调」）：
+   * 档位名存在节点上（`noteScale`），这里只负责把它翻译成倍率。
+   * 用倍率而非写死 px，是为了让全站那根「界面大小」滑杆一动，便签跟着整档一起缩放 ——
+   * 写死 px 的结果是「界面调到 150% 而这张便签还停在 13px」，看着像坏了。
+   */
+  font-size: calc(var(--cv-fs-3) * var(--note-fs, 1));
+  line-height: 1.55;
+}
+.cv-sticky[data-note-color='blue'] { --note-bg: #cdd8e6; }
+.cv-sticky[data-note-color='green'] { --note-bg: #d0dfcd; }
+.cv-sticky[data-note-color='pink'] { --note-bg: #e7d1d5; }
+.cv-sticky[data-note-color='grey'] { --note-bg: #d7d7d3; }
+/* 字号四档（顺序 = 便签底栏那四个「A」从左到右）：小 / 中 / 大 / 特大。 */
+.cv-sticky[data-note-scale='s'] { --note-fs: 0.85; }
+.cv-sticky[data-note-scale='m'] { --note-fs: 1; }
+.cv-sticky[data-note-scale='l'] { --note-fs: 1.3; }
+.cv-sticky[data-note-scale='xl'] { --note-fs: 1.7; }
+/* 选中 = 描一圈强调色；纸片本身已经有边框，用 outline 不挤掉尺寸。 */
+.cv-sticky.selected { outline: 2px solid var(--cv-accent); outline-offset: 1px; }
+/*
+ * 拖过尺寸之后：宽高都由 `NoteNode` 写在行内 `style` 上（所以这里**不要再写 width**，
+ * 行内那份才作数）；只留一条 —— 高度一旦归用户定，默认那 92px 下限就得放开，
+ * 否则拖到比它矮会拖不动（`min-height` 比行内 `height` 更硬）。
+ */
+.cv-sticky.sized-h { min-height: 0; }
+/*
+ * 高度被用户拖死之后，字调大了正文会**溢出**便签（以前没这个问题：字号固定，
+ * 便签会自己长高）。所以限高归限高，多出来的**在便签里滚**，别糊到纸外面去。
+ */
+.cv-sticky.sized-h .cv-sticky-text { overflow: auto; }
+.cv-sticky-text {
+  flex: 1 1 auto;
+  /* 手写便签就是要照原样换行：不折叠空白、长串也能断。 */
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.cv-sticky-ph { color: rgba(0, 0, 0, 0.36); }
+.cv-sticky-input {
+  flex: 1 1 auto;
+  width: 100%;
+  padding: 0;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  background: transparent;
+  border: 0;
+  outline: none;
+  resize: none;
+}
+/* 底栏（纸色 + 字号）：平时整条藏起来，悬停 / 选中才显形。 */
+.cv-sticky-bar {
+  position: absolute;
+  left: 9px;
+  bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  /*
+   * 🔴 便签能拖到只有 150px 宽，那一排（5 颗纸色 + 4 个 A）放不下 ——
+   * 允许换行才不会被裁掉半截（`position:absolute` 的元素溢出可是直接看不见的）。
+   */
+  flex-wrap: wrap;
+  row-gap: 3px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.cv-sticky:hover .cv-sticky-bar,
+.cv-sticky.selected .cv-sticky-bar { opacity: 1; }
+.cv-sticky-dots { display: flex; align-items: center; gap: 5px; }
+.cv-sticky-scales { display: flex; align-items: center; gap: 3px; }
+/* 两组之间那道小竖线：不写的话「九个圆点/按钮」连成一片，看不出是两回事。 */
+.cv-sticky-sep {
+  width: 1px;
+  height: 11px;
+  background: rgba(0, 0, 0, 0.24);
+}
+/*
+ * 字号那四个「A」：**字号写死**（不 inherit 便签正文的 —— 不然把正文调成「特大」，
+ * 这四个控件会跟着胀大到把底栏撑破）。顺序 = 小 / 中 / 大 / 特大，一眼看出是哪一档。
+ */
+.cv-sticky-A {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 14px;
+  padding: 0;
+  color: var(--note-ink, #33312b);
+  line-height: 1;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.cv-sticky-A[data-note-scale='s'] { font-size: 8px; }
+.cv-sticky-A[data-note-scale='m'] { font-size: 10px; }
+.cv-sticky-A[data-note-scale='l'] { font-size: 12px; }
+.cv-sticky-A[data-note-scale='xl'] { font-size: 14px; }
+.cv-sticky-A:hover { border-color: rgba(0, 0, 0, 0.28); }
+.cv-sticky-A.on {
+  border-color: rgba(0, 0, 0, 0.5);
+  background: rgba(255, 255, 255, 0.42);
+}
+.cv-sticky-dot {
+  width: 11px;
+  height: 11px;
+  padding: 0;
+  background: #e5d6a4;
+  border: 1px solid rgba(0, 0, 0, 0.28);
+  border-radius: 50%;
+  cursor: pointer;
+}
+.cv-sticky-dot[data-note-dot='blue'] { background: #cdd8e6; }
+.cv-sticky-dot[data-note-dot='green'] { background: #d0dfcd; }
+.cv-sticky-dot[data-note-dot='pink'] { background: #e7d1d5; }
+.cv-sticky-dot[data-note-dot='grey'] { background: #d7d7d3; }
+/* 当前那一档：外面再套一圈。 */
+.cv-sticky-dot.on { box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.34); }
+
+/* ------------------------------------------------------------------ *
+ * 分段节点（2026-10-11 徐先）
+ *
+ * ⚠️⚠️ 类名是 `.cv-split-*`：加之前全仓 grep 过，没有撞名。
+ * 撞名的教训见上面便签那一节（`.cv-note` 被 `controls.css` 吃掉一整条）——
+ * 这类冲突**不报错**，只会让样式悄悄失效。
+ *
+ * 这一份**卡片正面与右侧参数条共用**（`.cv-split-face` / `.cv-split-list` 两个容器）：
+ * 同一份段列表在两处各写一套样式，迟早出现「卡片上是 13px、面板里是 12px」这种
+ * 说不清的差别。「同一份 UI 只许一个落点」。
+ * ------------------------------------------------------------------ */
+
+/* 卡片正面：段列表占满画框，多出来的让画框裁掉（画框本来就有 overflow:hidden）。 */
+.cv-split-face {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  padding: 2px 0;
+}
+/* 参数条那一侧：段多了就自己滚，别把参数面板顶到屏幕外。 */
+.cv-split-list {
+  display: grid;
+  gap: 3px;
+  max-height: 190px;
+  overflow: auto;
+  padding: 6px 0;
+  border-top: 1px solid var(--cv-line-strong);
+  border-bottom: 1px solid var(--cv-line-strong);
+}
+.cv-split-row {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: var(--cv-fs-2);
+  line-height: 1.5;
+  color: var(--cv-text);
+}
+/*
+ * 段序号 = 卡片右侧**第几个输出口**（从上往下数）。
+ * 写成固定宽的小方块而不是裸数字：六段以上时「10」比「9」宽，整列会歪。
+ */
+.cv-split-i {
+  flex: none;
+  min-width: 15px;
+  font-size: var(--cv-fs-1);
+  color: var(--cv-mute);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+/* 起止（0:00 – 0:08）：这一列会被长素材撑开，所以让它吃掉剩余宽度。 */
+.cv-split-at { flex: 1; min-width: 0; font-variant-numeric: tabular-nums; }
+.cv-split-dur { flex: none; color: var(--cv-mute); font-variant-numeric: tabular-nums; }
+/* 还没切出来的那一段：给个「待切」而不是留空 —— 空白会被当成卡片坏了。 */
+.cv-split-dot { flex: none; font-size: var(--cv-fs-1); color: var(--cv-mute); }
+.cv-split-empty {
+  margin: 0;
+  font-size: var(--cv-fs-2);
+  line-height: 1.5;
+  color: var(--cv-mute);
+}
+/* 「切片中…」/ 失败原因：写在段列表下面，不占满整行、也不把列表挤没。 */
+.cv-split-note {
+  margin: 2px 0 0;
+  font-size: var(--cv-fs-1);
+  line-height: 1.45;
+  color: var(--cv-mute);
+}
+.cv-split-note.bad { color: var(--cv-warn); }
+/*
+ * 分段节点右侧那 N 个输出手柄。
+ *
+ * 比默认那颗小一点点：六个口竖排在小卡片上，原尺寸会连成一串、分不清点的是哪个。
+ */
+.cv-split-handle {
+  width: 9px !important;
+  height: 9px !important;
+  background: var(--cv-panel-2, #2c2f36);
+  border: 1.5px solid var(--cv-accent, #8fbca4) !important;
+}

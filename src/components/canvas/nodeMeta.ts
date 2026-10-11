@@ -249,7 +249,30 @@ export type { NodeData, InputSlot, LatentRecord, ParamRow, WorkflowOption } from
 
 export type NodeKind = 'text' | 'image' | 'latent' | 'latent-relay' | 'pinned-upload' | 'workflow' | 'params'
   | 'video-generate' | 'image-generate' | 'video' | 'video-input' | 'audio-input' | 'image-out' | 'frame-extract'
-  | 'director' | 'app-generate' | 'prompt-optimize' | 'danbooru-tags';
+  | 'director' | 'app-generate' | 'prompt-optimize' | 'danbooru-tags'
+  /**
+   * 画布便签（2026-10-10 徐先：「画布上可添加注释，右键添加」）。
+   *
+   * 🔴 它是**节点**，但不是**流程节点**：没有输入 / 输出（不进 `ACCEPTS` 任何一格），
+   * 所以拉不出线、也连不上别人 —— 注释**永远不参与生成**，只给人看。
+   * 之所以走 nodes 这一条而不是另开一张表：拖动 / 框选 / 删除 / 撤销 / 随画布一起存
+   * 全都是现成的，另开一套这些全要重写一遍。
+   */
+  | 'note'
+  /**
+   * 分段（2026-10-11 徐先：「添加分段节点，视频经过后可根据用户提供的数据将视频或者音频分段处理」）。
+   *
+   * 一条视频 / 音频进来，**按用户给的时长切成 N 段**，**每段一个输出口**
+   * （第 1 段、第 2 段…各连一个下游，各走各的处理）。
+   *
+   * 🔴 它是这个应用里**第一个真正有多个输出手柄**的节点 —— 以前「一个节点出多份」
+   * 一律靠节点上的开关（`frame-extract` 的 `framePick`），因为
+   * `nodeMeta` 里那条注释说「连线只有 source/target，没有 handle 编号」。
+   * 那条注释**已经过期**：`server/api/projects/[id]/canvas/route.ts` 的入库 schema
+   * **本来就收 `sourceHandle` / `targetHandle`**，只是前端从没往里写过。
+   * 所以这里按 handle 区分（`id = 'seg-0'…`），连线靠 `edge.sourceHandle` 认段。
+   */
+  | 'media-split';
 
 /**
  * 🔴 2026-10-07 整套 `color` 换过一次（徐先：「高级灰渐变色」，方向 D · 玻璃工坊）。
@@ -286,6 +309,14 @@ export const NODE_META: Record<NodeKind, {
    * 分两个口存下来再读回来就分不清连的是哪一张了。
    */
   'frame-extract': { label: '首尾帧', tag: '帧', color: '#7fa2ad', input: 'video', output: '首帧 / 尾帧' },
+  /**
+   * 分段：视频 / 音频 → N 段。
+   *
+   * 🔴 `output` 写的是「第 1 段 / 第 2 段…」这种**斜杠串**，跟 `frame-extract` 一样只是文案 ——
+   * 真正有几个输出口看的是 `data.splitSegments.length`（手柄是 `NodeCard` 动态画的）。
+   */
+  /* 色值要和 `nodes.css` 那张 `[data-kind='…']` 表一一对应（那边也写了一份）。 */
+  'media-split': { label: '分段', tag: '段', color: '#7d9f96', input: 'video / audio', output: '第 1 段 / 第 2 段…' },
   latent: { label: '接续上一段', tag: 'LATENT', color: '#a893c6', output: 'latent' },
   /** latent 中转：接住上游的 latent 再转给下一个生成节点，编号决定它写进哪个参数位。 */
   'latent-relay': { label: 'Latent 中转', tag: 'RELAY', color: '#b0a2c4', input: 'latent', output: 'latent' },
@@ -345,7 +376,191 @@ export const NODE_META: Record<NodeKind, {
    * 文本链会把它们按连线先后拼起来，这比让标签节点再吃一路文本好懂得多。
    */
   'danbooru-tags': { label: 'D站标签', tag: 'TAGS', color: '#93b0c4', output: '标签串' },
+  /*
+   * 便签：`input` / `output` **故意都不写** —— 写了 `NodeCard` 才会画连接点，
+   * 而便签不该连得出线（见上面 `NodeKind` 那条注释）。
+   * 颜色沿用「低饱和带灰」那条规矩，纸片的黄也不能跳出去抢内容。
+   */
+  note: { label: '注释', tag: 'NOTE', color: '#c0b291' },
 };
+
+/** 便签的几档纸色（顺序 = 右键菜单里从上到下的顺序）。 */
+export const NOTE_COLORS = ['amber', 'blue', 'green', 'pink', 'grey'] as const;
+export type NoteColor = (typeof NOTE_COLORS)[number];
+export const NOTE_COLOR_LABELS: Record<NoteColor, string> = {
+  amber: '黄', blue: '蓝', green: '绿', pink: '粉', grey: '灰',
+};
+export const isNoteColor = (value: unknown): value is NoteColor =>
+  NOTE_COLORS.includes(value as NoteColor);
+
+/*
+ * 便签的字号档位（2026-10-11 徐先：「可以调整，便签上字的大小」）。
+ *
+ * 存的是**档位名**不是像素值：像素值留给 `nodes.css`（`--note-fs` 那四行）去翻译，
+ * 而且那里用的是**倍率**（`calc(var(--cv-fs-3) * var(--note-fs))`）——
+ * 这样全站「界面大小」滑杆一动，便签跟着整档一起变，不会出现「界面调到 150%
+ * 而这张便签还停在 13px」这种脱节。
+ *
+ * 🔴 顺序 = 从小到大，控件从左到右就是这么排的（别挪）。
+ */
+export const NOTE_SCALES = ['s', 'm', 'l', 'xl'] as const;
+export type NoteScale = (typeof NOTE_SCALES)[number];
+export const NOTE_SCALE_LABELS: Record<NoteScale, string> = {
+  s: '小', m: '中', l: '大', xl: '特大',
+};
+export const isNoteScale = (value: unknown): value is NoteScale =>
+  NOTE_SCALES.includes(value as NoteScale);
+/** 老便签（1.0.126 那批）身上没有这个字段 —— 一律按「中」算，跟当初的默认一样。 */
+export const DEFAULT_NOTE_SCALE: NoteScale = 'm';
+
+/* ------------------------------------------------------------------ *
+ * 分段节点（2026-10-11 徐先）
+ * ------------------------------------------------------------------ */
+
+/** 分段的两种模式。 */
+export const SPLIT_MODES = ['uniform', 'custom'] as const;
+export type SplitMode = (typeof SPLIT_MODES)[number];
+export const SPLIT_MODE_LABELS: Record<SplitMode, string> = {
+  uniform: '每段统一', custom: '自定义每段',
+};
+export const isSplitMode = (value: unknown): value is SplitMode =>
+  SPLIT_MODES.includes(value as SplitMode);
+
+/**
+ * 段数上限。
+ *
+ * 定成 10 有两个理由：① 生成节点那边 `MAX_VIDEO_INPUTS = 10`，再多下游也吃不下；
+ * ② 卡片右侧要排 N 个输出手柄，二十几个口子谁也点不中。
+ */
+export const MAX_SPLIT_SEGMENTS = 10;
+/** 每段最短 0.1 秒 —— 再短 ffmpeg 也切不出东西，而且多半是填错了。 */
+export const MIN_SPLIT_SEC = 0.1;
+/** 统一模式的默认每段秒数。 */
+export const DEFAULT_SPLIT_SEC = 5;
+/** 单段最长（防止手滑填个 99999 把整段当一个段切出去）。 */
+export const MAX_SPLIT_SEC = 600;
+
+export type SplitSegment = {
+  /** 从 0 开始的段序号；手柄 id 就是 `seg-<index>`。 */
+  index: number;
+  start: number;
+  end: number;
+  /** 切好之后那一段的落盘地址（`/api/assets/<id>/media.mp4` 之类）；没切就是空串。 */
+  url: string;
+};
+
+/** 秒 → `M:SS`（分段列表里给人看的那一列）。 */
+export function splitClock(seconds: number) {
+  const total = Math.max(0, Number(seconds) || 0);
+  const m = Math.floor(total / 60);
+  const s = total - m * 60;
+  return m + ':' + (s < 10 ? '0' : '') + (Math.round(s * 10) / 10).toFixed(1);
+}
+
+/**
+ * 把「自定义模式」那一串输入解析成每段时长。
+ *
+ * 认的东西很宽：`10, 5, 20` / `10 5 20` / `10、5、20` / 换行分隔都行 ——
+ * 用户是从别处复制过来的，分隔符长什么样不归他管。
+ * 返回**合法**的那些段（非数字、≤0、超限一律丢掉），调用方拿长度判断有没有填对。
+ */
+export function parseSplitSecs(text: unknown): number[] {
+  const out: number[] = [];
+  for (const part of String(text ?? '').split(/[,，、\s;；]+/)) {
+    const value = Number(part);
+    if (!Number.isFinite(value) || value < MIN_SPLIT_SEC) continue;
+    out.push(Math.min(MAX_SPLIT_SEC, Math.round(value * 100) / 100));
+    if (out.length >= MAX_SPLIT_SEGMENTS) break;
+  }
+  return out;
+}
+
+/**
+ * 按模式算出**每段的起止**。
+ *
+ * 这里是「算」不是「切」：不碰文件、不碰 ffmpeg，纯函数，好测。
+ *
+ * 🔴 尾巴的口径（2026-10-11 他定的）：**不够一整段的尾巴保留，最后一段短一点** ——
+ * 60 秒、每段 25 秒 → 25 / 25 / 10，不丢素材。
+ * 自定义模式同理：填的时长加起来超过总长，最后一段自然截到总长为止（不会报错，
+ * 因为「我要第 3 段 20 秒但只剩 5 秒」这种事在末尾很常见）。
+ */
+export function splitPlan(
+  duration: number, mode: SplitMode, uniformSec: number, customText: string,
+): { start: number; end: number }[] {
+  const total = Math.max(0, Number(duration) || 0);
+  const secs = mode === 'custom'
+    ? parseSplitSecs(customText)
+    /*
+     * 🔴 统一模式要跟自定义模式用**同一把尺子**（`parseSplitSecs` 里的 `Math.min(MAX_SPLIT_SEC, …)`）：
+     * 手滑填个 9999 两种模式得是同一个结果，不然「填多少算多少」这件事两处不一致，
+     * 迟早变成「同一个数在两种模式下切得不一样」那种查不出来的 bug。
+     * 兜底那个 `|| DEFAULT_SPLIT_SEC` 是给「框里空着 / 填了非数字」用的 —— 数据里存的是原文。
+     */
+    : Array.from({ length: MAX_SPLIT_SEGMENTS }, () => Math.min(
+      MAX_SPLIT_SEC,
+      Math.max(MIN_SPLIT_SEC, Number(uniformSec) || DEFAULT_SPLIT_SEC),
+    ));
+  /*
+   * **总长还不知道**（源刚连上、ffprobe 那一趟还没回来）时：
+   *   · 统一模式算不出任何东西 —— 给空；
+   *   · 自定义模式**照填的排**，但**绝不补尾巴** —— 之前这里塞一个很大的总长（1e9）
+   *     让循环把尾巴补出来，结果卡片上躺着一行「35.0 – 583333:20.0」。
+   *     总长未知时尾巴多长本来就没有答案，不给就是对的。
+   */
+  if (total <= 0) {
+    if (mode !== 'custom') return [];
+    const out: { start: number; end: number }[] = [];
+    let at = 0;
+    for (const sec of secs) {
+      out.push({ start: Math.round(at * 1000) / 1000, end: Math.round((at + sec) * 1000) / 1000 });
+      at += sec;
+    }
+    return out;
+  }
+  const out: { start: number; end: number }[] = [];
+  let at = 0;
+  for (const sec of secs) {
+    if (at >= total - 0.001) break;
+    const end = Math.min(total, Math.round((at + sec) * 1000) / 1000);
+    /*
+     * 尾巴太碎（不到 `MIN_SPLIT_SEC`）就**并进上一段**，不单独开一段。
+     *
+     * 10.08 秒的素材每段 5 秒，照字面切会得到三段：5 / 5 / **0.08**。
+     * 那第三段切出来也没人要用（ffmpeg 还得跑一趟），而并进上一段既不丢素材、
+     * 段数也诚实地写着「这段素材就够切两段」。
+     * 素材本身就比 MIN_SPLIT_SEC 还短时（out 还是空的）仍给一段 ——
+     * 总比「切出来 0 段」好，那种空会让人以为节点坏了。
+     */
+    if (end - Math.round(at * 1000) / 1000 < MIN_SPLIT_SEC) {
+      if (out.length) out[out.length - 1].end = Math.round(total * 1000) / 1000;
+      else out.push({ start: Math.round(at * 1000) / 1000, end: Math.round(total * 1000) / 1000 });
+      at = total;
+      break;
+    }
+    out.push({ start: Math.round(at * 1000) / 1000, end });
+    at = end;
+    if (out.length >= MAX_SPLIT_SEGMENTS) break;
+  }
+  /*
+   * 还剩一截没排出去（自定义模式最常见：填的那几个时长没盖满整条素材）。
+   *
+   * 🔴 **不能悄悄把它并进最后一段** —— 填「10, 5, 20」却切出「… | 15-60」
+   * （最后一段 45 秒）是明着违背他写下的数：列表里写着「20.0s」，切出来是 45 秒。
+   * 所以还有段位时**单独成一段**：跟统一模式「尾巴保留、最后一段短一点」同一条口径
+   * （不丢素材），而且单独一段看得见 —— 并进最后一段是看不见的。
+   * 只有**段位用满了**才并进最后一段：那时候它是唯一不丢素材的办法。
+   */
+  if (out.length && at < total - 0.001) {
+    const tail = Math.round(total * 1000) / 1000;
+    if (out.length < MAX_SPLIT_SEGMENTS && tail - at >= MIN_SPLIT_SEC) {
+      out.push({ start: Math.round(at * 1000) / 1000, end: tail });
+    } else {
+      out[out.length - 1].end = tail;
+    }
+  }
+  return out;
+}
 
 /** Kinds offered by the toolbar and the right-click menu (legacy kinds are excluded). */
 /**
@@ -361,7 +576,7 @@ export const NODE_META: Record<NodeKind, {
  * 其余按「先素材、后生成」排下去。改这里之前先想清楚菜单长什么样：
  * 这一列是让用户从上往下扫的，前三屏之外的东西等于不存在。
  */
-export const CREATE_KINDS: NodeKind[] = ['text', 'image-generate', 'video-generate', 'prompt-optimize', 'danbooru-tags', 'frame-extract', 'latent', 'latent-relay', 'pinned-upload', 'params', 'app-generate', 'image-out', 'director'];
+export const CREATE_KINDS: NodeKind[] = ['text', 'image-generate', 'video-generate', 'prompt-optimize', 'danbooru-tags', 'frame-extract', 'media-split', 'latent', 'latent-relay', 'pinned-upload', 'params', 'app-generate', 'image-out', 'director'];
 
 /** Kept only so that older canvases keep rendering: the video output and the workflow picker
  *  both live on the generator node now. */
@@ -385,9 +600,21 @@ export function newNodeData(kind: NodeKind): NodeData {
   if (kind === 'danbooru-tags') return { kind, label, tagSelection: emptyTagSelection() };
   /** 视频输入 / 音频输入节点不需要任何生成参数，只带一个默认标签。 */
   if (kind === 'video-input' || kind === 'audio-input' || kind === 'image-out') return { kind, label };
+  /**
+   * 分段：默认「统一时长、每段 5 秒」。
+   * ⚠️ 不给 `splitCustom` 预填内容 —— 空串就是空串，别填「10,10」那种假数据
+   * （填了的话用户看到的是「已经配好了」，其实是他没配）。
+   */
+  if (kind === 'media-split') {
+    return { kind, label, splitMode: 'uniform' as SplitMode, splitUniform: DEFAULT_SPLIT_SEC, splitCustom: '' };
+  }
   /** 首尾帧：默认两张都给下游（续拍最常用的是「尾帧接下一段」，但首帧留着能当起手图）。 */
   if (kind === 'frame-extract') return { kind, label, framePick: 'both' as FramePick };
   if (kind === 'params') return { kind, label, paramRows: [] as ParamRow[] };
+  /** 便签：正文空着（新建就该是空的，别预填「在这里写…」那种占位字 —— 那会真的存进库）。 */
+  if (kind === 'note') {
+    return { kind, label, noteText: '', noteColor: 'amber' as NoteColor, noteScale: DEFAULT_NOTE_SCALE };
+  }
   /** 导演台：带一份初始场景（两个人对站着 + 平视中景），打开面板就能直接调，不用先摆。 */
   if (kind === 'director') return { kind, label, directorScene: initialDirectorScene() };
   if (kind === 'latent-relay') return { kind, label, latentIndexes: [] as number[] };
@@ -487,7 +714,15 @@ export const ACCEPTS: Record<NodeKind, NodeKind[]> = {
    * ⚠️ 走的是**视频输入**这条路，不是参考图：生成节点身上只存了整段视频的地址，
    * 没有封面帧，塞进参考图位等于把一段视频交到「图」的槽里 —— 那是静默的坏结果。
    */
-  'video-generate': ['text', 'prompt-optimize', 'danbooru-tags', 'image', 'video-input', 'audio-input', 'frame-extract', 'latent', 'latent-relay', 'pinned-upload', 'workflow', 'params', 'image-generate', 'image-out', 'director', 'video-generate'],
+  /*
+   * 🔴 `media-split` 是 2026-10-11 补进来的（分段节点切出来的**某一段**要能接进来）。
+   * 它同时顶两个位：`splitMedia === 'video'` 的那段进「画布 · 视频输入」，
+   * `audio` 的那段进「画布 · 音频输入」（`CanvasEditor` 里按 `splitMedia` 分流），
+   * 所以**这一个 kind 要同时出现在视频与音频两个位置的需求里** —— 这正是
+   * 「一个 kind 顶两种媒体」的头一回，别照着 `video-input` / `audio-input` 分开的
+   * 老样子去写判据。
+   */
+  'video-generate': ['text', 'prompt-optimize', 'danbooru-tags', 'image', 'video-input', 'audio-input', 'frame-extract', 'latent', 'latent-relay', 'pinned-upload', 'workflow', 'params', 'image-generate', 'image-out', 'director', 'video-generate', 'media-split'],
   // 出图不吃 latent：接续是视频链路的概念，图片工作流里没有对应的参数位。
   // 视频输入节点的首帧图也能当图生图的参考图一并发走（需已上传完成）。
   /*
@@ -513,7 +748,7 @@ export const ACCEPTS: Record<NodeKind, NodeKind[]> = {
    * 偏偏连线这一步不放行 —— 选择被拿掉，而不是报错。
    * 接上之后无需任何额外配置：提交时 `imageUrls` 按上游那些「参考图来源」自动收。
    */
-  'app-generate': ['text', 'prompt-optimize', 'danbooru-tags', 'image', 'image-generate', 'video-input', 'audio-input', 'frame-extract', 'pinned-upload', 'workflow', 'params', 'director'],
+  'app-generate': ['text', 'prompt-optimize', 'danbooru-tags', 'image', 'image-generate', 'video-input', 'audio-input', 'frame-extract', 'pinned-upload', 'workflow', 'params', 'director', 'media-split'],
   /*
    * 优化节点原来只接**文本**：上游文本节点，或者串在前面的另一个优化节点。
    *
@@ -525,20 +760,44 @@ export const ACCEPTS: Record<NodeKind, NodeKind[]> = {
    *   左边有视频 → 视频反推（抽若干帧）；有图 → 看图反推；都没有 → 原来那条「把一句话扩写」。
    */
   'prompt-optimize': ['text', 'prompt-optimize', 'image', 'image-generate', 'image-out',
-    'video-input', 'video-generate', 'frame-extract', 'director', 'app-generate', 'pinned-upload'],
+    'video-input', 'video-generate', 'frame-extract', 'director', 'app-generate', 'pinned-upload', 'media-split'],
   video: ['video-generate'],
-  'video-input': [],
-  'audio-input': [],
+  /*
+   * 🔴 `video-input` / `audio-input` 原来是**空数组**（「它的内容由用户拖文件进来决定」）。
+   * 2026-10-11 补上 `media-split`：切出来的那一段要能落回一张素材卡片
+   * （自动建卡片时连的那根线，以及他手工重连的那根），不放行就会出现
+   * 「线画出来了、`canConnect` 却不认」—— 自动那一路不走 `onConnect` 所以画得出来，
+   * 他手工拖的时候会被弹「只能连接：…」，而列表里根本没有这一项。
+   * 只放 `media-split` 一个：这两个节点的其余内容仍然只由「拖文件进来」决定。
+   */
+  'video-input': ['media-split'],
+  'audio-input': ['media-split'],
+  /*
+   * 🔴 `media-split` **不在这里**：输出节点正面只画**图**（`outputImage`），
+   * 分段切出来的是视频 / 音频段 —— 连上去会得到一个「线连上了、卡片一片空白」的结果，
+   * 而那种空白零报错。等输出节点能摆视频了再放进来。
+   */
   'image-out': ['video-generate', 'image-generate', 'image', 'frame-extract', 'director', 'pinned-upload'],
   /*
    * 首尾帧只吃**视频**：本地拖进来的（视频输入）与生成出来的（视频生成）都行。
    * 不收图片 —— 「一张图的首尾帧」就是它自己，接上去只是多一次上传。
    */
   'frame-extract': ['video-input', 'video-generate'],
+  /*
+   * 分段吃**视频与音频**两种：本地拖进来的（video-input / audio-input）
+   * 与生成出来的（video-generate）。不收图片 —— 「一张图切几段」没有意义，
+   * 也不收另一个分段节点的输出（串联分段会把段数乘起来，那是另一件事，先不做）。
+   */
+  'media-split': ['video-input', 'audio-input', 'video-generate'],
   /* 导演台不接上游：它的输入是用户在舞台上手摆的，不是别的节点给的。 */
   director: [],
   /* D站标签不接上游：它挑的是内置标签库里的条目，接一路文本进来没有可解释的行为。 */
   'danbooru-tags': [],
+  /*
+   * 🔴 便签**谁都不接，也不被谁接**（2026-10-10 徐先要的就是「注释不参与生成」）。
+   * 空数组 = 从它拉不出线、也没有别的节点能吃它 —— `canConnect` 两边都拦死。
+   */
+  note: [],
 };
 
 /**
@@ -734,6 +993,12 @@ export function canConnect(sourceKind: unknown, targetKind: unknown) {
 
 /** Human readable hint used by the connection feedback. */
 export function connectionHint(targetKind: unknown) {
+  /*
+   * 便签也落在 `ACCEPTS` 空数组那一支，但它的「不接收连线」不是因为「只输出」——
+   * 它是纯注释，两个方向都不参与生成。选中时底栏那句要说人话，否则会误导成
+   * 「这节点有输出、只是不能往里接」。
+   */
+  if (targetKind === 'note') return '画布注释，不参与生成，也不能连线';
   const accepts = ACCEPTS[targetKind as NodeKind] || [];
   if (!accepts.length) return '该节点只输出，不能接收连线';
   return `只能连接：${accepts.map(kind => NODE_META[kind].label).join(' / ')}`;

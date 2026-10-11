@@ -10,10 +10,12 @@ import '@xyflow/react/dist/style.css';
 import {
   ChevronDown, ChevronUp, PanelRight, Play, Square,
   Ban, ClipboardPaste, Copy, CopyPlus, Eye, EyeOff, GitBranch, Globe, History, LayoutGrid, Link2, Maximize2, Palette, Plus,
-  Save, Scissors, SlidersHorizontal, Sparkles, Trash2, Unplug, Upload,
+  Save, Scissors, SlidersHorizontal, Sparkles, StickyNote, Trash2, Unplug, Upload,
 } from 'lucide-react';
 import '@/app/canvas.css';
 import NodeCard from './NodeCard';
+/** 画布便签（`type: 'note'` 的节点，2026-10-10 徐先：「画布上可添加注释，右键添加」）。 */
+import NoteNode from './NoteNode';
 import StarEdge from './StarEdge';
 import { NodeGlyph } from './nodeIcons';
 import CanvasRail from './CanvasRail';
@@ -55,12 +57,18 @@ import type { TextChainEdge, TextChainNode } from './textChain';
 import {
   isImageSourceKind, isPinnedUploadKind, pickMediaInput as pickMediaInputIn,
   isVideoSourceKind, videoUrlsOf,
+  /* 分段（2026-10-11）：`isSplitKind` / `splitSegmentUrlOf` 住在纯函数层，不在 `nodeMeta`。 */
+  isSplitKind, splitSegmentUrlOf,
+  /* 「本机落盘」那把尺子（`isLocalMediaUrl`）住在纯函数层 —— 分段也要用它，见 `splitSourceOf`。 */
+  isLocalMediaUrl, CANVAS_MEDIA_PREFIX,
 } from './mediaChain';
 import type { MediaChain, MediaChainEdge, MediaChainNode } from './mediaChain';
 import { compositionPrompt, describeShot, readDirectorScene, type DirectorScene } from '@/lib/director';
 import { buildArchiveForm } from '@/lib/image-tools';
 import { NODE_CARD_COLORS } from '@/lib/appearance';
 import { apiPost } from '@/lib/client';
+/* 资产地址 → 资产 id：分段要把「切哪一条资产」交给服务端，ffmpeg 不认 URL。 */
+import { assetIdFromUrl } from '@/lib/file-drag';
 /* 生成落终态时顺手刷站点余额（钱只在生成时变）。 */
 import { refreshSiteAccount } from '@/lib/site-account';
 /*
@@ -77,6 +85,7 @@ import {
   appPurposeOf, CREATE_KINDS, DEFAULT_RATIO, IMAGE_DEFAULTS, LATENT_SLOTS, NODE_META, resolveImageSize,
   usesGenerateDock, workflowsForApp,
   canConnect, connectionHint, isAudioUrl, isGeneratorKind, isLatentKind, isLatentSourceKind, isVideoUrl, latentAssetPrefix,
+  DEFAULT_SPLIT_SEC, MIN_SPLIT_SEC, isSplitMode, splitPlan,
   isRunnableKind, isTextValueKind, displayLabelOf, normalizeNodeLabels, resetTransientStatus,
   latentBrokenHint, latentBrokenLabel, latentLabel, purposeOfNode, purposeForNode, workflowMismatchHint, upscaleEngineOf,
   nodeEngineProvider, readUpscaleMode, readUpscaleSource, UPSCALE_SOURCE_LABELS,
@@ -87,7 +96,7 @@ import {
   mediaReadyForRun, audioReadyForRun, hasFinishedOutput, isResolvableUrl, workflowsForProvider, engineSwitchPatch, readInstanceType,
   uploadFieldOf, uploadNodeIdOf,
 } from './nodeMeta';
-import type { NodeKind } from './nodeMeta';
+import type { NodeKind, NoteColor, NoteScale, SplitMode, SplitSegment } from './nodeMeta';
 /* 创作预设（2026-10-06）：挑中的风格 / 滤镜 / 运镜，提交时拼进提示词。 */
 import {
   composeCreativePrompt, creativePicksFrom, supportsCreativePresets,
@@ -461,26 +470,45 @@ function inputSlots(
   return list.flatMap(node => {
     const kind = String(node.data.kind || 'text');
     const title = String(node.data.label || NODE_META[kind as NodeKind]?.label || kind);
+    /*
+     * 便签**一格都不占**（2026-10-10）：它不交任何东西给生成，画进「输入总览」里
+     * 就是凭空多一格「未选择」（掉到这个函数最后那句兜底上），看着像还差没配的东西。
+     */
+    if (kind === 'note') return [];
     if (kind === 'image') {
       const thumb = String(node.data.imageUrl || node.data.previewUrl || '');
+      /*
+       * 🔴 **就绪判据必须和运行那条路同一把尺子**（`referenceUrlsOf`，见下面 `pendingMedia`）。
+       * 只认 `remoteFile` 的话，**拖进 / 粘进画布的图永远显示「需重新上传」** ——
+       * 那种图身上只有画布素材那种本机地址（`/api/canvas-media/…`），从没走过 RunningHub 上传，
+       * 而服务端提交时会自己读盘重传（`mediaChain.ts` `imageUrlsOf` 里那一支）。
+       * 症状（2026-10-10 徐先）：「上传是上传了，但图片生成节点里没显示」——
+       * 图在卡片上好好的，格子却挂着黄边写「需重新上传」，重新传一百遍也没用。
+       */
+      const submitted = referenceUrlsOf(node.data).length > 0;
+      const uploaded = Boolean(String(node.data.remoteFile || '').trim());
       return {
         id: node.id, kind, title, thumb, previewable: !!thumb,
-        ready: !!node.data.remoteFile,
-        note: node.data.remoteFile
-          ? '已上传'
-          : node.data.status === 'uploading'
-            ? '上传中…'
-            : thumb ? '需重新上传' : '未选图',
+        ready: submitted,
+        /* 「已上传」留着给真传过远端文件名那一档；本机地址那一档说「已就绪」
+           —— 它确实没传到对端平台，但这一轮什么都不缺，说「需重新上传」是假的。 */
+        note: uploaded ? '已上传'
+          : submitted ? '已就绪'
+            : node.data.status === 'uploading'
+              ? '上传中…'
+              : thumb ? '需重新上传' : '未选图',
       };
     }
     if (kind === 'video-input') {
       const src = String(node.data.videoRemoteUrl || node.data.videoUrl || '');
       /** 首帧图当缩略图：接进生成节点时它跟参考图长得一样，一眼能看出这段视频已经连上了。 */
       const thumb = String(node.data.previewUrl || node.data.imageUrl || '');
+      /* 同上：视频那条路的尺子是 `mediaReadyForRun`（整段视频，不在参考图里）。 */
+      const ready = Boolean(String(node.data.remoteFile || '').trim()) || mediaReadyForRun(node.data);
       return {
         id: node.id, kind, title, thumb, previewable: !!thumb,
-        ready: !!node.data.remoteFile,
-        note: node.data.remoteFile
+        ready,
+        note: ready
           ? '首帧已就绪'
           : node.data.status === 'uploading'
             ? '上传中…'
@@ -489,10 +517,12 @@ function inputSlots(
     }
     if (kind === 'audio-input') {
       const src = String(node.data.audioRemoteUrl || node.data.audioUrl || '');
+      /* 同上：音频那条路的尺子是 `audioReadyForRun`。 */
+      const ready = audioReadyForRun(node.data);
       return {
         id: node.id, kind, title, thumb: '', previewable: false,
-        ready: !!node.data.audioRemoteFile,
-        note: node.data.audioRemoteFile
+        ready,
+        note: ready
           ? '音频已就绪'
           : node.data.status === 'uploading'
             ? '上传中…'
@@ -644,7 +674,13 @@ function inputSlots(
   });
 }
 
-const nodeTypes: NodeTypes = { frame: NodeCard };
+/**
+ * 便签是**另一种渲染**：`type: 'note'` 的节点走 `NoteNode`（一张纸），
+ * 其余一律走 `NodeCard`。
+ *
+ * 🔴 和 `nodeTypes` 同一条规矩：必须在**组件外面**定义，别搬进 render。
+ */
+const nodeTypes: NodeTypes = { frame: NodeCard, note: NoteNode };
 /**
  * 连线只有一种（2026-10-01 起换成 `StarEdge`）：平时就是普通贝塞尔线，
  * 两端有节点在跑时才在上面撒流动的星星 —— 详见 StarEdge 里的注释。
@@ -2166,6 +2202,23 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     const directIds = new Set(edges.filter(edge => edge.target === id).map(edge => edge.source));
     const directUpstream = mediaUpstream.filter(item => directIds.has(item.id));
     /*
+     * 🔴 **上游输出口 → 该给哪一段**（2026-10-11 分段节点）。
+     *
+     * 以前只要知道「连了哪个节点」就够了（一个节点只有一份东西可交）。
+     * 分段节点不是：它 N 个输出口，连第 1 个口和连第 3 个口要的是**不同的两段**，
+     * 光看 `edge.source` 分不出来 —— 必须读 `edge.sourceHandle`。
+     * `splitHandleOf(edge)` 返回 `null` 表示这条线**不是**从分段节点拉出来的
+     * （handle 空串也算没指定，退回第一段）。
+     */
+    const splitHandleOf = (edge: Edge): string | null => String(edge.sourceHandle || '').trim() || null;
+    const handleOfUpstream = new Map<string, string | null>();
+    for (const edge of edges) {
+      if (edge.target !== id) continue;
+      handleOfUpstream.set(edge.source, splitHandleOf(edge));
+    }
+    const splitUrlOf = (item: { id: string; data: NodeData }) =>
+      splitSegmentUrlOf(item.data, handleOfUpstream.get(item.id) ?? null);
+    /*
      * 参考图按 **URL** 收集，不按节点收集：首尾帧节点一个节点能出两张
      * （给它自己「取用」开关决定），按节点收集会把尾帧悄悄丢掉 ——
      * 「想要尾帧续拍却拿到首帧」是最难发现的错：任务成功、画面接不上、界面什么都不说。
@@ -2199,19 +2252,29 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     const videoInputs = directUpstream
       /* 「指定节点上传」透传的是一段视频时也算一个来源 —— 它交下去的正是这一路的整段视频。 */
       .filter(item => item.data.kind === 'video-input' || item.data.kind === 'video-generate'
-        || isPinnedUploadKind(item.data.kind))
-      .map(item => isPinnedUploadKind(item.data.kind)
-        ? String(videoUrlsOf(item.data).find(Boolean) || '').trim()
-        : item.data.kind === 'video-generate'
-          ? String(isResolvableUrl(item.data.resultUrl) ? item.data.resultUrl : '').trim()
-          : String(item.data.videoRemoteFile || item.data.videoRemoteUrl
-            || (isResolvableUrl(item.data.videoUrl) ? item.data.videoUrl : '') || '').trim())
+        || isPinnedUploadKind(item.data.kind)
+        /* 分段节点切出来的**视频**段（`splitMedia === 'audio'` 的那批走下面音频那一支）。 */
+        || (isSplitKind(item.data.kind) && item.data.splitMedia !== 'audio'))
+      .map(item => {
+        if (isSplitKind(item.data.kind)) return splitUrlOf(item);
+        return isPinnedUploadKind(item.data.kind)
+          ? String(videoUrlsOf(item.data).find(Boolean) || '').trim()
+          : item.data.kind === 'video-generate'
+            ? String(isResolvableUrl(item.data.resultUrl) ? item.data.resultUrl : '').trim()
+            : String(item.data.videoRemoteFile || item.data.videoRemoteUrl
+              || (isResolvableUrl(item.data.videoUrl) ? item.data.videoUrl : '') || '').trim();
+      })
       .filter(Boolean)
       .slice(0, MAX_VIDEO_INPUTS);
     const audioInputs = directUpstream
-      .filter(item => item.data.kind === 'audio-input')
-      .map(item => String(item.data.audioRemoteFile || item.data.audioRemoteUrl
-        || (isResolvableUrl(item.data.audioUrl) ? item.data.audioUrl : '') || '').trim())
+      .filter(item => item.data.kind === 'audio-input'
+        /* 分段节点切出来的**音频**段 —— 源是音频时切出来的每一段都是音频。 */
+        || (isSplitKind(item.data.kind) && item.data.splitMedia === 'audio'))
+      .map(item => {
+        if (isSplitKind(item.data.kind)) return splitUrlOf(item);
+        return String(item.data.audioRemoteFile || item.data.audioRemoteUrl
+          || (isResolvableUrl(item.data.audioUrl) ? item.data.audioUrl : '') || '').trim();
+      })
       .filter(Boolean)
       .slice(0, MAX_AUDIO_INPUTS);
     /*
@@ -3629,6 +3692,261 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     }
   }, [frameSourceOf, patch, projectId, setNotice]);
 
+  /* ---------------------------------------------------------------- *
+   * 分段（2026-10-11 徐先）
+   * ---------------------------------------------------------------- */
+
+  /**
+   * 分段节点该切哪一条素材。
+   *
+   * 只看**直接连到它**的那几根线（跟参考图 / 提交那条规矩一致）：连的是第 3 个输出口
+   * 还是第 1 个，对「要切哪一段素材」没有区别 —— 分段节点切的是**整条源**，
+   * 挑段是下游的事。
+   *
+   * 🔴 交出去的是**素材在本机的标识**，不是地址：ffmpeg 只认盘上的文件，而「盘上哪个文件」
+   * 由 `resolveSplitMaterial()` 自己查 —— 让渲染进程报路径等于给它读盘上任意位置的能力。
+   *
+   * 🔴🔴 **两种「本机落盘」都要认**（2026-10-11 他问「为什么必须存进资产库」——
+   * 那不是产品规矩，是这里原来只写了资产 id 那一支）：
+   *   · `/api/assets/<id>/…` → 交资产 id（生成出来的成果）；
+   *   · `/api/canvas-media/<项目>/<uuid>.<ext>` → **交整个地址**，
+   *     拖 / 粘进画布的素材刻意不建 Asset 记录（`lib/canvas-media.ts`），没有 id 可交。
+   * 判据用 `isLocalMediaUrl()` —— 跟运行那条路（`videoUrlsOf` / `mediaReadyForRun`）
+   * **同一把尺子**；用 `isResolvableUrl` 会连远端地址一起放过，而远端的东西切不了。
+   */
+  const splitSourceOf = useCallback((node: Node<NodeData>): { source: string; url: string } => {
+    const feeders = edges
+      .filter(edge => edge.target === node.id)
+      .map(edge => nodesRef.current.find(item => item.id === edge.source))
+      .filter(Boolean) as Node<NodeData>[];
+    for (const item of feeders) {
+      let url = '';
+      if (item.data.kind === 'audio-input') {
+        url = String(item.data.audioRemoteFile || item.data.audioRemoteUrl || '').trim()
+          || (isLocalMediaUrl(item.data.audioUrl) ? String(item.data.audioUrl).trim() : '');
+      } else if (item.data.kind === 'video-input') {
+        url = String(item.data.videoRemoteFile || item.data.videoRemoteUrl || '').trim()
+          || (isLocalMediaUrl(item.data.videoUrl) ? String(item.data.videoUrl).trim() : '');
+      } else if (isLocalMediaUrl(item.data.resultUrl)) {
+        url = String(item.data.resultUrl).trim();
+      }
+      if (!url) continue;
+      const assetId = assetIdFromUrl(url);
+      /* 画布素材没有资产 id —— 把整个地址交过去，服务端那支认得出来。 */
+      if (assetId) return { source: assetId, url };
+      if (url.startsWith(CANVAS_MEDIA_PREFIX)) return { source: url, url };
+    }
+    return { source: '', url: '' };
+  }, [edges]);
+
+  /**
+   * 探一下源有多长、是视频还是音频。
+   *
+   * 单独一步而不是塞进 `runSplit`，是因为**卡片上的段列表要靠它才能预测**
+   * （「100 秒、每段 8 秒 → 13 段」）—— 他填「每段几秒」的那一刻就要看到会切成几段，
+   * 不能等 ffmpeg 跑完才知道。ffprobe 探一次几十毫秒，白跑一趟也不心疼。
+   */
+  const probeSplit = useCallback(async (id: string, source: { source: string; url: string }) => {
+    try {
+      const body = await apiPost<{ duration?: number; media?: string }>('/api/tools/media-split', {
+        source: source.source, projectId, segments: [],
+      });
+      patch(id, {
+        splitDuration: Number(body.duration) || 0,
+        splitMedia: body.media === 'audio' ? 'audio' : 'video',
+      });
+    } catch (error) {
+      patch(id, { splitError: error instanceof Error ? error.message : '探不出这段素材有多长。' });
+    }
+  }, [patch, projectId]);
+
+  /**
+   * 把切好的每一段**建成画布上的卡片**，按顺序竖排在分段节点右边，并各自从对应的
+   * 输出口（`seg-<i>`）连一根线过来（2026-10-11 他提的：「切片后自动在画面上创建切好的视频」）。
+   *
+   * 🔴 重切**复用**上一次建的那几张（记在 `data.splitNodes` 里）：改「每段几秒」会反复切，
+   * 每次都新建一批的话右边很快就堆一地卡片（他选「就地更新，不新增」）。
+   *   · 段数变多 → 补新的；
+   *   · 段数变少 → 删掉多出来的（连同它们的线）；
+   *   · 他手动删过某张 → 那个 id 已经不在画布上了，按需补建。
+   *
+   * 🔴 **不摘**这些输出口上已有的别的线：他可能早就把 `seg-0` 直接连到了某个生成节点，
+   * 自动补线只是「多连一张卡片」，把那条手工线摘掉是破坏。
+   *
+   * 🔴 **不记 `record()`**：这是「切出来的结果」，跟 `patch` 写回地址同一类 ——
+   * 撤回该撤的是「他改每段几秒之前」的结构，不是每一轮 ffmpeg 的产出。
+   *
+   * 🔴 必须定义在 `runSplit` **之前**：`runSplit` 的依赖数组里要写它，而 `useCallback`
+   * 的第二个参数是**当场求值**的 —— 放在后面就是 TDZ（ReferenceError）。
+   */
+  const syncSplitNodes = useCallback((
+    splitId: string,
+    segments: { index: number; start: number; end: number; url: string }[],
+    media: 'video' | 'audio',
+  ) => {
+    const base = nodesRef.current.find(item => item.id === splitId);
+    if (!base) return;
+    const kind: NodeKind = media === 'audio' ? 'audio-input' : 'video-input';
+    /** 上一批还在画布上的（他可能手动删掉过某张，删掉的那位不复用）。 */
+    const alive = (Array.isArray(base.data.splitNodes) ? base.data.splitNodes : [])
+      .filter(itemId => nodesRef.current.some(item => item.id === itemId));
+
+    /** 第 i 段那张卡片该长什么样 —— 新建与复用走同一份，两边不会长出不同的字段。 */
+    const segData = (index: number): Partial<NodeData> => {
+      const url = segments[index].url;
+      return {
+        kind,
+        label: `第 ${index + 1} 段`,
+        status: 'idle',
+        ...(media === 'audio'
+          ? { audioUrl: url, audioRemoteUrl: url, audioRemoteFile: url }
+          : { videoUrl: url, videoRemoteUrl: url, videoRemoteFile: url }),
+      };
+    };
+
+    const ids: string[] = [];
+    const added: Node<NodeData>[] = [];
+    /* 竖排的步长：卡片高度 + 一点间隙；分段节点被拉高过就按它来，免得两张叠在一起。 */
+    const step = Math.max(96, Number(base.height) || 0) + 24;
+    segments.forEach((_, index) => {
+      const reuse = alive[index];
+      if (reuse) { ids.push(reuse); return; }
+      const id = crypto.randomUUID();
+      ids.push(id);
+      added.push({
+        id,
+        type: 'frame',
+        position: { x: base.position.x + 320, y: base.position.y + index * step },
+        data: { ...segData(index) } as NodeData,
+      });
+    });
+    /** 段数变少 → 多出来的那几张（以及它们的线）撤掉。 */
+    const drop = new Set(alive.slice(ids.length));
+
+    setNodes(ns => {
+      const next = drop.size ? ns.filter(node => !drop.has(node.id)) : ns;
+      return next
+        .map(node => {
+          const at = ids.indexOf(node.id);
+          return at < 0 ? node : { ...node, data: { ...node.data, ...segData(at) } };
+        })
+        .concat(added)
+        /* `splitNodes` 一起写回：下次重切才知道该复用哪几张。 */
+        .map(node => node.id === splitId ? { ...node, data: { ...node.data, splitNodes: ids } } : node);
+    });
+
+    setEdges(es => {
+      const next = drop.size
+        ? es.filter(edge => !drop.has(edge.source) && !drop.has(edge.target))
+        : [...es];
+      ids.forEach((id, index) => {
+        const handle = `seg-${index}`;
+        if (next.some(edge => edge.source === splitId && edge.sourceHandle === handle && edge.target === id)) return;
+        next.push({
+          id: `${splitId}:${handle}->${id}`,
+          source: splitId, target: id, sourceHandle: handle,
+          type: 'default', animated: true,
+        } as Edge);
+      });
+      return next;
+    });
+  }, [setEdges, setNodes]);
+
+  /**
+   * 真去切：算起止 → 交给服务端 ffmpeg → 把每一段的落盘地址写回节点。
+   *
+   * 切**必须**在服务端做：ffmpeg 在打包目录里（`lib/video-ffmpeg`），渲染进程既不该
+   * 知道它在哪，也不该有「读盘上任意文件」的能力。
+   *
+   * 地址一律是 `/api/assets/<id>/media.<ext>` —— 下游那整条媒体链路认的就是这种字符串
+   * （`mediaChain` 的 `isVideoUrl` / `isAudioUrl`），所以**下游一个字都不用改**。
+   *
+   * 🔴 `splitKey` 要在发请求**之前**写下去：自动那一路靠它判断「这组参数切过了没有」，
+   * 等回来再写的话，ffmpeg 跑的那一秒里节点又变一次，effect 会排第二趟。
+   */
+  const runSplit = useCallback(async (id: string) => {
+    const node = nodesRef.current.find(item => item.id === id);
+    if (!node) return;
+    const mode: SplitMode = isSplitMode(node.data.splitMode) ? node.data.splitMode : 'uniform';
+    const uniform = Number(node.data.splitUniform) || DEFAULT_SPLIT_SEC;
+    const custom = String(node.data.splitCustom || '');
+    const source = splitSourceOf(node);
+    if (!source.source) {
+      patch(id, {
+        splitStatus: 'error', splitSegments: [],
+        /*
+         * 🔴 不再说「要已经存进资产库」（2026-10-11）：画布素材（拖 / 粘进画布的）也能切，
+         * 只有**对端平台那种远端地址**切不了 —— 报错要说中真正的原因，
+         * 否则他会去做一个根本不需要的动作（先把素材存进资产库）。
+         */
+        splitError: '先接一段视频或音频（视频输入 / 音频输入 / 视频生成）。这条素材还得是本机落盘的 —— 对端平台那种远端地址切不了。',
+      });
+      return;
+    }
+    const duration = Number(node.data.splitDuration) || 0;
+    if (!(duration > 0)) {
+      patch(id, { splitStatus: 'error', splitError: '还没探出这段素材有多长 —— 点「重新切」再试一次。' });
+      return;
+    }
+    const plan = splitPlan(duration, mode, uniform, custom);
+    if (!plan.length) {
+      patch(id, {
+        splitStatus: 'error', splitSegments: [],
+        splitError: mode === 'custom'
+          ? '没认出每段多长 —— 填成「10, 5, 20」这样，用逗号隔开。'
+          : `每段至少 ${MIN_SPLIT_SEC} 秒，且不能超过素材总长。`,
+      });
+      return;
+    }
+    patch(id, {
+      splitStatus: 'running', splitError: undefined,
+      splitKey: `${source.url}|${mode}|${uniform}|${custom}`,
+    });
+    try {
+      const body = await apiPost<{ segments?: SplitSegment[]; media?: string }>('/api/tools/media-split', {
+        source: source.source,
+        projectId,
+        segments: plan.map((item, index) => ({ index, start: item.start, end: item.end })),
+      });
+      const list = Array.isArray(body.segments) ? body.segments : [];
+      patch(id, {
+        splitStatus: 'done', splitError: undefined,
+        splitMedia: body.media === 'audio' ? 'audio' : 'video',
+        splitDuration: duration,
+        splitSegments: list.map(item => ({
+          index: Number(item.index) || 0,
+          start: Number(item.start) || 0,
+          end: Number(item.end) || 0,
+          url: String(item.url || ''),
+        })),
+      });
+      const segs = list.map(item => ({
+        index: Number(item.index) || 0,
+        start: Number(item.start) || 0,
+        end: Number(item.end) || 0,
+        url: String(item.url || ''),
+      }));
+      patch(id, {
+        splitStatus: 'done', splitError: undefined,
+        splitMedia: body.media === 'audio' ? 'audio' : 'video',
+        splitDuration: duration,
+        splitSegments: segs,
+      });
+      /*
+       * 切好之后**顺手把每一段摆到画布上**（2026-10-11 他提的）。
+       *
+       * 卡片是「这一段」的实物：能单独预览、能直接拖给任意下游，不必先去数
+       * 「第 3 个输出口在哪」。段列表只写数字，看不出「切出来的是什么」——
+       * 尤其「每段统一」那种模式，切完跟没切之前长得一模一样（他当时的原话是
+       * 「每段统一好像没用」，一半是输入框那个 bug，一半就是**结果根本没出现在画面上**）。
+       */
+      if (segs.length) syncSplitNodes(id, segs, body.media === 'audio' ? 'audio' : 'video');
+      setNotice(segs.length ? `已切成 ${segs.length} 段，卡片排在右边` : `已切成 ${segs.length} 段`);
+    } catch (error) {
+      patch(id, { splitStatus: 'error', splitError: error instanceof Error ? error.message : '切片失败。' });
+    }
+  }, [patch, projectId, setNotice, splitSourceOf, syncSplitNodes]);
+
   /**
    * 首尾帧节点自己带的那段视频：存成资产，然后**立刻**接着提取。
    *
@@ -4266,8 +4584,14 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         }
         if (!moved) break;
       }
+      /*
+       * 🔴 **便签不参与排列**（2026-10-10）：它是人贴在画布某个位置上的一张纸，
+       * 「自动排列」一动它，注释就飘到别的地方去了 —— 而它连一根线都没有，
+       * 根本没有「该排在第几列」这回事。排在它旁边也罢，总之别挪它。
+       */
+      const layouted = ns.filter(node => node.data.kind !== 'note');
       const columns = new Map<number, Node<NodeData>[]>();
-      for (const node of ns) {
+      for (const node of layouted) {
         const level = depth.get(node.id) || 0;
         if (!columns.has(level)) columns.set(level, []);
         columns.get(level)?.push(node);
@@ -4579,6 +4903,19 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         onLatentIndexes: isLatentKind(node.data.kind)
           ? (indexes: number[]) => patch(node.id, { latentIndexes: indexes })
           : undefined,
+        /* 便签：正文 / 纸色 / 字号（只有 `kind === 'note'` 才有这三条，别的节点不给，
+           免得界面上多出几个永远没人调的口子）。 */
+        onNoteText: node.data.kind === 'note'
+          ? (value: string) => patch(node.id, { noteText: value })
+          : undefined,
+        onNoteColor: node.data.kind === 'note'
+          ? (color: NoteColor) => patch(node.id, { noteColor: color })
+          : undefined,
+        onNoteScale: node.data.kind === 'note'
+          ? (scale: NoteScale) => patch(node.id, { noteScale: scale })
+          : undefined,
+        /* 分段：手动再切一次（自动那一路见上面 `splitKey` 那个 effect）。 */
+        onSplitRun: node.data.kind === 'media-split' ? () => void runSplit(node.id) : undefined,
         onLatentPicks: node.data.kind === 'latent-relay'
           ? (picks: string[]) => patch(node.id, { latentPicks: picks })
           : undefined,
@@ -4727,6 +5064,59 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     });
   }, [extractFrames, frameSourceOf, nodes]);
 
+  /*
+   * 分段：**探**与**切**分开自动跑（2026-10-11）。
+   *
+   * 探一次几十毫秒、切一次是每段一遍 ffmpeg —— 差两个数量级，所以两件事不能同频：
+   *   · 探：源一变就跑（同一个源只跑一次，失败也记账）；
+   *   · 切：等参数**稳定 800ms** 再跑。不然在「每段时长」那个框里敲「10, 5, 20」
+   *     会每敲一个字符就启一轮 ffmpeg —— 那是最贵的一种「反馈」。
+   */
+  const splitProbed = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    nodes.forEach(node => {
+      if (node.data.kind !== 'media-split') return;
+      const src = splitSourceOf(node);
+      if (!src.source) return;
+      const key = `${node.id}|${src.url}`;
+      /* 失败也记账：探不出来的素材不会自己变好，反复重试只会让界面一直闪。 */
+      if (splitProbed.current.has(key)) return;
+      splitProbed.current.add(key);
+      void probeSplit(node.id, src);
+    });
+  }, [nodes, probeSplit, splitSourceOf]);
+
+  const splitTimer = useRef<number | null>(null);
+  useEffect(() => {
+    let want = '';
+    nodes.forEach(node => {
+      if (want) return;
+      if (node.data.kind !== 'media-split') return;
+      if (node.data.splitStatus === 'running') return;
+      const src = splitSourceOf(node);
+      if (!src.source) return;
+      const mode = isSplitMode(node.data.splitMode) ? node.data.splitMode : 'uniform';
+      const uniform = Number(node.data.splitUniform) || DEFAULT_SPLIT_SEC;
+      const custom = String(node.data.splitCustom || '');
+      /* 源地址在 key 里：上游重新生成之后地址变了，段还是上一段素材的。 */
+      const key = `${src.url}|${mode}|${uniform}|${custom}`;
+      if (node.data.splitKey === key) return;
+      /* 还不知道总长 → 等上面那个 effect 探完再来。 */
+      if (!(Number(node.data.splitDuration) > 0)) return;
+      want = node.id;
+    });
+    if (splitTimer.current) {
+      window.clearTimeout(splitTimer.current);
+      splitTimer.current = null;
+    }
+    if (!want) return;
+    const id = want;
+    splitTimer.current = window.setTimeout(() => {
+      splitTimer.current = null;
+      void runSplit(id);
+    }, 800);
+  }, [nodes, runSplit, splitSourceOf]);
+
   /** Old edges were stored as smoothstep; render everything as bezier without rewriting persisted data. */
   const displayEdges = useMemo(() => edges.map(edge => ({ ...edge, type: 'star' })), [edges]);
 
@@ -4764,6 +5154,27 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     setPendingLink(null);
     setMenu(null);
   }, [nodes, pendingLink, record, screenToFlowPosition, setEdges, setNodes]);
+
+  /*
+   * 「添加注释」：右键空白处落一张便签（2026-10-10 徐先）。
+   *
+   * 和 `addAt` 的区别只在**渲染类型**：`type: 'note'` 走 `NoteNode`，不是 `NodeCard`。
+   * 坐标同样是「右键那一下的屏幕位置 → 画布坐标」，不然便签会落在视口左上角。
+   *
+   * ⚠️ 不接 `pendingLink`：便签不该被连线（`ACCEPTS.note` 是空数组），
+   * 顺手把它清掉 —— 免得「从某个节点拖线到空白处」那条路把便签当落点。
+   */
+  const addNoteAt = useCallback((screen: { x: number; y: number }) => {
+    record();
+    setNodes(ns => [...ns, {
+      id: crypto.randomUUID(),
+      type: 'note',
+      position: screenToFlowPosition({ x: screen.x, y: screen.y }),
+      data: newNodeData('note'),
+    }]);
+    setPendingLink(null);
+    setMenu(null);
+  }, [record, screenToFlowPosition, setNodes]);
 
   useEffect(() => {
     if (!menu) return;
@@ -4876,16 +5287,26 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     setSaveState('saving');
     try {
       /*
-       * 连线只存 `id / source / target` 这三样。
+       * 连线只存「谁连谁」这几样：`id / source / target`，外加**两个 handle**
+       * （2026-10-11 补的 —— 见下面那条注释）。
        *
        * `selected` 是 React Flow 的界面状态（谁被点中了），跟着一起存进库的意思是
        * 「下次打开这张画布，那条线是选中的」—— 毫无意义，而且每次点一下线都会
-       * 让画布脏一遍、触发一次自动保存。存库格式也和 MCP 那边读的
-       * `{ id, source, target }` 对齐。
+       * 让画布脏一遍、触发一次自动保存。
+       *
+       * 🔴🔴 `sourceHandle` / `targetHandle` **必须一起存**（分段节点那次抓到的）：
+       * 分段节点是第一个有多个输出口的节点，「下游连的是第几段」全靠
+       * `edge.sourceHandle`（`mediaChain.splitSegmentUrlOf` 就按它取段）。
+       * 只存 id/source/target 的后果是**刷新之后整条分段链路静默失效** ——
+       * 线还在、段也还在，但 `sourceHandle` 没了，下游一律当成「第 1 段」。
+       * 服务端 schema 一直收这两个字段，是前端这一行从来没往里写过。
        */
       const body: Record<string, unknown> = {
         nodes,
-        edges: edges.map(edge => ({ id: edge.id, source: edge.source, target: edge.target })),
+        edges: edges.map(edge => ({
+          id: edge.id, source: edge.source, target: edge.target,
+          sourceHandle: edge.sourceHandle ?? null, targetHandle: edge.targetHandle ?? null,
+        })),
         viewport: viewport.current,
       };
       /** force = 用户看过了冲突提示，明确要求「就按我这版覆盖」。 */
@@ -5355,6 +5776,13 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         items: [
           { id: 'add', label: '添加节点', icon: <Plus size={14} strokeWidth={2} />, run: () => setMenu({ ...at, kind: 'add-nodes' }) },
           {
+            /* 便签（2026-10-10 徐先：「画布上可添加注释，右键添加」）。
+               放在「上传文件」**上面**：它俩都是「往画布上放个东西」，
+               而注释比挑文件更常用、也更不需要想。 */
+            id: 'note', label: '添加注释', icon: <StickyNote size={14} strokeWidth={2} />, note: '便签',
+            run: () => addNoteAt(at),
+          },
+          {
             /* 一条比「先想清楚要哪种节点」更省事的路：挑文件，节点按类型自己长出来。 */
             id: 'upload', label: '上传文件', icon: <Upload size={14} strokeWidth={2} />, note: '按类型放节点',
             run: () => openUpload(at),
@@ -5377,7 +5805,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         ],
       },
     ];
-  }, [abandonNode, addAt, autoLayout, clipboard, connectSelected, copyNodes, cutNodes, deleteNodes, disconnectNode, duplicateNodes, fitView, menu, nodes, openUpload, pasteNodes, pendingLink, save]);
+  }, [abandonNode, addAt, addNoteAt, autoLayout, clipboard, connectSelected, copyNodes, cutNodes, deleteNodes, disconnectNode, duplicateNodes, fitView, menu, nodes, openUpload, pasteNodes, pendingLink, save]);
 
   return <div className={`flow-shell${zen ? ' cv-zen' : ''}`}>
     <div className="cv-topbar">
