@@ -567,7 +567,7 @@ export default function NodeParamBar({ data, followedSide = '', followedFrom = '
               ? `总长 ${splitClock(duration)} → 会切成 ${planCount} 段，最后一段不够就短一点`
                 /* 框空着时 `uniform` 已经是默认值了，不说这句就是界面在替他做了个没说出口的决定。 */
                 + (rawUniform.trim() ? '' : `（每段没填，按 ${DEFAULT_SPLIT_SEC} 秒算）`)
-              : '填好每段几秒，接上视频 / 音频之后会自动切')
+              : '填好每段几秒，接上视频 / 音频后点「启动分段」')
             : (customSecs.length
               /*
                * 段数用 `rows.length` 而不是 `customSecs.length`：填的那串没盖满整条素材时，
@@ -580,17 +580,20 @@ export default function NodeParamBar({ data, followedSide = '', followedFrom = '
         </div>
         {!!data.splitError && <div className="cv-param-error">{String(data.splitError)}</div>}
         {/*
-          手动再切一次。自动那一路已经会在「源 / 模式 / 段长」变化时自己跑，
-          所以要这颗按钮只剩两种场合：① 上次失败了（key 没变，自动不会再试）；
-          ② 想在不改任何参数的前提下重来一遍。
+          🔴 **分段唯一的入口**（2026-10-11 他定）。
+
+          原来那版「参数稳定 800ms 就自己切」被他否掉了 —— 接上素材、还没想好怎么切，
+          盘上就已经多出一堆段。现在切这件事只发生在他按下这颗按钮的那一刻，
+          所以它是 `.primary`：这条线上唯一该按的那颗。
+          「探总长」（ffprobe）仍然是自动的 —— 没有它卡片连「会切成几段」都算不出来。
         */}
         <button
-          className="cv-btn sm"
+          className="cv-btn sm primary"
           type="button"
           disabled={status === 'running' || !duration}
           onClick={data.onSplitRun}
         >
-          {status === 'running' ? '切片中…' : data.splitSegments?.length ? '重新切' : '切片'}
+          {status === 'running' ? '分段中…' : data.splitSegments?.length ? '重新分段' : '启动分段'}
         </button>
         {/*
           段列表：每一行右边的序号对应卡片**右侧第几个输出口**（从上往下数），
@@ -605,7 +608,7 @@ export default function NodeParamBar({ data, followedSide = '', followedFrom = '
                 <span className="cv-split-dur">{(Math.round((item.end - item.start) * 10) / 10).toFixed(1)}s</span>
                 {item.url
                   ? <button className="cv-btn sm ghost" type="button" onClick={() => data.onPreview?.(item.url)}>看</button>
-                  : <span className="cv-split-dot">{status === 'running' ? '切片中…' : '待切'}</span>}
+                  : <span className="cv-split-dot">{status === 'running' ? '分段中…' : '待分段'}</span>}
               </div>
             ))}
           </div>

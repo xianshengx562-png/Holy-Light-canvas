@@ -149,6 +149,14 @@ function browserDrawerWidth(windowWidth: number): number {
   return Math.round(Math.min(Math.max(windowWidth * 0.42, 560), 900));
 }
 
+/**
+ * 分段节点上**改了就得重切**的三个字段（2026-10-11，切从「自动」改成「按按钮」时加的）。
+ *
+ * 见 `onField` 里那段：改这三个任何一个，上一次的切结果就不作数了 —— 段列表要退回
+ * `splitPlan` 的**预测**，不能继续摆着上一次那几段，否则界面自己前后矛盾。
+ */
+const SPLIT_PARAM_FIELDS = new Set(['splitMode', 'splitUniform', 'splitCustom']);
+
 /** Codex 对话抽屉的宽度。对话是窄长条更舒服。 */
 const CODEX_DRAWER_WIDTH = 440;
 /** 「生成结果」抽屉的宽度。里面是图 / 视频，比对话宽一点，比浏览器窄一点。 */
@@ -3860,9 +3868,6 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
    *
    * 地址一律是 `/api/assets/<id>/media.<ext>` —— 下游那整条媒体链路认的就是这种字符串
    * （`mediaChain` 的 `isVideoUrl` / `isAudioUrl`），所以**下游一个字都不用改**。
-   *
-   * 🔴 `splitKey` 要在发请求**之前**写下去：自动那一路靠它判断「这组参数切过了没有」，
-   * 等回来再写的话，ffmpeg 跑的那一秒里节点又变一次，effect 会排第二趟。
    */
   const runSplit = useCallback(async (id: string) => {
     const node = nodesRef.current.find(item => item.id === id);
@@ -3885,7 +3890,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     }
     const duration = Number(node.data.splitDuration) || 0;
     if (!(duration > 0)) {
-      patch(id, { splitStatus: 'error', splitError: '还没探出这段素材有多长 —— 点「重新切」再试一次。' });
+      patch(id, { splitStatus: 'error', splitError: '还没探出这段素材有多长 —— 稍等一下再点「启动分段」。' });
       return;
     }
     const plan = splitPlan(duration, mode, uniform, custom);
@@ -3898,10 +3903,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       });
       return;
     }
-    patch(id, {
-      splitStatus: 'running', splitError: undefined,
-      splitKey: `${source.url}|${mode}|${uniform}|${custom}`,
-    });
+    patch(id, { splitStatus: 'running', splitError: undefined });
     try {
       const body = await apiPost<{ segments?: SplitSegment[]; media?: string }>('/api/tools/media-split', {
         source: source.source,
@@ -4892,7 +4894,17 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
          */
         onField: (key: string, value: string) => patch(node.id, key === 'engine'
           ? engineSwitchPatch(node.data, value)
-          : { [key]: value }),
+          : node.data.kind === 'media-split' && SPLIT_PARAM_FIELDS.has(key)
+            /*
+             * 改了「模式 / 每段秒数 / 自定义时长」→ **上一次的切结果作废**。
+             * 不清的话，把「每段 5 秒」改成 3 秒那一刻，段列表里躺的还是旧的几段、
+             * 而提示句按新参数说「会切成 N 段」—— 同一个界面两处对不上（这类 bug 这台应用最爱复发）。
+             * 清掉之后列表回落到 `splitPlan` 的**预测**（每行都是「待分段」），
+             * 跟那颗「启动分段」一起等他自己按。
+             * 画布上已经建出来的段卡片不动：重切时 `syncSplitNodes` 就地复用。
+             */
+            ? { [key]: value, splitSegments: [], splitStatus: undefined, splitError: undefined }
+            : { [key]: value }),
         /* 「打开工作流配置」：交给画布开浮层，不跳页（见 `openWorkflowConfig`）。 */
         onOpenWorkflow: openWorkflowConfig,
         /* 「从工作流库选一份」：同样交给画布，选完直接写回本节点。 */
@@ -4914,7 +4926,7 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
         onNoteScale: node.data.kind === 'note'
           ? (scale: NoteScale) => patch(node.id, { noteScale: scale })
           : undefined,
-        /* 分段：手动再切一次（自动那一路见上面 `splitKey` 那个 effect）。 */
+        /* 分段：唯一那入口 —— 「启动分段 / 重新分段」（接上素材、改参数都不会自己切）。 */
         onSplitRun: node.data.kind === 'media-split' ? () => void runSplit(node.id) : undefined,
         onLatentPicks: node.data.kind === 'latent-relay'
           ? (picks: string[]) => patch(node.id, { latentPicks: picks })
@@ -5065,12 +5077,13 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
   }, [extractFrames, frameSourceOf, nodes]);
 
   /*
-   * 分段：**探**与**切**分开自动跑（2026-10-11）。
+   * 分段：**探自动、切手动**（2026-10-11 他定：「它是自动分段的，我觉得还是添加一个
+   * 启动分段的按钮好一点」）。
    *
-   * 探一次几十毫秒、切一次是每段一遍 ffmpeg —— 差两个数量级，所以两件事不能同频：
-   *   · 探：源一变就跑（同一个源只跑一次，失败也记账）；
-   *   · 切：等参数**稳定 800ms** 再跑。不然在「每段时长」那个框里敲「10, 5, 20」
-   *     会每敲一个字符就启一轮 ffmpeg —— 那是最贵的一种「反馈」。
+   *   · 探（ffprobe，几十毫秒）：源一变就跑。卡片上没有总长就没法预测「会切成几段」，
+   *     而这件事贵不起来 —— 同一个源只跑一次，失败也记账（探不出来的不会自己变好）。
+   *   · 切（每段一遍 ffmpeg）：**只在他点「启动分段」时跑**。原来那版是「参数稳定 800ms
+   *     就自己切」—— 接上素材、还没想好怎么切，段就已经在盘上生成了。
    */
   const splitProbed = useRef<Set<string>>(new Set());
   useEffect(() => {
@@ -5085,37 +5098,6 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       void probeSplit(node.id, src);
     });
   }, [nodes, probeSplit, splitSourceOf]);
-
-  const splitTimer = useRef<number | null>(null);
-  useEffect(() => {
-    let want = '';
-    nodes.forEach(node => {
-      if (want) return;
-      if (node.data.kind !== 'media-split') return;
-      if (node.data.splitStatus === 'running') return;
-      const src = splitSourceOf(node);
-      if (!src.source) return;
-      const mode = isSplitMode(node.data.splitMode) ? node.data.splitMode : 'uniform';
-      const uniform = Number(node.data.splitUniform) || DEFAULT_SPLIT_SEC;
-      const custom = String(node.data.splitCustom || '');
-      /* 源地址在 key 里：上游重新生成之后地址变了，段还是上一段素材的。 */
-      const key = `${src.url}|${mode}|${uniform}|${custom}`;
-      if (node.data.splitKey === key) return;
-      /* 还不知道总长 → 等上面那个 effect 探完再来。 */
-      if (!(Number(node.data.splitDuration) > 0)) return;
-      want = node.id;
-    });
-    if (splitTimer.current) {
-      window.clearTimeout(splitTimer.current);
-      splitTimer.current = null;
-    }
-    if (!want) return;
-    const id = want;
-    splitTimer.current = window.setTimeout(() => {
-      splitTimer.current = null;
-      void runSplit(id);
-    }, 800);
-  }, [nodes, runSplit, splitSourceOf]);
 
   /** Old edges were stored as smoothstep; render everything as bezier without rewriting persisted data. */
   const displayEdges = useMemo(() => edges.map(edge => ({ ...edge, type: 'star' })), [edges]);
