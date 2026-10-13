@@ -52,6 +52,8 @@ import {
   videoEngineProvider, workflowDisplayName, workflowLabel, workflowMismatchHint, upscaleWorkflowsFor,
   workflowsForApp, workflowsForGeneration, workflowsForProvider, purposeForNode, purposeOfNode, purposesOfNode,
   appPurposeOf,
+  /* RunningHub 模型直调（2026-10-11）。 */
+  RH_MODELS, RH_MODEL_RATIOS, RH_MODEL_RESOLUTIONS, readRhModelParams, rhModelSpecOf,
   nodeEngineProvider, readUpscaleMode, readUpscaleSource, upscaleWorkflowFor,
   UPSCALE_MODE_LABELS, UPSCALE_MODES, UPSCALE_SOURCE_LABELS, UPSCALE_SOURCES,
 } from './nodeMeta';
@@ -380,7 +382,7 @@ export default function GenerateDock({ data, nodeId, anchor, presetAnchor, inspe
    * 图片这一侧唯一「不经过工作流」的就是自定义接口 —— 它和当年的 Image 2.0 是同一条同步形状，
    * 用的也是同一套 `image2Ratio` / `image2Resolution` 字段。
    */
-  const isGateway = engine === 'videoapi' || engine === 'custom';
+  const isGateway = engine === 'videoapi' || engine === 'custom' || engine === 'rh-model';
   /** 接续上一段（视频节点专用；图片节点不吃 latent，网关那两档也没有）。 */
   const continuationOn = data.continuationEnabled === 'on';
 
@@ -516,6 +518,21 @@ export default function GenerateDock({ data, nodeId, anchor, presetAnchor, inspe
       resolution: data.videoApiResolution, aspectRatio: data.videoApiRatio,
     })
     : null;
+
+  /*
+   * ---------------- RunningHub 模型直调的即时读数（2026-10-11） ----------------
+   *
+   * 与上面那份**并存但不共用**：这两档引擎的参数值域不一样（这边分辨率是 2K / 768P），
+   * 共用一份推导会把「这一档的 2K」拿去按「那一档的 480p/720p/1080p」校验。
+   */
+  const rhModel = engine === 'rh-model'
+    ? readRhModelParams({
+      model: data.rhModel, duration: data.rhModelDuration,
+      resolution: data.rhModelResolution, aspectRatio: data.rhModelRatio,
+    })
+    : null;
+  /** 这一档模型的规格（吃哪几路素材、时长区间）；没选 / 认不出时是 null。 */
+  const rhSpec = engine === 'rh-model' ? rhModelSpecOf(data.rhModel) : null;
 
   const pasteFromClipboard = async () => {
     try {
@@ -677,7 +694,29 @@ export default function GenerateDock({ data, nodeId, anchor, presetAnchor, inspe
         const [w, h] = item.value.split(':').map(Number);
         return { value: item.value, label: item.value, w: w || 1, h: h || 1 };
       })
-      : ASPECT_RATIOS.map(item => {
+      /*
+       * 模型直调：**带一个 `adaptive`（由模型自己定比例）** —— 它不是 `W:H`，
+       * 照上面那样 `split(':')` 会得到 NaN，格子就画不出来了（静默少一个选项）。
+       * 所以这里按正则取；取不到时给 1:1 的框，标签照写「自适应」。
+       */
+      /*
+       * 模型直调：**用这一档自己的比例清单**。
+       * RH Enhanced 那两档是八档且**没有 adaptive**；其余四档七档且**有 adaptive**。
+       * 拿一份共用就会在下拉里摆出一个这一档根本不收的值。
+       * 🔴 `adaptive` 不是 `W:H`，照上面 `split(':')` 会得到 NaN、格子画不出来（静默少一项），
+       *    所以这里一律按正则取，取不到给 1:1 的框。
+       */
+      : engine === 'rh-model'
+        ? (rhSpec?.ratios || RH_MODEL_RATIOS).map(item => {
+          const m = item.value.match(/^(\d+):(\d+)$/);
+          return {
+            value: item.value,
+            label: item.label.split('（')[0],
+            w: m ? Number(m[1]) : 1,
+            h: m ? Number(m[2]) : 1,
+          };
+        })
+        : ASPECT_RATIOS.map(item => {
         const m = item.match(/^(\d+):(\d+)/);
         return { value: item, label: item.split(' ')[0], w: m ? Number(m[1]) : 1, h: m ? Number(m[2]) : 1 };
       });
@@ -685,9 +724,14 @@ export default function GenerateDock({ data, nodeId, anchor, presetAnchor, inspe
     ? image2.ratio
     : engine === 'videoapi'
       ? String(videoApi?.aspectRatio || '')
-      : String(data.aspectRatio || (isImage ? IMAGE_DEFAULTS.ratio : DEFAULT_RATIO));
+      : engine === 'rh-model'
+        ? String(rhModel?.aspectRatio || '')
+        : String(data.aspectRatio || (isImage ? IMAGE_DEFAULTS.ratio : DEFAULT_RATIO));
   const setRatio = (value: string) => data.onField?.(
-    isImage && engine === 'custom' ? 'image2Ratio' : engine === 'videoapi' ? 'videoApiRatio' : 'aspectRatio',
+    isImage && engine === 'custom' ? 'image2Ratio'
+      : engine === 'videoapi' ? 'videoApiRatio'
+        : engine === 'rh-model' ? 'rhModelRatio'
+          : 'aspectRatio',
     value,
   );
 
@@ -802,6 +846,23 @@ export default function GenerateDock({ data, nodeId, anchor, presetAnchor, inspe
           >
             {VIDEO_API_RESOLUTIONS.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
           </select>
+        ) : engine === 'rh-model' ? (
+          /*
+           * 模型直调：**用这一档自己的分辨率清单**。
+           * RH Enhanced 那两档是 480p / 768p / 1080p，其余四档是 2K / 768P ——
+           * 🔴 两组值**不能共用**（拿一份去填另一份，下拉里就会摆出一个这一档不收的值），
+           * 也别拿视频网关那份（480p/720p/1080p）来顶替：看着像，实际又是第三组。
+           */
+          <select
+            className="cv-select sm"
+            data-dock-resolution=""
+            aria-label="分辨率"
+            title={`这一档只收 ${(rhSpec?.resolutions || RH_MODEL_RESOLUTIONS).map(item => item.value).join(' / ')}`}
+            value={String(rhModel?.resolution || '')}
+            onChange={event => data.onField?.('rhModelResolution', event.target.value)}
+          >
+            {(rhSpec?.resolutions || RH_MODEL_RESOLUTIONS).map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
+          </select>
         ) : (
           <label className="cv-dock-field">
             <input
@@ -894,11 +955,22 @@ export default function GenerateDock({ data, nodeId, anchor, presetAnchor, inspe
   /* ---------------- 弹层：生成时长（视频独有，滑杆 + 数字） ---------------- */
   const durationValue = engine === 'videoapi'
     ? String(videoApi?.duration ?? '5')
-    : String(data.duration || '6');
+    : engine === 'rh-model'
+      ? String(rhModel?.duration ?? '5')
+      : String(data.duration || '6');
   const setDuration = (value: string) => data.onField?.(
-    engine === 'videoapi' ? 'videoApiDuration' : 'duration',
+    engine === 'videoapi' ? 'videoApiDuration'
+      : engine === 'rh-model' ? 'rhModelDuration'
+        : 'duration',
     value,
   );
+  /*
+   * 时长的上下限。**跟着引擎走**：模型直调那一档每档模型的区间还不一样
+   * （H3 是 5~15 秒，多模态增强提示词那一档能到 4 秒），写死 1~30 会让人拖出一个
+   * 提交必被拒的数 —— 而报错要等到提交之后才看得见。
+   */
+  const durationMin = engine === 'rh-model' ? (rhSpec?.durationMin ?? 5) : 1;
+  const durationMax = engine === 'rh-model' ? (rhSpec?.durationMax ?? 15) : 30;
   const durationGroup = !isImage && !audioOnly ? (
     <div className="cv-dock-group" data-dock-duration="">
       <span className="cv-dock-grouplabel">生成时长</span>
@@ -907,8 +979,8 @@ export default function GenerateDock({ data, nodeId, anchor, presetAnchor, inspe
           className="cv-dock-range nodrag"
           data-dock-duration-range=""
           type="range"
-          min="1"
-          max="30"
+          min={durationMin}
+          max={durationMax}
           step="1"
           aria-label="时长（滑杆）"
           value={durationValue}
@@ -917,14 +989,90 @@ export default function GenerateDock({ data, nodeId, anchor, presetAnchor, inspe
         <input
           className="cv-input sm num"
           type="number"
-          min="1"
-          max="30"
+          min={durationMin}
+          max={durationMax}
           aria-label="时长"
           value={durationValue}
           onChange={event => setDuration(event.target.value)}
         />
         <span className="cv-dock-grouphint">秒</span>
       </div>
+    </div>
+  ) : null;
+
+  /*
+   * ---------------- 模型直调：模型 + 水印 + 「这一档带不带素材」（2026-10-11） ----------------
+   *
+   * 与上面几组（比例 / 分辨率 / 时长）一样**抽成一个变量、两处引用**：
+   * 底部参数栏一份、右侧检查器一份。
+   *
+   * 🔴 为什么检查器里也必须有：引擎下拉在检查器里就有，切到这一档之后
+   *    若检查器里没有「模型」那一行，就成了「能选引擎、没地方选模型」——
+   *    比例 / 分辨率 / 时长那几组都在检查器里，唯独模型缺席，看着就像这功能坏了
+   *    （2026-10-11 探针实测：切完引擎，检查器里确实一个模型下拉都没有）。
+   *
+   * 模型是**下拉不是输入框**：这一档没有「留空用 .env 里那个」的兜底，
+   * 请求里必须点名一个路径，手打一个不存在的会一路到上游才报 `1001`。
+   */
+  /** 选过、但现在已经不在清单里（模型下架 / 改名）。跟自定义接口那档同一套说法。 */
+  const rhModelStale = String(data.rhModel || '').trim()
+    && !RH_MODELS.some(item => item.value === String(data.rhModel || '').trim())
+      ? String(data.rhModel || '').trim()
+      : '';
+  const rhModelGroup = !isImage && engine === 'rh-model' ? (
+    <div className="cv-dock-grid">
+      <label className="cv-dock-field wide">
+        <span>模型</span>
+        <select className="cv-select sm" aria-label="模型" data-dock-rhmodel=""
+          title="点名一个模型路径 —— 这一档没有「留空用默认」的兜底"
+          value={String(data.rhModel || '')}
+          onChange={event => data.onField?.('rhModel', event.target.value)}>
+          {/*
+           * 空选项不是摆设：**老节点上根本没有 `rhModel` 这个字段**（它是新建节点才带的默认值）。
+           * 那些节点切到这一档时，下拉若只列四档，浏览器会拿第一档当脸面显示，
+           * 于是界面说「多模态」、提交却报「还没选模型」—— 同一件事两把尺子。
+           * 看得见地空着，两处才说得上同一句话。
+           */}
+          <option value="">选一个模型</option>
+          {rhModelStale && <option value={rhModelStale}>{`${rhModelStale} · 这一项已经不存在了`}</option>}
+          {RH_MODELS.map(item => (
+            <option key={item.value} value={item.value}>{item.label}</option>
+          ))}
+        </select>
+      </label>
+      {/*
+        水印**只在认这个字段的档上摆出来**（RH Enhanced 那两档不认 `aigc_watermark`）。
+        摆一个不会生效的开关是最糟的：用户勾了「加」，上游当没看见，片子上也没有水印，
+        界面上一个字都不说 —— 与「连了参考图却被静默忽略」是同一类坏结果。
+      */}
+      {!!rhSpec?.watermark && (
+        <label className="cv-dock-field">
+          <span>水印</span>
+          <select className="cv-select sm" aria-label="AIGC 水印"
+            title="给产出的视频加一个 AIGC 水印"
+            value={data.rhModelWatermark === 'on' ? 'on' : 'off'}
+            onChange={event => data.onField?.('rhModelWatermark', event.target.value)}>
+            <option value="off">不加</option>
+            <option value="on">加</option>
+          </select>
+        </label>
+      )}
+      {/*
+        选好之后把「这一档吃哪一路素材」说清楚 —— 那是最容易踩的一条：
+        给「文生视频」连一摞参考图，上游会**静默忽略**，任务照样成功、画面跟图毫无关系。
+        🔴 首尾帧是**独立的一路**，不能归到「参考图」那一句里 ——
+           `i2va` 的 image/video/audio 三个槽都是 null，但它**是吃图的**（首帧 + 尾帧）。
+      */}
+      {rhSpec && (
+        <span className="cv-dock-hint wide" data-dock-rhmodel-media="">
+          {rhSpec.hint}
+          {rhSpec.frames
+            ? ' —— 连上来的头两张图依次当首帧、尾帧（只给一张就是图生视频）'
+            : rhSpec.image || rhSpec.video || rhSpec.audio
+              ? ' —— 素材从连线上来，多余的上游会被丢掉'
+              : ' —— 这一档不带参考素材，连了也不会生效'}
+        </span>
+      )}
     </div>
   ) : null;
 
@@ -1089,7 +1237,14 @@ export default function GenerateDock({ data, nodeId, anchor, presetAnchor, inspe
         ]
       : engine === 'videoapi'
         ? [videoApi?.resolution, `${videoApi?.duration}秒`, videoApi?.aspectRatio]
-        : audioOnly
+        : engine === 'rh-model'
+          /*
+           * 模型直调：**先报模型**（这一档最要紧的信息是「交给哪个模型」），再报规格。
+           * 没选时写明「还没选模型」而不是留空 —— chip 上少一样东西，人只会以为这一档
+           * 本来就不显示模型，不会想到是自己没选。
+           */
+          ? [rhSpec?.label || '还没选模型', rhModel?.resolution, `${rhModel?.duration}秒`]
+          : audioOnly
           /* 音频没有画面可言：报「6 秒 · 16:9」等于在预告两个它根本不会带的参数。 */
           ? [generatorKindLabel('audio')]
           : [`${durationValue}秒`, String(data.aspectRatio || DEFAULT_RATIO).split(' ')[0]]
@@ -1769,9 +1924,16 @@ export default function GenerateDock({ data, nodeId, anchor, presetAnchor, inspe
           </div>
         )}
         {inspector && <section className="cv-inspector-section"><h3>输出规格</h3>
-          {isApp ? appPanel : <>{!audioOnly && ratioGroup}{!audioOnly && resolutionGroup}{sizeGroup}{durationGroup}</>}
+          {isApp ? appPanel : <>{rhModelGroup}{!audioOnly && ratioGroup}{!audioOnly && resolutionGroup}{sizeGroup}{durationGroup}</>}
           {sizeIssue && <span className="cv-dock-hint warn">{sizeIssue}</span>}
         </section>}
+        {/*
+          底部参数栏（非检查器）那一支：模型组**不进「更多」折叠区**。
+          🔴 它原来被我放进 `moreBox`（「更多」展开才有）—— 于是切完引擎，
+             界面上一个模型下拉都没有，只能靠猜。引擎下拉是常显的，
+             它最要紧的那一项反而要展开才看得见，说不过去。
+        */}
+        {!inspector && rhModelGroup}
         {moreBox}
       </div>
 

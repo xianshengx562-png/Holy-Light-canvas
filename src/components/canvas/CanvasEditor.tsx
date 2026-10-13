@@ -70,7 +70,6 @@ import { apiPost } from '@/lib/client';
 /* 资产地址 → 资产 id：分段要把「切哪一条资产」交给服务端，ffmpeg 不认 URL。 */
 import { assetIdFromUrl } from '@/lib/file-drag';
 /* 生成落终态时顺手刷站点余额（钱只在生成时变）。 */
-import { refreshSiteAccount } from '@/lib/site-account';
 /*
  * 抽帧只有一份实现（`./videoFrames`）：视频输入节点上传完取首帧、首尾帧节点取两张，
  * 两处各写一份的话，迟早出现「同一段视频在两处取到的帧不一样」——
@@ -130,6 +129,7 @@ import { DEFAULT_IMAGE_ENGINE, imageEngineProvider, readImageEngine } from '@/li
 /* 「上一次超清用过的那份」—— 导入素材那一档「跟随」跟不到时的兜底（见 lib/workflows/upscale.ts）。 */
 import { readLastUpscaleWorkflow, rememberLastUpscaleWorkflow } from '@/lib/upscaleMemory';
 import { VIDEO_API_DEFAULTS, validateVideoApiParams } from '@/lib/workflows/videoApiParams';
+import { RH_MODEL_DEFAULTS, validateRhModelParams } from '@/lib/workflows/rhModelParams';
 import { abandonMessage, pollDelayMs } from '@/lib/taskPoll';
 import { DEFAULT_VIDEO_ENGINE, readVideoEngine, videoEngineProvider } from '@/lib/workflows/videoEngine';
 import { defaultWorkflowId, defaultWorkflowIdFor } from '@/lib/workflows/defaults';
@@ -1181,16 +1181,11 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
     if (part.status !== undefined) {
       runStatus.current[id] = String(part.status);
       /*
-       * 一次生成真的结束了（成功 / 失败）→ 顺手把站点余额静默刷一次（2026-09-28）。
-       * 只在这一档调：**自定义接口**才是「可能走站点中转账号」的那条路
-       * （RunningHub / 本机 ComfyUI 都不碰站点余额）—— 不判这一下的话，批量跑一轮
-       * 就会白打十几趟站点，撞上那边 20 次 / 20 分钟的限流。
-       * `refreshSiteAccount` 自己还有 8 秒节流且保留最后一次，这里不用再判。
+       * 🔴 2026-10-13：这里原来在「一次生成真的结束（成功 / 失败）」时顺手刷一次站点余额
+       * （只有走站点中转账号的 `custom` 那一档才调）。余额不显示了，这一趟也没有理由了 ——
+       * 它是继「每 2 分钟轮询」之后第二笔白打的站点请求（批量跑一轮会连着落十几个终态）。
+       * 站点那边是「同一 IP、20 次 / 20 分钟」，省一趟是一趟。
        */
-      const node = nodesRef.current.find(item => item.id === id);
-      if ((part.status === 'success' || part.status === 'failed') && node?.data.engine === 'custom') {
-        void refreshSiteAccount();
-      }
     }
     setNodes(ns => ns.map(node => node.id === id ? { ...node, data: { ...node.data, ...part } } : node));
   }, [setNodes]);
@@ -2581,6 +2576,62 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       }
       return;
     }
+    /*
+     * RunningHub **标准模型 API**（2026-10-11 徐先：在自己的画布里用 RunningHub 家的模型，
+     * 而不是走工作流）。与「视频网关」那一支同构（提交拿号 → 轮询），差别有三处：
+     *   1. 参数走 `rhModelParams` 那一套（分辨率只有 2K / 768P、时长 5~15 秒）；
+     *   2. 凭据是**企业级 Key**，在服务端取 —— 界面上拿不到，也不需要拿到；
+     *   3. 参考素材按**这一档模型吃哪几路**决定带不带（服务端还会再裁一次上限）。
+     */
+    if (node.data.kind === 'video-generate' && videoEngine === 'rh-model') {
+      const rhValues = {
+        model: String(node.data.rhModel || ''),
+        duration: String(node.data.rhModelDuration || RH_MODEL_DEFAULTS.duration),
+        resolution: String(node.data.rhModelResolution || RH_MODEL_DEFAULTS.resolution),
+        aspectRatio: String(node.data.rhModelRatio || RH_MODEL_DEFAULTS.ratio),
+      };
+      /** 与服务端同一份定义先自查一遍，免得白跑一个来回才报错。 */
+      const badRh = validateRhModelParams(rhValues);
+      if (badRh) return patch(id, { status: 'failed', result: badRh });
+      patch(id, { status: 'running', result: '提交中 · RunningHub 模型' });
+      try {
+        const body = await json(await fetch(`/api/projects/${projectId}/rh-model`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            nodeId: id,
+            nodeLabel: String(node.data.label || ''),
+            prompt,
+            ...rhValues,
+            watermark: node.data.rhModelWatermark === 'on',
+            /*
+             * 三路素材**全都传过去**，由服务端按这一档模型的规格挑：
+             * 给「图生视频」那档塞九张图没有意义（它只认 `firstFrameUrl` 一张），
+             * 给「文生视频」那档塞任何素材都会被上游**静默忽略** ——
+             * 那正是这一层必须在服务端裁掉、而不是在这里猜的原因。
+             */
+            imageUrls,
+            videoUrls: videoInputs,
+            audioUrls: audioInputs,
+            /*
+             * 首尾帧（`i2va` 那两档）：连上来的**头两张图**依次当首帧、尾帧。
+             * 其余档不收这两个字段，服务端会按这一档的规格丢掉 —— 多传无害，
+             * 少传才会出问题，所以这里一律带上，把「这一档到底用不用」交给规格表判断。
+             */
+            firstFrameUrl: imageUrls[0],
+            lastFrameUrl: imageUrls[1],
+          }),
+        }));
+        patch(id, { result: '任务已提交' });
+        void poll(body.taskId, id, String(node.data.label || '视频'), {
+          externalTaskId: body.externalTaskId,
+          workflowId: body.workflowId,
+        });
+      } catch (error) {
+        patch(id, { status: 'failed', result: error instanceof Error ? error.message : '提交失败' });
+      }
+      return;
+    }
     /**
      * 拦下来之后要**说清是哪种原因**。链断了却报「尚未上传完成」，
      * 用户会一直重新上传一个本来就没问题的文件，而且怎么传都不会好。
@@ -3218,9 +3269,10 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       const workflowId = String(node.data.workflowId || '').trim()
         || String(upstream.find(item => item.data.kind === 'workflow')?.data.workflowId || '').trim()
         || (isApp ? '' : defaultWorkflowIdFor(purpose));
-      /* 自定义接口 / 视频网关那两档不经过工作流（`generate()` 里也是在选工作流之前就分出去了）。 */
+      /* 自定义接口 / 视频网关 / 模型直调那三档不经过工作流（`generate()` 里也是在选工作流之前就分出去了）。 */
       const needsWorkflow = !(isImage && imageEngine === 'custom')
-        && !(node.data.kind === 'video-generate' && (videoEngine === 'custom' || videoEngine === 'videoapi'));
+        && !(node.data.kind === 'video-generate'
+          && (videoEngine === 'custom' || videoEngine === 'videoapi' || videoEngine === 'rh-model'));
       const customModel = String(node.data.customModel || '').trim();
       /** 首尾帧没提取是**用户该手动做掉**的前置动作（那个节点不参与生成顺序），值得提前说。 */
       const frameMissing = upstream.find(item => item.data.kind === 'frame-extract' && referenceUrlsOf(item.data).length === 0);
@@ -3236,6 +3288,22 @@ function Studio({ projectId, projectName, initial, seed, seedPrompt }: { project
       if (node.data.kind === 'video-generate' && videoEngine === 'videoapi'
         && !String(node.data.videoApiModel || '').trim()) {
         problems.push({ id: node.id, label, why: '视频网关还没选模型' }); continue;
+      }
+      /*
+       * 模型直调：模型**必填**（这一档没有「留空用 .env 那个」的兜底）。
+       * 顺带把参数也按同一份定义自查一遍 —— 时长填了 30 秒这种，在这里说比提交后被拒好懂得多。
+       */
+      if (node.data.kind === 'video-generate' && videoEngine === 'rh-model') {
+        if (!String(node.data.rhModel || '').trim()) {
+          problems.push({ id: node.id, label, why: 'RunningHub 模型还没选' }); continue;
+        }
+        const badRh = validateRhModelParams({
+          model: String(node.data.rhModel || ''),
+          duration: String(node.data.rhModelDuration || RH_MODEL_DEFAULTS.duration),
+          resolution: String(node.data.rhModelResolution || RH_MODEL_DEFAULTS.resolution),
+          aspectRatio: String(node.data.rhModelRatio || RH_MODEL_DEFAULTS.ratio),
+        });
+        if (badRh) { problems.push({ id: node.id, label, why: badRh }); continue; }
       }
       if (frameMissing) {
         problems.push({

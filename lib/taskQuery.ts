@@ -5,7 +5,10 @@ import { failureDetailOf, remoteStatusOf } from '@/lib/taskRemote';
 import { queryTask } from '@/lib/providers/runninghub/client';
 import { queryWebAppOutputs } from '@/lib/providers/runninghub/webapp';
 import { webAppIdOf } from '@/lib/workflows/runninghubApp';
-import { resolveRunningHub } from '@/lib/providers/runninghub/connection';
+import {
+  resolveRunningHub, resolveRhModelCredentials, rhModelKeyMissingMessage,
+} from '@/lib/providers/runninghub/connection';
+import { queryRhModel } from '@/lib/providers/runninghub/model';
 import { missingCredentialsMessage, resolveVideoApiCredentials } from '@/lib/providers/resolve';
 import { queryVideoApi } from '@/lib/providers/videoapi/client';
 import { queryCustomVideo } from '@/lib/providers/custom/client';
@@ -87,6 +90,13 @@ export async function pollTaskOnce(userId: string, task: PollableTask): Promise<
   const isVideoApi = task.provider === 'videoapi';
   const isCustom = task.provider === 'custom';
   const isLocal = task.provider === 'local';
+  /*
+   * 🔴 RunningHub **模型直调**必须在这里单独认出来：下面那个 `else` 是
+   * 「其余一律按 RunningHub 工作流查」的兜底。漏掉这一行的后果不是报错，
+   * 而是拿工作流的消费级 Key 去查一个模型任务号 —— 任务**永远停在 running**，
+   * 界面上只有一个转圈，积分已经扣了。
+   */
+  const isRhModel = task.provider === 'rh-model';
   let remote: { status: string; results?: { url: string; outputType?: string }[]; errorMessage?: string } | null = null;
   let notice: string | null = null;
 
@@ -121,6 +131,14 @@ export async function pollTaskOnce(userId: string, task: PollableTask): Promise<
       const creds = await resolveVideoApiCredentials(userId);
       if (!creds) notice = missingCredentialsMessage('视频网关', 'VIDEO_API_KEY');
       else remote = await queryVideoApi(externalId, creds);
+    } else if (isRhModel) {
+      /*
+       * 模型直调：**重新读一次企业级凭据**（提交与查询隔着整个轮询周期，用户可能中途换了 key），
+       * 走 `/openapi/v2/query` —— 与工作流同一个查询端点，所以用同一把企业级 Key 就够。
+       */
+      const creds = await resolveRhModelCredentials(userId);
+      if (!creds) notice = rhModelKeyMissingMessage();
+      else remote = await queryRhModel(externalId, creds);
     } else if (isCustom) {
       /*
        * 凭据的**定位信息在 task.input.model 里**（`<providerId>::<modelId>`），

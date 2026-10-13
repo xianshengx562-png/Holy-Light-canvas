@@ -45,7 +45,18 @@
  * 服务端校验都要同一份定义，回归脚本也要能直接加载它。
  */
 
-export const VIDEO_ENGINES = ['runninghub', 'local', 'videoapi', 'custom'] as const;
+/**
+ * `rh-model`（2026-10-11 徐先）：**RunningHub 标准模型 API** —— 点名一个模型直接出片，
+ * 不经过 ComfyUI 节点图。
+ *
+ * 与 `videoapi`（通用视频网关）的区别：那一份是「换个网关改 .env」的通用适配，
+ * 这一份是照 RunningHub 家实测出来的规格（分辨率只有 2K / 768P、时长 5~15 秒、
+ * 参考素材收 URL 而不是字节），而且**用的是另一把 Key**（企业级-共享，见
+ * `lib/providers/runninghub/connection.ts` 的 `resolveRhModelCredentials`）。
+ *
+ * 所以它**不并入 `videoapi`**：那份的档位套不到这一家身上，硬套会在「明明能跑的组合」上报警。
+ */
+export const VIDEO_ENGINES = ['runninghub', 'local', 'videoapi', 'rh-model', 'custom'] as const;
 
 export type VideoEngine = (typeof VIDEO_ENGINES)[number];
 
@@ -100,6 +111,11 @@ export const VIDEO_ENGINE_OPTIONS: { value: VideoEngine; label: string; hint: st
   { value: 'runninghub', label: 'RunningHub', hint: '用 RunningHub 上保存的工作流出片，支持 latent 接续；算力在云端，按点扣费' },
   { value: 'local', label: '本地 ComfyUI', hint: '用本机 ComfyUI 的工作流出片，支持 latent 接续；图与算力都在自己这边，不扣费' },
   { value: 'videoapi', label: '视频网关', hint: '直连一个通用视频生成 API，参数是模型 / 时长 / 分辨率 / 比例；不经过工作流、没有接续' },
+  {
+    value: 'rh-model',
+    label: 'RunningHub 模型',
+    hint: '点名一个 RunningHub 官方模型直接出片（如 H3），参数只有提示词 / 分辨率 / 时长 / 比例；不经过工作流、没有 latent 接续，且**用的是企业级 Key**',
+  },
   { value: 'custom', label: '自定义接口', hint: '走你在「设置 · 模型服务」里添加的自定义接口，提交后轮询拿结果；模型与计费都由那家决定' },
 ];
 

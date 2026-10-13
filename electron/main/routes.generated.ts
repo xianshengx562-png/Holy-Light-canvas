@@ -98,6 +98,11 @@ import * as m81 from '@/server/api/canvas-media/route';
 import * as m82 from '@/server/api/canvas-media/[projectId]/[file]/route';
 import * as m83 from '@/server/api/assets/[id]/path/route';
 import * as m84 from '@/server/api/tools/media-split/route';
+import * as m85 from '@/server/api/projects/[id]/rh-model/route';
+/* 2026-10-12 手工补的三条（站点账号：应用内注册 / 发验证码 / 自动开通）。生成器下次重跑时要确认没被冲掉。 */
+import * as m86 from '@/server/api/site-account/register/route';
+import * as m87 from '@/server/api/site-account/register/send-code/route';
+import * as m88 from '@/server/api/site-account/provision/route';
 
 export type RouteEntry = {
   /** `/api/projects/[id]/canvas` 这样的原始模式，报错信息里要用 */
@@ -257,6 +262,12 @@ export const ROUTES: RouteEntry[] = [
     regex: /^\/api\/projects\/([^\/]+)\/videoapi$/,
     keys: ['id'],
     mod: m22 as unknown as ApiModule,
+  },
+  {
+    pattern: '/api/projects/[id]/rh-model',
+    regex: /^\/api\/projects\/([^\/]+)\/rh\-model$/,
+    keys: ['id'],
+    mod: m85 as unknown as ApiModule,
   },
   {
     pattern: '/api/projects/[id]/runs',
@@ -633,5 +644,23 @@ export const ROUTES: RouteEntry[] = [
     regex: /^\/api\/tools\/media\-split$/,
     keys: [],
     mod: m84 as unknown as ApiModule,
+  },
+  {
+    pattern: '/api/site-account/register',
+    regex: /^\/api\/site\-account\/register$/,
+    keys: [],
+    mod: m86 as unknown as ApiModule,
+  },
+  {
+    pattern: '/api/site-account/register/send-code',
+    regex: /^\/api\/site\-account\/register\/send\-code$/,
+    keys: [],
+    mod: m87 as unknown as ApiModule,
+  },
+  {
+    pattern: '/api/site-account/provision',
+    regex: /^\/api\/site\-account\/provision$/,
+    keys: [],
+    mod: m88 as unknown as ApiModule,
   },
 ];

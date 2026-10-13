@@ -34,7 +34,7 @@ import RunningHubKeyForm from './RunningHubKeyForm';
 import { apiDelete, apiGet, apiPatch, apiPost } from '@/lib/client';
 import type { ConnectionView } from '@/lib/providers/runninghub/connection';
 import {
-  applySiteAccount, fetchSiteAccount, formatYuan, useSiteAccount, type SiteAccountView,
+  applySiteAccount, fetchSiteAccount, useSiteAccount, type SiteAccountView,
 } from '@/lib/site-account';
 
 /** 用途三段。与 `CustomModelKind` 同值 —— 节点引擎只看 image / video。 */
@@ -1491,7 +1491,6 @@ export default function ModelServices({ initial, reload }: { initial: ModelServi
           {site.loginName && site.username !== site.loginName ? `（登录名 ${site.loginName}）` : ''}
           {' · '}<code>{site.baseUrl}</code>
           {site.group ? ` · 分组 ${site.group}` : ''}
-          {' · '}余额 <strong data-ms-site-balance>{formatYuan(site.remainingYuan)}</strong>
         </p>
         <div className="key-actions">
           <button className="button secondary" disabled={busy !== ''} data-ms-site-switch

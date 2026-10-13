@@ -1,0 +1,38 @@
+{
+  "name": "holy-light-canvas-mobile",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Holy Light画布 安卓端 —— 只做「调用 API 生图」：填提示词 → 出图 → 保存 / 复制链接",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "smoke": "esbuild src/providers/customHttp.ts --bundle --platform=node --format=cjs --outfile=node_modules/.cache/smoke-http.cjs --log-level=error && esbuild src/providers/generateImage.ts --bundle --platform=node --format=cjs --outfile=node_modules/.cache/smoke-gen.cjs --log-level=error && node scripts/smoke.cjs",
+    "cap:sync": "npm run build && npx cap sync",
+    "android:run": "npm run build && npx cap sync android && npx cap run android"
+  },
+  "dependencies": {
+    "@capacitor-community/media": "^8.0.1",
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/app": "^7.0.0",
+    "@capacitor/core": "^7.0.0",
+    "@capacitor/filesystem": "^7.0.0",
+    "@capacitor/haptics": "^7.0.0",
+    "@capacitor/keyboard": "^7.0.0",
+    "@capacitor/preferences": "^7.0.0",
+    "@capacitor/share": "^7.0.0",
+    "@capacitor/status-bar": "^7.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.6.0",
+    "vite": "^6.0.0"
+  }
+}

@@ -24,6 +24,18 @@
 export type ProviderId =
   | 'runninghub'
   | 'runninghub-ai'
+  /**
+   * RunningHub 的**企业级-共享 Key**（2026-10-11 徐先）。
+   *
+   * 🔴 与上面那两把**不是同一类凭据**，只是同一家：标准模型 API（`/openapi/v2/<模型路径>`）
+   * **只认企业级-共享 Key**，消费级-会员那把打过去是
+   * `1014 Access Denied: Standard Model API is restricted to Enterprise-Shared API Keys only.`（实测）。
+   * 而工作流 API 两把都能用 —— 所以「填了工作流那把」不代表能调模型。
+   *
+   * 徐先定的口径是**两把分开配**，所以它是池子里独立的一家，不与国内站那把互相兜底：
+   * 混在一起的话，「我明明填了 Key，模型却说没权限」这种事会从界面上完全看不出来。
+   */
+  | 'runninghub-enterprise'
   | 'videoapi'
   /** 以下六家只做文本（提示词优化），不产生图片 / 视频。 */
   | 'doubao'
@@ -100,6 +112,18 @@ export const PROVIDERS: ProviderMeta[] = [
     needsBaseUrl: true,
     needsModel: false,
     envKeyName: 'RUNNINGHUB_AI_API_KEY',
+    probe: 'endpoint',
+  },
+  {
+    id: 'runninghub-enterprise',
+    label: 'RunningHub 模型直调',
+    summary: '模型 API（H3 等）专用 —— **必须是企业级-共享 Key**，消费级那把调不动（1014）',
+    kind: 'media',
+    storage: 'pool',
+    needsBaseUrl: true,
+    needsModel: false,
+    envKeyName: 'RUNNINGHUB_ENTERPRISE_API_KEY',
+    baseUrlEnvName: 'RUNNINGHUB_API_BASE_URL',
     probe: 'endpoint',
   },
   {
@@ -195,9 +219,22 @@ export const PROVIDERS: ProviderMeta[] = [
  * `runninghub` / `runninghub-ai` 不在里面，是因为它们是
  * **工作流类**：图片节点与视频节点用的是同一把 Key、同一个站点切换，归到任何一段
  * 都会让人以为「另一段得再配一次」。界面上它们单独摆，并写明两段共用。
+ *
+ * 🔴 **漏在这张表外 = 界面上根本没有填 Key 的地方**（2026-10-12 真踩到）：
+ *    设置页是 `for (const meta of PROVIDERS) { const group = MEDIA_GROUP[meta.id]; if (!group) continue; }`
+ *    这么过滤的 —— 一家 `kind: 'media'` 的服务即使进了 `PROVIDERS`（能进密钥池、
+ *    `pickKey` 也取得到），**只要不在这张表里，那一栏就一行都不渲染**。
+ *    于是「RunningHub 模型直调」这家从 2026-10-11 加进来就一直是隐形的：
+ *    引擎下拉里能选它、一提交报「还没配置 API Key」，而用户翻遍设置页也找不到地方填。
+ *    加新的 media 服务时，**这两处必须一起加**。
  */
 export const MEDIA_GROUP: Partial<Record<ProviderId, 'image' | 'video'>> = {
   videoapi: 'video',
+  /*
+   * 归**视频**段：这一档现在接的六档全是视频模型（MiniMax H3 四档 + RH 增强 t2va / i2va）。
+   * 与视频网关是两家、两把 Key，不要合并。
+   */
+  'runninghub-enterprise': 'video',
 };
 
 /**

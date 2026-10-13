@@ -2,7 +2,9 @@ import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { api, apiUser, ApiError, checkOrigin, jsonBody } from '@/lib/api';
 import { db } from '@/lib/db';
-import { applyDefaultBindings, configurationSchema, workflowJsonToFields } from '@/lib/workflows/configuration';
+import {
+  applyDefaultBindings, canvasControlsSchema, configurationSchema, EMPTY_CANVAS_CONTROLS, workflowJsonToFields,
+} from '@/lib/workflows/configuration';
 import { defaultConfiguration, defaultWorkflowId } from '@/lib/workflows/defaults';
 import { getWorkflowJson } from '@/lib/providers/runninghub/client';
 import { getWebAppInfo } from '@/lib/providers/runninghub/webapp';
@@ -21,6 +23,25 @@ import {
 import { enrichFieldOptions } from '@/lib/workflows/fieldOptions';
 
 type Context = { params: Promise<{ workflowId: string }> };
+
+/**
+ * 草稿里存的**画布控件**（开关 / 数字滑块 / 自定义参数分类）（2026-10-12）。
+ *
+ * 🔴 这一趟必须把 `controls` 一起带回去 —— 2026-10-12 徐先报「开关配好了，再回到配置页
+ *    开关就没了」：PATCH 存的是整份 `config`（含 `controls`），而 GET 只回了 `{ fields }`，
+ *    于是客户端 `configurationSchema.parse` 把缺的那一块**补成空的那一份**
+ *    （`canvasControlsSchema` 有默认值）—— 界面上就是「我明明配过，它凭空消失了」，
+ *    而库里其实一直存得好好的。属于「两处用不同的形状读同一份数据」这类静默丢失。
+ *
+ * 单独按 `canvasControlsSchema` 解析、不整份 `configurationSchema.parse`：
+ * 字段那一块上面已经换过来源（可能来自图 / 云端 / 应用），拿整份去解析会因为
+ * 字段一时的形状不合法而把**本来好好的控件**也一起判成没有。
+ */
+function controlsOfConfig(config: unknown): Record<string, unknown> {
+  if (!config || typeof config !== 'object') return EMPTY_CANVAS_CONTROLS;
+  const parsed = canvasControlsSchema.safeParse((config as { controls?: unknown }).controls);
+  return parsed.success ? parsed.data : EMPTY_CANVAS_CONTROLS;
+}
 /*
  * 以前这里只认纯数字（RunningHub 的 ID 就是数字）。现在本地工作流带 `local-` 前缀，
  * 共用同一个 URL 段，判断统一交给 `lib/workflows/local.ts` —— 那一处同时被界面用来
@@ -139,7 +160,9 @@ export async function GET(request: Request, context: Context) {
     const enriched = await enrichFieldOptions(configFields, user.id);
     configFields = enriched.fields;
     return Response.json({
-      config: { fields: configFields },
+      /* 🔴 `controls` 必须一起回（理由见 `controlsOfConfig` 那条注释）：只回 fields 的话，
+       *    配过的开关 / 滑块 / 自定义参数分类在重新打开配置页时会整块消失。 */
+      config: { fields: configFields, controls: controlsOfConfig(draft?.config) },
       version: draft?.version ?? -1,
       /* 这份工作流跑在哪：本机 ComfyUI / RunningHub。界面据此显示来源与「换图」入口。 */
       provider: draft ? readWorkflowProvider(draft.provider) : askedProvider,

@@ -34,7 +34,6 @@ import {
 import { apiPost, useApi, useSession } from '@/lib/client';
 import { customEngineVisible } from '@/lib/providers/custom-visible';
 /* 出图结束时顺手刷站点余额（走自定义接口那一档才真花钱）。 */
-import { refreshSiteAccount } from '@/lib/site-account';
 import { pollDelayMs } from '@/lib/taskPoll';
 import '@/app/image-studio.css';
 import StarFlow from '@/components/ui/StarFlow';
@@ -382,10 +381,9 @@ export default function ImageStudio() {
       /** 新图已落进固定项目，历史栏跟着刷一次。 */
       reloadAssets();
       /*
-       * 余额刷一次（2026-09-28）。只有 `custom` 那一档可能走站点中转账号 ——
-       * RunningHub / 本机 ComfyUI 都不碰站点余额，不判这一下就是白打站点。
+       * 🔴 2026-10-13：这里原来在生成结束后刷一次站点余额（只有 `custom` 那一档可能走站点）。
+       * 余额不显示了 → 这一趟也去掉了，别白打站点（那边是同一 IP 20 次 / 20 分钟）。
        */
-      if (engine === 'custom') void refreshSiteAccount();
     } catch (e) {
       setError(e instanceof Error ? e.message : '生成失败。');
       setStatus('');

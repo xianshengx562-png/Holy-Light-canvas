@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.DS_Store
+*.local
+
+# 安卓工程里 Gradle / IDE 生成的那些不进库（android/ 本身是要进库的）
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+*.iml

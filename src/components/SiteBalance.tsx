@@ -1,41 +1,41 @@
 'use client';
 
 /*
- * 站点余额 —— **每一页**页头的右上角（2026-09-25）。
+ * 账号卡 —— **每一页**页头的右上角（2026-09-25 加，2026-10-13 去掉余额）。
+ *
+ * 🔴 **2026-10-13 口径翻转**：徐先「还是不要显示余额了」→ 这张卡里的金额去掉，
+ *    **连带把「每 2 分钟问一次站点」那趟也停了**。理由：那趟请求的唯一目的就是
+ *    显示余额，不显示就没有理由去打站点 —— 站点那边是「同一 IP、20 次 / 20 分钟」，
+ *    而余额那趟一直是最大的一笔开销（比续期登录还多）。
+ *    现在只剩「打开用户页 / 模型服务页时读一次」那种**用户自己触发**的读。
+ *    ⚠️ 要加回来时，别只加回 `<strong>`，那趟轮询也得跟着加回来 —— 只显示不刷新
+ *    等于显示一个永远不动的旧数字，比不显示更糟。
  *
  * 为什么用 portal 挂进 `.workspace-header` 而不是在每个页面里各放一次：
  * 有 `.workspace-header` 的页面有十来个，而且它们的右端各不相同（「返回项目」、
  * 「新建项目」、首页那颗头像）。逐个塞进去要改十几个文件，将来新增一页还得记得再塞一次 ——
- * 漏掉的表现是「这一页没余额」，而没人会想到是忘了写这一行。
+ * 漏掉的表现是「这一页没有账号卡」，而没人会想到是忘了写这一行。
  * 挂在页头容器里（而不是 `position: fixed` 悬浮）还有个好处：它是 flex 的**最后一个**孩子，
  * 位置由浏览器排，永远不会压到已有的按钮上。
  *
- * 既没有身份（本机用户 / 站点账号）又没有余额时**整个不渲染**（不是显示一个空壳）——
- * 「没有登录就不显示」这条还在。⚠️ 2026-10-02 之后它是一张**账号卡**（头像 + 名称 + 余额），
- * 所以判据成了「有身份或有余额」，不再单看站点登录状态（理由见下面那段注释）。
+ * 没身份（本机用户 / 站点账号都没有）时**整个不渲染**（不是显示一个空壳）。
+ * 2026-10-02 之后它是一张**账号卡**（之前是「站点余额 ¥9.95 | xxs」），
+ * 所以判据不再单看站点登录状态 —— 卡里带着头像，不能因为「站点掉线」把身份也藏掉。
  *
- * 数据来自 `lib/site-account.ts` 那个共享 store：侧栏 / 用户页读的是同一份，
- * 全站只往站点打一趟（那边有 20 次 / 20 分钟的 IP 限流）。
+ * 数据来自 `lib/site-account.ts` 那个共享 store：侧栏 / 用户页读的是同一份，全站只读一趟。
  */
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { usePathname } from '@/shims/router';
 import { useSession } from '@/lib/client';
 import UserAvatar from '@/components/UserAvatar';
-import { formatYuan, refreshSiteAccount, siteCooldownUntil, useSiteAccount } from '@/lib/site-account';
-import { nextPollDelayMs } from '@/lib/providers/site-errors';
+import { useSiteAccount } from '@/lib/site-account';
 
 /**
  * 页头是**随路由换掉**的：hash 一变，旧节点就没了，得重新找。
  * 而且页面里有懒加载的内容，节点可能晚一两帧才出现，所以换路由后再补找几次。
  */
 const RETRY_MS = [80, 300, 900];
-
-/**
- * 余额轮询间隔（2026-09-28）。
- * 站点那边「同一 IP、20 次 / 20 分钟」的限流下，2 分钟是「够新」与「够省」的折中。
- */
-const BALANCE_POLL_MS = 120_000;
 
 /**
  * 往哪儿挂。
@@ -86,72 +86,35 @@ export default function SiteBalance() {
   }, [pathname]);
 
   /*
-   * 余额自动刷新（2026-09-28）。
+   * 🔴 2026-10-13：**这里原来挂着一个「每 2 分钟 + 回前台就刷余额」的 effect，删了。**
    *
-   * 站点没有「余额变了主动推给你」这种接口，只能我们定时去问。三个时机：
-   *   - **窗口回前台**（`visibilitychange` / `focus`）：最可能刚在别处花完钱，回来第一眼就该是新的。
-   *   - **每 2 分钟一趟**：兜住「页面一直挂着，别的地方扣了费」。
-   *   - **生成结束**：那两处在画布 / 图片工作室里调（只有真走站点的自定义接口才调）。
-   * 窗口在后台（包括被收进系统托盘）时**跳过**定时那一趟 —— 看不见的窗口还一直打站点，
-   * 纯属白撞那边 20 次 / 20 分钟的限流。
+   * 那趟请求的唯一目的就是让页头那个数字保持新鲜。余额不显示了，它就成了纯消耗 ——
+   * 站点那边是「同一 IP、20 次 / 20 分钟」，而它一直是账上最大的一笔
+   * （每 20 分钟 10 趟，比续期登录那 1~2 趟多得多）。
    *
-   * ⚠️ 这个 effect 必须写在上面那句 `return null` **之前**：未登录时组件确实不渲染任何东西，
-   *    但定时器不能跟着停 —— 用户一登录就该按新节奏刷起来。
+   * ⚠️ 余额现在只在**用户自己打开**「用户页 / 模型服务页」时读一次
+   *    （那条走的是 `/api/site-account` 全量读，顺带拿令牌清单）。
+   *
+   * ⚠️ 要恢复显示，别只把 `<strong>` 加回来 —— 轮询也得一起加回来，
+   *    否则页头会挂着一个永远不动的旧数字，比不显示更糟。
    */
-  useEffect(() => {
-    let timer = 0;
-    let stopped = false;
-    /*
-     * ⚠️ 改成「跑完一趟再排下一趟」，不再是固定间隔的 setInterval：
-     *    撞上限流时后端会带回「歇到什么时候」（`siteCooldownUntil`），
-     *    那一趟的间隔必须跟着拉长。固定 2 分钟的话，界面上刚跟用户说「等两三分钟」，
-     *    我们自己却还在每 2 分钟撞一次 —— 等于把用户按在限流里出不来。
-     */
-    const schedule = () => {
-      if (stopped) return;
-      const wait = nextPollDelayMs(BALANCE_POLL_MS, siteCooldownUntil(), Date.now());
-      timer = window.setTimeout(() => {
-        if (document.visibilityState === 'visible') void refreshSiteAccount();
-        schedule();
-      }, wait);
-    };
-    const tick = () => {
-      /* 冷却中 `refreshSiteAccount` 自己会跳过，这里不用再判一次。 */
-      if (document.visibilityState === 'visible') void refreshSiteAccount();
-    };
-    document.addEventListener('visibilitychange', tick);
-    window.addEventListener('focus', tick);
-    schedule();
-    return () => {
-      stopped = true;
-      window.clearTimeout(timer);
-      document.removeEventListener('visibilitychange', tick);
-      window.removeEventListener('focus', tick);
-    };
-  }, []);
 
   if (!host) return null;
 
   /*
-   * 2026-10-02 徐先：「这里的卡片结合，分为头像和名称和余额（余额只显示数值，
-   * 不用加上站点余额的文字）」。于是这块从「站点余额 ¥9.95 | xxs」变成**账号卡**：
-   * 头像 + 名称 + 余额，三段一张卡；「站点余额」四个字只留在 title 提示里。
+   * 2026-10-02 徐先：「这里的卡片结合，分为头像和名称和余额……」
+   * 2026-10-13 徐先：「还是不要显示余额了」→ 金额那一段去掉，卡片回到 **头像 + 名称**。
    *
-   * 🔴 渲染条件跟着放宽了：原来是「没登录站点就整个不渲染」——
-   *    现在卡里带着头像，不能因为「站点掉线 / 还没配站点」把**身份**也一起藏掉。
-   *    只要有身份就渲染；余额那一段取不到就**整段不出现**（不是显示 ¥—）。
-   *    桌面版 `useSession()` 永远给得出本机用户，所以头像不会再消失。
+   * 🔴 渲染条件是「有身份就渲染」—— 卡里带着头像，不能因为「站点掉线 / 还没配站点」
+   *    把**身份**也一起藏掉。桌面版 `useSession()` 永远给得出本机用户，所以头像不会消失。
    */
   const who = site?.username || site?.loginName || user?.name || '';
-  const hasBalance = !!site?.loggedIn;
-  if (!who && !hasBalance) return null;
+  if (!who) return null;
 
   const title =
-    (hasBalance ? '站点余额' + (who ? ' · ' : '') : '') +
     who +
     (site ? ` · ${site.baseUrl}` : '') +
     (site?.group ? ` · 分组 ${site.group}` : '') +
-    (site ? ` · 按 ${site.quotaPerYuan} quota = ¥1 换算` : '') +
     (site?.error ? `\n${site.error}` : '');
 
   return createPortal(
@@ -163,8 +126,7 @@ export default function SiteBalance() {
         className="site-balance-avatar"
         attrs={{ 'data-avatar': 'balance' }}
       />
-      {who && <span className="site-balance-who" data-site-balance-who>{who}</span>}
-      {hasBalance && <strong data-site-balance-value>{formatYuan(site.remainingYuan)}</strong>}
+      <span className="site-balance-who" data-site-balance-who>{who}</span>
     </div>,
     host,
   );

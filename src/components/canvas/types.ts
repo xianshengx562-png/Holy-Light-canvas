@@ -465,7 +465,13 @@ export type NodeData = {
    * 所以这里必须把老值也写进联合类型，否则老画布反序列化出来对不上。
    * 没这个字段（更老的画布）一律按 `'runninghub'`，跟加引擎之前的行为一致。
    */
-  engine?: 'runninghub' | 'local' | 'videoapi' | 'workflow' | 'custom';
+  /**
+   * 2026-10-11 加第五档 `rh-model`（RunningHub 标准模型 API，点名一个官方模型直接出片）。
+   * 它**不并入 `videoapi`**：那份是「换个网关改 .env」的通用适配，这一份是照 RunningHub 家
+   * 实测出来的规格（分辨率只有 2K / 768P、时长 5~15 秒），而且**用的是另一把 Key**
+   * （企业级-共享，见 `lib/providers/runninghub/connection.ts`）。
+   */
+  engine?: 'runninghub' | 'local' | 'videoapi' | 'rh-model' | 'workflow' | 'custom';
   /**
    * RunningHub 的**运行规格** —— 这一发跑在多大的机器上（2026-09-30）。
    *
@@ -597,6 +603,26 @@ export type NodeData = {
   videoApiDuration?: string;
   videoApiResolution?: string;
   videoApiRatio?: string;
+  /**
+   * RunningHub 模型直调（`rh-model` 引擎）的四个参数。值域在 `lib/workflows/rhModelParams.ts`。
+   *
+   * 又是一套**独立的**参数字段，理由同上面那两批：切引擎不能把上一套的值带过去
+   * （`videoApiResolution` 里的 `'720p'` 在模型直调里根本不存在，会是 `768P` / `2K`）。
+   *
+   * 🔴 `rhModel` **必填**（没有「留空用 .env 那个」的兜底）：这一档必须在请求里点名一个模型路径，
+   *    凭空猜一个等于把活交给另一档模型，而产出不符是静默的。
+   */
+  rhModel?: string;
+  rhModelDuration?: string;
+  rhModelResolution?: string;
+  rhModelRatio?: string;
+  /**
+   * AIGC 水印。`'on'` = 加；不写 / 别的字一律按不加。
+   *
+   * 存**档位字符串**而不是布尔，跟 `continuationEnabled` 一个惯例 ——
+   * `onField` 只收字符串，而且老节点身上没有这个字段时必须是「不加」而不是 `undefined`。
+   */
+  rhModelWatermark?: string;
   /**
    * 中转节点解析出来的实际值：自己选了归档或上传了文件就用自己的，否则透传上游那个 latent。
    * 只在 `hydrated` 里算，不写库。

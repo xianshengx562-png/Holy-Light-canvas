@@ -13,7 +13,7 @@
  * 所以这里只留一份缓存、同一时刻只有一个 in-flight。
  */
 import { useEffect, useSyncExternalStore } from 'react';
-import { apiGet } from '@/lib/client';
+import { apiGet, apiPost } from '@/lib/client';
 
 export type SiteAccountToken = {
   /** 站点令牌表里的 id。换完整密钥时要用它（列表里那把 key 是打码的）。 */
@@ -156,10 +156,10 @@ export function siteCooldownUntil(): number {
 let refreshTimer: number | null = null;
 let refreshing: Promise<void> | null = null;
 
-function runRefresh(): Promise<void> {
+function runRefresh(force = false): Promise<void> {
   if (refreshing) return refreshing;
   refreshAt = Date.now();
-  refreshing = apiGet<{ balance: SiteBalanceView }>('/api/site-account/refresh')
+  refreshing = apiGet<{ balance: SiteBalanceView }>(force ? '/api/site-account/refresh?force=1' : '/api/site-account/refresh')
     .then((out) => {
       /* 站点说「慢点」就真慢下来：撞上限流时后端会把「歇到什么时候」带回来。 */
       cooldownUntil = Number(out.balance.cooldownUntil || 0);
@@ -184,14 +184,27 @@ function runRefresh(): Promise<void> {
 /**
  * 静默刷一次余额。
  *
- * 三个时机都会调它：生成落终态（画布 / 图片工作室）、窗口回前台、页面开着时每 2 分钟一趟。
- * 三条纪律：
+ * 🔴⚠️ **2026-10-13 起暂时没有人调它了** —— 徐先说「还是不要显示余额了」，
+ *    于是页头那张卡不再显示金额，跟着砍掉的三个调用点：
+ *      ① 页头每 2 分钟 + 回前台那趟（`SiteBalance.tsx` 里整个 effect 删了）；
+ *      ② 生成落终态那趟（`CanvasEditor.patch`）；
+ *      ③ 图片工作室生成结束那趟（`ImageStudio`）。
+ *
+ * 留着它而不是删掉：`/api/site-account/refresh` 和 `lib/providers/site-guard.ts`
+ * 的余额闸门都还在，**要把余额加回来时，这三个调用点得一起加回来**
+ * （只加显示不加刷新 = 页头挂着一个永远不动的旧数字，比不显示更糟）。
+ *
+ * 三条纪律（加回来时照旧）：
  *  1. **不置 loading** —— 页头上那行数字不能因为刷新闪一下。
  *  2. **失败不报错** —— 站点抖一下不该在界面上升级成错误。
  *  3. **8 秒内不重复打，但不丢最后一次** —— 批量跑十几个节点会连着落十几个终态，
  *     真打十几趟站点，一轮就能撞掉 20 次 / 20 分钟的限流。
+ *
+ * `force` 的意思是**穿透后端那道「最短 3 分钟」的闸门**（见 `lib/providers/site-guard.ts`）：
+ * 给「刚跑完一次生成」和「用户自己点刷新」用 —— 那是用户唯一会盯着余额看的时刻。
+ * 别为了省请求把 `force` 用在轮询上：一 force 闸门就白设了。
  */
-export function refreshSiteAccount(): Promise<void> {
+export function refreshSiteAccount(force = false): Promise<void> {
   /* 全量那趟正在飞的时候不用再刷 —— 它带回来的就是最新的。 */
   if (inflight) return inflight;
   if (!snapshot.site?.loggedIn) return Promise.resolve();
@@ -202,12 +215,12 @@ export function refreshSiteAccount(): Promise<void> {
     if (refreshTimer === null) {
       refreshTimer = window.setTimeout(() => {
         refreshTimer = null;
-        void runRefresh();
+        void runRefresh(force);
       }, wait);
     }
     return Promise.resolve();
   }
-  return runRefresh();
+  return runRefresh(force);
 }
 
 /**
@@ -232,6 +245,54 @@ export function fetchSiteAccount(force = false): Promise<void> {
       inflight = null;
     });
   return inflight;
+}
+
+/* ---------------- 应用内注册 + 自动开通（2026-10-12） ---------------- */
+
+/**
+ * 后端那一趟的结果（`provisionSiteProviders` 的返回值）。
+ *
+ * 与 `lib/providers/site.ts` 那份**靠字段名对齐**（后端是 `server-only`，这里 import 不到运行时）。
+ */
+export type SiteProvisionView = {
+  tokenId: number;
+  created: { id: string; name: string; kind: 'image' | 'video' | 'text'; models: number }[];
+  skipped: { kind: 'image' | 'video' | 'text'; why: string }[];
+  trace: string[];
+};
+
+/**
+ * 注册第一步：让站点发一封带验证码的邮件。
+ *
+ * ⚠️ 回 `sent:true` 只能说明站点接了这趟请求 —— 站点对不存在的邮箱也回成功。
+ *    界面上的措辞要留余地，别写成「已发送」。
+ */
+export async function sendSiteEmailCode(
+  baseUrl: string, email: string,
+): Promise<{ sent: boolean; error: string }> {
+  return await apiPost<{ sent: boolean; error: string }>('/api/site-account/register/send-code', {
+    baseUrl: baseUrl.trim(),
+    email: email.trim(),
+  });
+}
+
+/** 注册 → 登录 → 自动建令牌 → 按用途建接口。开通失败不会把注册一起回滚。 */
+export async function registerSiteAccount(input: {
+  baseUrl: string; username: string; password: string; email: string; code: string;
+}): Promise<{ site: SiteAccountView | null; provision: SiteProvisionView | null; provisionError: string }> {
+  return await apiPost('/api/site-account/register', {
+    baseUrl: input.baseUrl.trim(),
+    username: input.username.trim(),
+    password: input.password,
+    email: input.email.trim(),
+    code: input.code.trim(),
+  });
+}
+
+/** 已登录但还没开通（或上次开通挂在半路）时，单独补一次。幂等。 */
+export async function provisionSiteAccount(): Promise<SiteProvisionView> {
+  const out = await apiPost<{ provision: SiteProvisionView }>('/api/site-account/provision');
+  return out.provision;
 }
 
 /** 组件里读站点账号。第一次用到它的人顺手把数据拉回来（全站只会拉一趟）。 */

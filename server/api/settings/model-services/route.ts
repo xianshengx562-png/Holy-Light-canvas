@@ -81,13 +81,24 @@ export async function GET() {
       if (!group) continue;
       const rows = keys.filter(item => item.provider === meta.id);
       const envBaseUrl = (meta.baseUrlEnvName ? process.env[meta.baseUrlEnvName]?.trim() : '') || '';
+      /*
+       * 模型直调那一栏的**兜底地址要显示出来**（2026-10-12）。
+       *
+       * 它的地址不是「站长在 .env 里配的」，而是**固定跟着国内站走**（`RUNNINGHUB_SITES.cn`）——
+       * 桌面版没有 .env，于是这一格一直是空的，placeholder 只剩一个 `https://…`：
+       * 用户看着像「必填且我不知道填什么」，而实际上**留空才是对的**（服务端会兜到国内站）。
+       * 把兜底值给出来，界面就能显示成「留空 = 国内站」。
+       * 🔴 兜底值只认 `RUNNINGHUB_SITES` 这一处，别在页面里再写一份地址 ——
+       *    写两份必然出现「界面显示 A、实际调 B」。
+       */
+      const fallbackBaseUrl = meta.id === 'runninghub-enterprise' ? RUNNINGHUB_SITES.cn.defaultBaseUrl : '';
       media[group].push({
         id: meta.id,
         label: meta.label,
         summary: meta.summary,
         group,
         envKeyName: meta.envKeyName,
-        defaultBaseUrl: envBaseUrl,
+        defaultBaseUrl: envBaseUrl || fallbackBaseUrl,
         /** 配没配：池子里有启用的 key，或者环境变量里有（与文本厂商同一口径）。 */
         configured: rows.some(item => item.enabled) || Boolean(process.env[meta.envKeyName]?.trim()),
         keys: rows.map(item => ({

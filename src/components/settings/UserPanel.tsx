@@ -23,7 +23,8 @@ import { apiDelete, apiPost, useApi, type SessionUser } from '@/lib/client';
 import { clearSessionToken, setSessionToken } from '@/lib/session-token';
 import { isDesktop } from '@/lib/edition';
 import {
-  applySiteAccount, formatYuan, siteAccountLabel, useSiteAccount,
+  applySiteAccount, provisionSiteAccount, registerSiteAccount, sendSiteEmailCode,
+  siteAccountLabel, useSiteAccount,
   type SiteAccountView,
 } from '@/lib/site-account';
 import './user.css';
@@ -98,6 +99,18 @@ export default function UserPanel() {
   const [siteUrl, setSiteUrl] = useState(DEFAULT_SITE);
   const [siteUser, setSiteUser] = useState('');
   const [sitePass, setSitePass] = useState('');
+  /*
+   * 应用内注册（2026-10-12）。
+   *
+   * 站点开了 `email_verification`，所以注册要走两步：先让站点发一封带验证码的邮件，
+   * 用户把邮件里的码填回来，再提交。**这是唯一需要离开应用的一步**（去邮箱拿码），
+   * 任何开了邮箱验证的站点都躲不掉 —— 剩下的（建令牌、按用途建接口）全在应用里完成。
+   */
+  const [siteMode, setSiteMode] = useState<'login' | 'register'>('login');
+  const [siteEmail, setSiteEmail] = useState('');
+  const [siteCode, setSiteCode] = useState('');
+  /** 验证码发出去过没有。只是决定界面上那句话怎么说，**不代表邮件真的到了**。 */
+  const [codeSent, setCodeSent] = useState(false);
   /* 换文件时先把 value 清空 —— 不然「选同一张图第二次」不会再触发 change。 */
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -233,6 +246,103 @@ export default function UserPanel() {
     }
   }
 
+  /**
+   * 老账号补一次自动开通（建令牌 + 按用途建接口）。幂等，重复点不会堆令牌。
+   *
+   * 为什么登录态下还要留这个按钮：注册那条路会自动跑一遍，但**登录进来的账号**从没开通过，
+   * 而开通挂在半路（比如探模型清单超时）也只留下了一半 —— 两种都得有重试的地方。
+   */
+  async function siteProvision() {
+    if (siteBusy) return;
+    setSiteBusy(true);
+    setSiteNote(null);
+    try {
+      const out = await provisionSiteAccount();
+      if (!out.created.length) {
+        setSiteNote({
+          kind: 'ok',
+          text: `没新建接口${out.skipped.length ? `（${out.skipped.map((item) => `${item.kind}：${item.why}`).join('；')}）` : ''} —— 之前就建过了。`,
+        });
+        return;
+      }
+      setSiteNote({
+        kind: 'ok',
+        text: `开好了：${out.created.map((item) => `${item.name}（${item.models} 个模型）`).join('、')}。`,
+      });
+    } catch (error) {
+      setSiteNote({ kind: 'err', text: error instanceof Error ? error.message : '自动开通没跑完。' });
+    } finally {
+      setSiteBusy(false);
+    }
+  }
+
+  /**
+   * 让站点发一封带验证码的邮件。
+   *
+   * ⚠️ 站点对**不存在的邮箱也回成功**，所以这句提示不能写成「已发送」——
+   *    写成「邮箱没问题的话，验证码已经在路上了」，用户收不到时才知道该去查邮箱有没有写错。
+   */
+  async function siteSendCode() {
+    if (siteBusy) return;
+    setSiteBusy(true);
+    setSiteNote(null);
+    try {
+      const out = await sendSiteEmailCode(siteUrl, siteEmail);
+      if (!out.sent) {
+        setSiteNote({ kind: 'err', text: out.error || '验证码没发出去。' });
+        return;
+      }
+      setCodeSent(true);
+      setSiteNote({
+        kind: 'ok',
+        text: '站点已经受理 —— 邮箱没写错的话，验证码应该已经在路上了（收不到就去垃圾邮件里翻一下）。',
+      });
+    } catch (error) {
+      setSiteNote({ kind: 'err', text: error instanceof Error ? error.message : '验证码没发出去。' });
+    } finally {
+      setSiteBusy(false);
+    }
+  }
+
+  /**
+   * 注册 → 登录 → 自动建令牌 → 按用途建成接口。
+   *
+   * 🔴 开通失败**不算注册失败**：账号已经建出来了，提示里要把这件事说清楚 ——
+   *    否则用户会以为没注册成功、再去注册一次，站点上就多一个同名账号。
+   */
+  async function siteRegister() {
+    if (siteBusy) return;
+    setSiteBusy(true);
+    setSiteNote(null);
+    try {
+      const out = await registerSiteAccount({
+        baseUrl: siteUrl, username: siteUser, password: sitePass, email: siteEmail, code: siteCode,
+      });
+      if (out.site) applySiteAccount(out.site);
+      setSitePass('');
+      setSiteCode('');
+      setSiteMode('login');
+      if (out.provisionError) {
+        setSiteNote({
+          kind: 'ok',
+          text: `账号建好了，也登上了 —— 但自动开通没跑完：${out.provisionError}（在本页点「自动开通」可以再试）。`,
+        });
+        return;
+      }
+      const made = out.provision?.created ?? [];
+      setSiteNote({
+        kind: 'ok',
+        text: made.length
+          ? `注册好了，也开好了：${made.map((item) => `${item.name}（${item.models} 个模型）`).join('、')}。`
+          : '注册好了，也登上了 —— 接口之前就建过了，没重复建。',
+      });
+    } catch (error) {
+      setSiteNote({ kind: 'err', text: error instanceof Error ? error.message : '注册站点账号失败。' });
+    } finally {
+      setSiteBusy(false);
+    }
+  }
+
   /** 换一个网站账号：整行删掉（连密码一起），回到登录表单。 */
   async function siteSwitch() {
     if (siteBusy) return;
@@ -244,6 +354,8 @@ export default function UserPanel() {
       setSiteUrl(site?.baseUrl || DEFAULT_SITE);
       setSiteUser(site?.loginName || '');
       setSitePass('');
+      setSiteMode('login');
+      setCodeSent(false);
       setSiteNote({ kind: 'ok', text: '已退出网站账号 —— 换一个登录。' });
     } catch (error) {
       setSiteNote({ kind: 'err', text: error instanceof Error ? error.message : '退不出来，稍后再试。' });
@@ -373,10 +485,9 @@ export default function UserPanel() {
                         <span>分组</span>
                         <strong>{site.group || '—'}</strong>
                       </div>
-                      <div className="user-stat">
-                        <span>余额</span>
-                        <strong>{formatYuan(site.remainingYuan)}</strong>
-                      </div>
+                      {/* 🔴 2026-10-13 徐先：「还是不要显示余额了」→ 这一格删了。
+                          别顺手把「分组」和「站点密钥」也删 —— 那两格是判断「登的这个账号对不对」
+                          和「有几把令牌」用的，不涉及钱。 */}
                       <div className="user-stat">
                         <span>站点密钥</span>
                         <strong>{site.tokens.length} 把</strong>
@@ -392,6 +503,15 @@ export default function UserPanel() {
                       onClick={siteSwitch}
                     >
                       {siteBusy ? '正在退出…' : '换账号'}
+                    </button>
+                    <button
+                      className="button secondary"
+                      type="button"
+                      data-user-site-provision
+                      disabled={siteBusy}
+                      onClick={siteProvision}
+                    >
+                      {siteBusy ? '开通中…' : '自动开通（建令牌 · 分组）'}
                     </button>
                     <a className="button secondary" href="#/settings/model-services" data-user-site-manage>
                       去模型服务页管密钥
@@ -430,19 +550,88 @@ export default function UserPanel() {
                         />
                       </label>
                     </div>
-                    <button
-                      className="button"
-                      type="button"
-                      data-user-site-login
-                      disabled={siteBusy || !siteUser.trim() || !sitePass}
-                      onClick={siteLogin}
-                    >
-                      {siteBusy ? '登录中…' : '登录'}
-                    </button>
+                    {siteMode === 'register' ? (
+                      <>
+                        <div className="user-form-row">
+                          <label className="user-field">
+                            <span className="user-label">邮箱</span>
+                            <input
+                              value={siteEmail}
+                              data-user-site-email
+                              type="email"
+                              autoComplete="email"
+                              onChange={e => { setSiteEmail(e.target.value); setSiteNote(null); }}
+                            />
+                          </label>
+                          <label className="user-field">
+                            <span className="user-label">邮箱里的验证码</span>
+                            <input
+                              value={siteCode}
+                              data-user-site-code
+                              inputMode="numeric"
+                              onChange={e => { setSiteCode(e.target.value); setSiteNote(null); }}
+                            />
+                          </label>
+                        </div>
+                        <div className="user-form-row">
+                          <button
+                            className="button secondary"
+                            type="button"
+                            data-user-site-send-code
+                            disabled={siteBusy || !siteEmail.trim()}
+                            onClick={siteSendCode}
+                          >
+                            {siteBusy ? '发送中…' : codeSent ? '重发一次验证码' : '发验证码到邮箱'}
+                          </button>
+                          <button
+                            className="button"
+                            type="button"
+                            data-user-site-register
+                            disabled={
+                              siteBusy || !siteUser.trim() || !sitePass
+                              || !siteEmail.trim() || !siteCode.trim()
+                            }
+                            onClick={siteRegister}
+                          >
+                            {siteBusy ? '注册中…' : '注册并自动开通'}
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <button
+                        className="button"
+                        type="button"
+                        data-user-site-login
+                        disabled={siteBusy || !siteUser.trim() || !sitePass}
+                        onClick={siteLogin}
+                      >
+                        {siteBusy ? '登录中…' : '登录'}
+                      </button>
+                    )}
                   </div>
-                  <p className="user-hint">
-                    密码只用来换调用令牌，加密存在本机；站点地址默认 {DEFAULT_SITE}，手填别的站也行。
-                  </p>
+                  {siteMode === 'register' ? (
+                    <p className="user-hint">
+                      这个站点开了邮箱验证，所以只有一步要离开应用：填邮箱 → 点「发验证码」→
+                      去邮箱把码抄回来。注册完应用会自己建一把令牌，并按<strong>出图 / 文本</strong>
+                      分成两条接口，不用再去网页端建密钥。
+                    </p>
+                  ) : (
+                    <p className="user-hint">
+                      密码只用来换调用令牌，加密存在本机；站点地址默认 {DEFAULT_SITE}，手填别的站也行。
+                    </p>
+                  )}
+                  <button
+                    className="subtle"
+                    type="button"
+                    data-user-site-mode
+                    disabled={siteBusy}
+                    onClick={() => {
+                      setSiteMode(siteMode === 'login' ? 'register' : 'login');
+                      setSiteNote(null);
+                    }}
+                  >
+                    {siteMode === 'login' ? '还没有账号？在应用里注册一个' : '已经有账号了，回到登录'}
+                  </button>
                 </>
               )
             ) : session?.hasSession ? (

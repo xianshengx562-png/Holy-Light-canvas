@@ -18,7 +18,11 @@ import { runningHubSiteHost } from './urls';
  */
 const DEFAULT_BASE_URL = process.env.RUNNINGHUB_API_BASE_URL || RUNNINGHUB_SITES.cn.defaultBaseUrl;
 
-function endpoint(baseUrl?: string) {
+/**
+ * 打哪个地址。导出给 `./model.ts`（模型 API）用 —— 两家共用同一个 `/openapi/v2` 前缀，
+ * 各拼一份的话「换站」这件事就得改两处，而漏改那一处的症状是 401 或者「模型不存在」。
+ */
+export function endpoint(baseUrl?: string) {
   return baseUrl?.trim().replace(/\/+$/, '') || DEFAULT_BASE_URL;
 }
 

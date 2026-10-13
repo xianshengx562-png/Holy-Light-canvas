@@ -1,0 +1,764 @@
+/* ==========================================================================
+   Holy Light画布 · 手机端
+   2026-10-13 重排：统一成一个「层次 + 渐变 + 圆角」的深色体系，对齐豆包的观感。
+   层次：底色 --bg → 卡片 --card → 输入框 --sunken → 描边 --line
+   ========================================================================== */
+
+:root {
+  --bg: #0b0d12;
+  --card: #14171f;
+  --sunken: #191d26;
+  --line: #232937;
+  --text: #eef1f6;
+  --muted: #8b94a7;
+  --muted-dim: #67708a;
+
+  --accent: #5b8cff;
+  --accent-grad: linear-gradient(135deg, #5b8cff 0%, #9d7bff 100%);
+  --accent-soft: rgba(91, 140, 255, 0.14);
+  --accent-ink: #ffffff;
+
+  --ok: #45d483;
+  --danger: #ff6b6b;
+
+  --r-lg: 20px;
+  --r-md: 16px;
+  --r-sm: 12px;
+
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+  overscroll-behavior-y: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  height: 100%;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  /* 顶上一层很轻的渐变 —— 纯黑太死 */
+  background:
+    radial-gradient(120% 60% at 50% 0%, rgba(91, 140, 255, 0.07) 0%, transparent 60%),
+    var(--bg);
+}
+
+/* ---------- 顶栏 ---------- */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: calc(var(--safe-top) + 10px) 14px 10px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(11, 13, 18, 0.86);
+  backdrop-filter: blur(12px);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.brand-mark {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border-radius: 9px;
+  background: var(--accent-grad);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 800;
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(91, 140, 255, 0.35);
+}
+
+.brand-text {
+  min-width: 0;
+}
+
+.brand-title {
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.brand-sub {
+  font-size: 11px;
+  color: var(--muted-dim);
+  line-height: 1.2;
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.topbar .spacer {
+  flex: 1;
+}
+
+.iconbtn {
+  background: var(--card);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 7px 13px;
+  font-size: 13px;
+  min-height: 34px;
+  transition: transform 0.08s ease, background 0.15s ease;
+}
+
+.iconbtn:active {
+  transform: scale(0.96);
+  background: var(--sunken);
+}
+
+/* ---------- 主体 ---------- */
+.main {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 16px 14px calc(var(--safe-bottom) + 24px);
+}
+
+/* ---------- 卡片分区（设置 / 登录） ---------- */
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 14px;
+  margin-bottom: 14px;
+}
+
+.card-title {
+  font-size: 11.5px;
+  letter-spacing: 0.08em;
+  color: var(--muted-dim);
+  text-transform: uppercase;
+  margin-bottom: 12px;
+}
+
+/* ---------- 表单 ---------- */
+.field {
+  margin-bottom: 14px;
+}
+
+.field > label {
+  display: block;
+  font-size: 12.5px;
+  color: var(--muted);
+  margin-bottom: 7px;
+}
+
+input[type='text'],
+input[type='password'],
+input[type='email'],
+input[type='url'],
+select,
+textarea {
+  width: 100%;
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: var(--r-sm);
+  padding: 12px 13px;
+  font-size: 15.5px;
+  font-family: inherit;
+  appearance: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+select {
+  appearance: auto;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted-dim);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.btn {
+  width: 100%;
+  border: none;
+  border-radius: 14px;
+  padding: 14px 16px;
+  font-size: 15.5px;
+  font-weight: 650;
+  background: var(--accent-grad);
+  color: var(--accent-ink);
+  min-height: 48px;
+  box-shadow: 0 4px 16px rgba(91, 140, 255, 0.22);
+  transition: transform 0.08s ease;
+}
+
+.btn:active {
+  transform: scale(0.985);
+}
+
+.btn:disabled {
+  background: var(--sunken);
+  color: var(--muted-dim);
+  box-shadow: none;
+}
+
+.btn.ghost {
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--line);
+  box-shadow: none;
+}
+
+.btnrow {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.btnrow .btn {
+  flex: 1;
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--muted-dim);
+  margin-top: 6px;
+  line-height: 1.6;
+}
+
+/* ---------- 提示条 ---------- */
+.notice {
+  border-radius: var(--r-sm);
+  padding: 11px 13px;
+  font-size: 13px;
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  background: var(--sunken);
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
+
+.notice.ok {
+  border-color: rgba(69, 212, 131, 0.35);
+  background: rgba(69, 212, 131, 0.08);
+  color: var(--ok);
+}
+
+.notice.err {
+  border-color: rgba(255, 107, 107, 0.35);
+  background: rgba(255, 107, 107, 0.08);
+  color: #ff9b9b;
+}
+
+.empty {
+  color: var(--muted);
+  text-align: center;
+  padding: 40px 0;
+  font-size: 14px;
+}
+
+.generating {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 48px 0;
+  color: var(--muted);
+}
+
+.spinner {
+  width: 30px;
+  height: 30px;
+  border: 2.5px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.85s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ==========================================================================
+   聊天
+   ========================================================================== */
+
+.chat-list {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 16px 14px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ---------- 空状态（照豆包：大字 + 一排示例） ---------- */
+.chat-empty {
+  margin: auto;
+  text-align: center;
+  padding: 0 6px;
+}
+
+.chat-empty-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  background: var(--card);
+  border-radius: 999px;
+  padding: 5px 12px;
+  margin-bottom: 16px;
+}
+
+.chat-empty-title {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+  background: linear-gradient(120deg, #dfe6ff 0%, #b9a6ff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 8px;
+}
+
+.chat-empty-sub {
+  font-size: 13px;
+  color: var(--muted-dim);
+  line-height: 1.7;
+  margin-bottom: 20px;
+}
+
+.example-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.example-chip {
+  background: var(--card);
+  border: 1px solid var(--line);
+  color: #c9d2e6;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 13px;
+  text-align: left;
+  transition: transform 0.08s ease, border-color 0.15s ease;
+}
+
+.example-chip:active {
+  transform: scale(0.96);
+  border-color: var(--accent);
+}
+
+/* ---------- 气泡 ---------- */
+.row-user {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.row-assistant {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.bubble-user {
+  max-width: 84%;
+  background: var(--accent-grad);
+  color: #fff;
+  border-radius: 18px 18px 6px 18px;
+  padding: 10px 14px;
+  font-size: 15.5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  box-shadow: 0 4px 14px rgba(91, 140, 255, 0.18);
+}
+
+.bubble-assistant {
+  max-width: 92%;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 18px 18px 18px 6px;
+  padding: 8px;
+  font-size: 14px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+}
+
+.bubble-error {
+  color: #ff9b9b;
+  border-color: rgba(255, 107, 107, 0.35);
+  background: rgba(255, 107, 107, 0.07);
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+  padding: 12px 14px;
+  border-radius: 18px 18px 18px 6px;
+}
+
+/* ---------- 图片：加载前用骨架撑住位置，加载完渐显 ---------- */
+.img-box {
+  width: 100%;
+  min-height: 120px;
+  border-radius: 14px;
+  background: linear-gradient(100deg, var(--sunken) 20%, #212634 40%, var(--sunken) 60%);
+  background-size: 220% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 120% 0;
+  }
+  100% {
+    background-position: -20% 0;
+  }
+}
+
+.msg-img {
+  width: 100%;
+  display: block;
+  border-radius: 14px;
+  background: var(--sunken);
+  opacity: 0;
+  transform: scale(0.985);
+  transition: opacity 0.35s ease, transform 0.35s ease;
+}
+
+.msg-img.loaded {
+  opacity: 1;
+  transform: none;
+}
+
+.msg-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 0 2px 2px;
+}
+
+.chip {
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  color: #d3daeb;
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 12.5px;
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: transform 0.08s ease, border-color 0.15s ease;
+}
+
+.chip:active {
+  transform: scale(0.96);
+  border-color: var(--accent);
+}
+
+.chip:disabled {
+  opacity: 0.45;
+}
+
+.msg-note {
+  font-size: 12px;
+  color: var(--muted);
+  width: 100%;
+  padding-left: 2px;
+}
+
+/* ---------- 生成中 ---------- */
+.typing {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 6px;
+}
+
+.typing .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: breathe 1.2s infinite ease-in-out;
+}
+
+.typing .dot:nth-child(2) {
+  animation-delay: 0.18s;
+}
+
+.typing .dot:nth-child(3) {
+  animation-delay: 0.36s;
+}
+
+@keyframes breathe {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+.typing-text {
+  margin-left: 8px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+/* ---------- 未配置令牌的横幅 ---------- */
+.chat-setup {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 12px 8px;
+  padding: 11px 13px;
+  border: 1px solid rgba(255, 176, 32, 0.32);
+  border-radius: var(--r-sm);
+  background: rgba(255, 176, 32, 0.08);
+  font-size: 12.5px;
+  color: #ffd58a;
+}
+
+.inline-actions {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.chat-setup .chip {
+  color: #ffd58a;
+  border-color: rgba(255, 176, 32, 0.35);
+  background: rgba(255, 176, 32, 0.06);
+  padding: 6px 12px;
+  min-height: 30px;
+}
+
+/* ---------- 输入区 ---------- */
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 9px;
+  padding: 10px 12px calc(var(--safe-bottom) + 8px);
+  border-top: 1px solid var(--line);
+  background: rgba(11, 13, 18, 0.9);
+  backdrop-filter: blur(12px);
+}
+
+.composer-input {
+  flex: 1;
+  resize: none;
+  min-height: 44px;
+  max-height: 130px;
+  border-radius: 22px;
+  padding: 11px 16px;
+  line-height: 1.45;
+  background: var(--sunken);
+}
+
+.send-btn {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  border: none;
+  border-radius: 50%;
+  background: var(--sunken);
+  color: var(--muted-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.08s ease, background 0.2s ease;
+}
+
+.send-btn.on {
+  background: var(--accent-grad);
+  color: #fff;
+  box-shadow: 0 3px 12px rgba(91, 140, 255, 0.32);
+}
+
+.send-btn:active {
+  transform: scale(0.94);
+}
+
+.composer-hint {
+  padding: 0 14px calc(var(--safe-bottom) + 6px);
+  font-size: 11px;
+  color: var(--muted-dim);
+  background: var(--bg);
+  text-align: center;
+}
+
+.linklike {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 11px;
+  padding: 0 4px;
+}
+
+/* ==========================================================================
+   账号 / 登录注册
+   ========================================================================== */
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 18px;
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 4px;
+}
+
+.tab {
+  flex: 1;
+  min-height: 38px;
+  border-radius: 9px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 550;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+
+.tab.on {
+  background: var(--card);
+  color: var(--text);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.3);
+}
+
+.auth-head {
+  text-align: center;
+  margin-bottom: 18px;
+}
+
+.auth-title {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.auth-sub {
+  font-size: 12.5px;
+  color: var(--muted-dim);
+}
+
+.static-field {
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 12px 13px;
+  font-size: 13.5px;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+.inline-field {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.inline-field input {
+  flex: 1;
+}
+
+.inline-field .chip {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  min-height: 40px;
+}
+
+.account-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+.account-avatar {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  border-radius: 12px;
+  background: var(--accent-grad);
+  color: #fff;
+  font-weight: 700;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.account-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.account-name {
+  font-size: 14.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

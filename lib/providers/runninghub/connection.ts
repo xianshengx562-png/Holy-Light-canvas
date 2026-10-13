@@ -147,6 +147,47 @@ export async function resolveRunningHub(userId: string, site?: RunningHubSite): 
 }
 
 /**
+ * **标准模型 API** 那一把凭据（`runninghub-enterprise`，2026-10-11 徐先）。
+ *
+ * 🔴 与上面那两把**分开取**，理由是硬性的：模型 API 只认**企业级-共享 Key**
+ * （消费级那把打过去是 `1014 Access Denied`），而工作流 API 两把都能用。
+ * 所以**绝不能**拿 `resolveRunningHub()` 的结果去调模型 ——
+ * 那会造成「工作流跑得好好的、模型一律 1014」，而界面上两句报错说的还不是同一件事。
+ *
+ * 走**密钥池**（`runninghub-enterprise`）而不是历史连接表：它可以有多把、能轮询、
+ * 而且提交失败时能回写健康状态（`markKeyOutcome`）—— 这几件事单把的历史表都做不到。
+ * 徐先的口径是「企业级 key 和消费级分开配置」，池子里独立一家正对应这句话。
+ */
+export type RhModelCredentials = {
+  apiKey: string;
+  baseUrl: string;
+  /** 用了池子里哪一把。走环境变量兜底时是 `null`，流水不该记到某把 key 名下。 */
+  keyId: string | null;
+  source: 'user' | 'env';
+};
+
+export async function resolveRhModelCredentials(userId: string): Promise<RhModelCredentials | null> {
+  const picked = await pickKey(userId, 'runninghub-enterprise');
+  if (picked) {
+    return {
+      apiKey: picked.apiKey,
+      baseUrl: picked.baseUrl || envBaseUrl('cn'),
+      keyId: picked.id,
+      source: 'user',
+    };
+  }
+  const fallback = process.env.RUNNINGHUB_ENTERPRISE_API_KEY?.trim();
+  /** 站点兜底默认关，理由见 `sharedKeyAllowed()` —— 与企业站的口径一致。 */
+  if (!fallback || !sharedKeyAllowed()) return null;
+  return { apiKey: fallback, baseUrl: envBaseUrl('cn'), keyId: null, source: 'env' };
+}
+
+/** 没配企业级 Key 时给用户的人话 —— **必须说清「不是工作流那把」**，否则他会以为自己填过了。 */
+export function rhModelKeyMissingMessage() {
+  return '还没有可用的 RunningHub **企业级** API Key：模型直调只认企业级-共享 Key（消费级-会员那把会被上游拒，错误码 1014）。请到「设置 · 密钥中心」给「RunningHub 模型直调」这一家单独添一把。';
+}
+
+/**
  * 只要 Key（不带地址）的旧签名。**保留它是为了不动已有的四处调用点**，
  * 但它们必须尽快换成 `resolveRunningHub` —— 只拿 Key 不拿地址，等于默认打国内站，
  * 海外站的账号会拿到一个「工作流不存在」的假象。

@@ -17,6 +17,7 @@ import { defaultWorkflowIdFor } from '@/lib/workflows/defaults';
 import { DEFAULT_IMAGE_ENGINE } from '@/lib/workflows/imageEngine';
 import { IMAGE2_DEFAULTS } from '@/lib/workflows/image2Params';
 import { VIDEO_API_DEFAULTS } from '@/lib/workflows/videoApiParams';
+import { RH_MODEL_DEFAULTS } from '@/lib/workflows/rhModelParams';
 import { DEFAULT_VIDEO_ENGINE } from '@/lib/workflows/videoEngine';
 import { ASPECT_RATIOS, DEFAULT_RATIO, defaultImageRatioForEngine, IMAGE_DEFAULTS } from '@/lib/workflows/imageParams';
 import { initialDirectorScene } from '@/lib/director';
@@ -658,6 +659,13 @@ export function newNodeData(kind: NodeKind): NodeData {
     engine: DEFAULT_VIDEO_ENGINE,
     videoApiModel: '', videoApiDuration: String(VIDEO_API_DEFAULTS.duration),
     videoApiResolution: VIDEO_API_DEFAULTS.resolution, videoApiRatio: VIDEO_API_DEFAULTS.ratio,
+    /*
+     * 模型直调那四个：**模型要给默认值**（这一档没有「留空用 .env 那个」的兜底，
+     * 空着提交会被服务端拦下）。默认给清单里第一档 —— 它是能力最全的那一档，
+     * 不带素材时就是文生视频，所以「新建就跑」不会撞墙。
+     */
+    rhModel: RH_MODEL_DEFAULTS.model, rhModelDuration: String(RH_MODEL_DEFAULTS.duration),
+    rhModelResolution: RH_MODEL_DEFAULTS.resolution, rhModelRatio: RH_MODEL_DEFAULTS.ratio,
   };
 }
 
@@ -1325,6 +1333,16 @@ export {
   VIDEO_API_DEFAULTS, VIDEO_API_RATIOS, VIDEO_API_RESOLUTIONS, readVideoApiParams, validateVideoApiParams,
 } from '@/lib/workflows/videoApiParams';
 export type { VideoApiParamValues, VideoApiRequest } from '@/lib/workflows/videoApiParams';
+/*
+ * RunningHub 标准模型 API（2026-10-11）。同样是「值域只有一份定义」那条规矩：
+ * 参数条渲染下拉、提交前自查、服务端校验，三处必须同一份，
+ * 否则会出现「下拉里选得到、提交却被服务端拒」。
+ */
+export {
+  DEFAULT_RH_MODEL, RH_MODELS, RH_MODEL_DEFAULTS, RH_MODEL_RATIOS, RH_MODEL_RESOLUTIONS,
+  readRhModelParams, rhModelSpecOf, rhModelTakesMedia, validateRhModelParams,
+} from '@/lib/workflows/rhModelParams';
+export type { RhModelParamValues, RhModelRequest, RhModelSpec } from '@/lib/workflows/rhModelParams';
 export {
   DEFAULT_INSTANCE_TYPE, INSTANCE_TYPE_OPTIONS, RUNNINGHUB_INSTANCE_TYPES, instanceTypeHint,
   instanceTypeLabel, isDefaultInstanceType, isInstanceType, readInstanceType,
